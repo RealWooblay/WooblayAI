@@ -211,6 +211,38 @@ function MissionCard({
   );
 }
 
+// ── Mission Card with Data Fetching ─────────────────────────────────────────
+// Each card owns its own useQuery — safe because the component is keyed by inst.id
+
+function MissionCardWithData({
+  instance,
+  pendingApproval,
+  onApprove,
+  approving,
+}: {
+  instance: Instance;
+  pendingApproval: any;
+  onApprove: (id: string) => void;
+  approving: boolean;
+}) {
+  const { data: mission } = useQuery({
+    queryKey: ['mission', instance.id],
+    queryFn: () => getMission(instance.id),
+    refetchInterval: 8_000,
+    enabled: instance.status === 'running',
+  });
+
+  return (
+    <MissionCard
+      instance={instance}
+      mission={mission}
+      pendingApproval={pendingApproval}
+      onApprove={onApprove}
+      approving={approving}
+    />
+  );
+}
+
 // ── Main CommandCenter ───────────────────────────────────────────────────────
 
 export function CommandCenter() {
@@ -230,23 +262,8 @@ export function CommandCenter() {
     refetchInterval: 5_000,
   });
 
-  // Fetch mission data for each running instance
   const running = (instances ?? []).filter((i) => i.status === 'running');
   const stopped = (instances ?? []).filter((i) => i.status !== 'running');
-
-  // Batch mission queries
-  const missionQueries = running.map((inst) => ({
-    queryKey: ['mission', inst.id],
-    queryFn: () => getMission(inst.id),
-    refetchInterval: 8_000,
-    enabled: inst.status === 'running',
-  }));
-
-  // Use individual queries for each instance
-  const missionResults = missionQueries.map((q) =>
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useQuery(q),
-  );
 
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -333,11 +350,10 @@ export function CommandCenter() {
 
         {/* ── Mission Cards (Running Instances) */}
         <div className="space-y-3">
-          {running.map((inst, idx) => (
-            <MissionCard
+          {running.map((inst) => (
+            <MissionCardWithData
               key={inst.id}
               instance={inst}
-              mission={missionResults[idx]?.data}
               pendingApproval={pending[0]}
               onApprove={(id) => approveMut.mutate(id)}
               approving={approveMut.isPending}

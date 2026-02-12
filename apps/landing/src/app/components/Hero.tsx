@@ -27,28 +27,49 @@ export function Hero() {
         </svg>
       </div>
 
-      <div className="relative text-center px-6">
+      <div className="relative text-center px-6 max-w-4xl mx-auto">
         <FadeIn>
-          <h1 className="font-display text-[clamp(3.5rem,9vw,7.5rem)] font-bold tracking-[-0.045em] leading-[0.88]">
-            <span className="text-gradient">Reversible autonomy</span>
+          <p className="text-accent/80 text-[13px] font-mono tracking-widest uppercase mb-6">
+            Agent governance platform
+          </p>
+        </FadeIn>
+
+        <FadeIn delay={0.04}>
+          <h1 className="font-display text-[clamp(2.8rem,7vw,5.5rem)] font-bold tracking-[-0.04em] leading-[0.92]">
+            <span className="text-gradient">AI agents act.</span>
             <br />
-            <span className="text-white/20">for AI&nbsp;agents.</span>
+            <span className="text-white/20">You should decide.</span>
           </h1>
         </FadeIn>
 
         <FadeIn delay={0.08}>
-          <p className="mt-6 text-white/45 text-lg tracking-wide">
-            Approve. Audit. Rewind.
+          <p className="mt-7 text-white/50 text-[17px] sm:text-[19px] leading-relaxed max-w-2xl mx-auto">
+            Wooblay intercepts every agent action before it happens.
+            Approve what&apos;s safe. Block what&apos;s not.
+            Every decision cryptographically signed.
           </p>
         </FadeIn>
 
         <FadeIn delay={0.12}>
-          <div className="mt-7 flex justify-center">
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
-              href="#request-access"
-              className="px-6 py-2.5 rounded-md bg-accent text-surface-0 font-semibold text-[14px] hover:bg-accent/90 transition-colors"
+              href="https://x.com/RealWooblay"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-6 py-3 rounded-md bg-accent text-surface-0 font-semibold text-[14px] hover:bg-accent/90 transition-colors flex items-center gap-2"
             >
-              Request access
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              Follow our journey
+            </a>
+            <a
+              href="https://wooblay.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-6 py-3 rounded-md bg-white/[0.06] border border-white/[0.1] text-white/70 font-medium text-[14px] hover:bg-white/[0.1] hover:text-white/90 transition-colors"
+            >
+              Open dashboard
             </a>
           </div>
         </FadeIn>
