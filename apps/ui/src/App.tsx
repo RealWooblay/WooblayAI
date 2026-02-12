@@ -50,14 +50,14 @@ function ClerkApp() {
   if (!isSignedIn) {
     return (
       <Routes>
-        <Route path="/sign-up/*" element={
+        <Route path="/sign-up" element={
           <AuthPage>
-            <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" />
+            <SignUp />
           </AuthPage>
         } />
         <Route path="*" element={
           <AuthPage>
-            <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />
+            <SignIn />
           </AuthPage>
         } />
       </Routes>
