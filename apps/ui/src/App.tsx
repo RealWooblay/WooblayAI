@@ -153,8 +153,10 @@ function AuthPage({ children }: { children: React.ReactNode }) {
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full overflow-y-auto p-6 canvas-bg animate-fade-in">
+    <div className="h-full overflow-y-auto p-6 canvas-bg animate-fade-in relative">
       {children}
+      {/* Subtle CRT scanline — applied to every page */}
+      <div className="scanline-overlay pointer-events-none" />
     </div>
   );
 }

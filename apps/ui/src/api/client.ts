@@ -345,10 +345,10 @@ export interface AIPolicyOptimizeResult {
   agentRole: string;
 }
 
-export const optimizePolicies = (autoApply?: boolean, instanceId?: string) =>
+export const optimizePolicies = (autoApply?: boolean, instanceId?: string, prompt?: string) =>
   fetchApi<AIPolicyOptimizeResult>('/api/policies/ai-optimize', {
     method: 'POST',
-    body: JSON.stringify({ autoApply: autoApply ?? false, instanceId }),
+    body: JSON.stringify({ autoApply: autoApply ?? false, instanceId, prompt }),
   });
 
 export const updatePolicy = (id: string, body: Partial<PolicyRule>) =>

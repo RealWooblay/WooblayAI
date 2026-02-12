@@ -19,15 +19,14 @@ import {
   type MissionData,
 } from '../../api/client.ts';
 import { Button } from '../../components/common/Button.tsx';
-import { WeatherBackground, type Weather } from '../../components/weather/WeatherBackground.tsx';
+import { WeatherBackground, trustToWeather, type Weather } from '../../components/weather/WeatherBackground.tsx';
 
 // ── Alive Agent Face ──────────────────────────────────────────────────────────
-// Real blinking, breathing, emotional state
+// Trust-score driven mood with blinking + breathing
 
 function AgentFace({ mission, instance }: { mission?: MissionData; instance: Instance }) {
   const [blink, setBlink] = useState(false);
 
-  // Random blinking every 2-5 seconds
   useEffect(() => {
     const schedule = () => {
       const wait = 2000 + Math.random() * 3000;
@@ -57,46 +56,43 @@ function AgentFace({ mission, instance }: { mission?: MissionData; instance: Ins
     );
   }
 
-  const hasDenied = mission.progress.denied > 2;
-  const hasPending = mission.blockedActions > 0 || mission.progress.pending > 0;
+  const trust = mission.trustScore ?? 50;
+  const hasPending = mission.blockedActions > 0 || (mission.progress?.pending ?? 0) > 0;
   const isWorking = mission.currentStep !== 'Idle' && mission.currentStep !== 'No activity yet';
 
-  const eye = blink ? '-' : 'o';
-  const eyeW = blink ? '-' : '•';
+  let face: string;
+  let color: string;
+  let speed = '4s';
 
-  if (hasDenied) {
-    return (
-      <div className="font-mono text-center">
-        <span className="text-red-400 text-base" style={{ animation: 'breathe 1.5s ease-in-out infinite' }}>
-          ( x_x )
-        </span>
-      </div>
-    );
-  }
   if (hasPending) {
-    return (
-      <div className="font-mono text-center">
-        <span className="text-amber-400 text-base animate-breathe">
-          ( {blink ? '-' : '.'}_. )
-        </span>
-      </div>
-    );
-  }
-  if (isWorking) {
-    return (
-      <div className="font-mono text-center">
-        <span className="text-emerald-400 text-base" style={{ animation: 'breathe 2s ease-in-out infinite' }}>
-          ( {eyeW}_{eyeW})&gt;
-        </span>
-      </div>
-    );
+    face = `( ${blink ? '-' : '?'}_${blink ? '-' : '?'} )`;
+    color = 'text-amber-400';
+    speed = '2.5s';
+  } else if (trust <= 20) {
+    face = `( ${blink ? '-' : 'x'}_${blink ? '-' : 'x'} )`;
+    color = 'text-red-400';
+    speed = '1.5s';
+  } else if (trust <= 40) {
+    face = `( ${blink ? '-' : '.'}_.${blink ? '' : ' '})`;
+    color = 'text-orange-400';
+    speed = '2s';
+  } else if (trust <= 60) {
+    face = isWorking ? `( ${blink ? '-' : 'o'}_${blink ? '-' : 'o'})>` : `( ${blink ? '-' : 'o'}_${blink ? '-' : 'o'} )`;
+    color = isWorking ? 'text-blue-400' : 'text-text-secondary';
+    speed = isWorking ? '2s' : '4s';
+  } else if (trust <= 80) {
+    face = `( ${blink ? '-' : '•'}‿${blink ? '-' : '•'} )`;
+    color = 'text-emerald-400';
+    speed = '3.5s';
+  } else {
+    face = `( ${blink ? '-' : '★'}‿${blink ? '-' : '★'} )`;
+    color = 'text-violet-400';
+    speed = '3s';
   }
 
   return (
-    <div className="font-mono text-center" style={{ animation: 'breathe 4s ease-in-out infinite' }}>
-      <span className="text-text-secondary text-base">
-        ( {eye}_{eye} )
-      </span>
+    <div className="font-mono text-center" style={{ animation: `breathe ${speed} ease-in-out infinite` }}>
+      <span className={`${color} text-base`}>{face}</span>
     </div>
   );
 }
@@ -205,14 +201,23 @@ export function CommandCenter() {
   const isEmpty = !loadingInstances && allInstances.length === 0;
   const hasData = (stats?.totalToolCalls ?? 0) > 0;
 
-  // Derive weather from available data (no hooks-in-loops)
+  // Weather = average trust score of all running agents (derived without per-agent hooks)
+  // Falls back to 50 (cloudy) when no trust data available
   const weather: Weather = useMemo(() => {
     if (running.length === 0) return 'cloudy';
-    if (criticalFlags.length > 0 || (stats?.byDecision?.['DENY'] ?? 0) > 5) return 'storm';
-    if (pending.length > 0 || criticalFlags.length > 0) return 'rain';
-    if ((stats?.byDecision?.['DENY'] ?? 0) === 0 && hasData) return 'sunny';
-    return 'cloudy';
-  }, [running.length, criticalFlags.length, pending.length, stats, hasData]);
+    // Use stats to infer an approximate trust score:
+    // High denials = low trust, no denials = high trust
+    const denials = stats?.byDecision?.['DENY'] ?? 0;
+    const total = stats?.totalToolCalls ?? 1;
+    const denialRate = total > 0 ? denials / total : 0;
+    const hasFlags = criticalFlags.length > 0;
+    // Rough trust estimation from denial rate + flags
+    let avgTrust = 50;
+    if (hasData) {
+      avgTrust = Math.round(Math.max(0, Math.min(100, 80 - denialRate * 200 - (hasFlags ? 20 : 0))));
+    }
+    return trustToWeather(avgTrust);
+  }, [running.length, criticalFlags.length, stats, hasData]);
 
   return (
     <div className="h-full overflow-y-auto p-6 canvas-bg relative">

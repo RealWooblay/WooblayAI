@@ -1,7 +1,8 @@
 /**
  * Instance Detail — Deep dive into a single agent.
  *
- * Contribution tracking hero. Alive character with weather.
+ * Trust-based weather background (storm→rain→cloudy→sunny→rainbow).
+ * Alive ASCII character that reflects mood. Contribution tracking hero.
  * Pie chart for categories. Role management. Network board.
  */
 
@@ -23,7 +24,7 @@ import {
 } from '../../api/client.ts';
 import { Tooltip } from '../../components/common/Tooltip.tsx';
 import { Button } from '../../components/common/Button.tsx';
-import { WeatherBackground } from '../../components/weather/WeatherBackground.tsx';
+import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,6 @@ function PieChart({ breakdown }: { breakdown: Record<string, number> }) {
   const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
   if (sorted.length === 0) return <p className="text-xs text-text-tertiary font-mono">no data yet</p>;
 
-  // Build pie segments using stroke-dasharray
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
   let offset = 0;
@@ -72,7 +72,6 @@ function PieChart({ breakdown }: { breakdown: Record<string, number> }) {
             />
           );
         })}
-        {/* Center text */}
         <text x="50" y="47" textAnchor="middle" className="fill-text-primary text-[14px] font-bold font-mono">{total}</text>
         <text x="50" y="58" textAnchor="middle" className="fill-text-tertiary text-[7px] font-mono">actions</text>
       </svg>
@@ -94,13 +93,11 @@ function Sparkline({ data, color = 'bg-accent' }: { data: number[]; color?: stri
   const max = Math.max(...data, 1);
   return (
     <div className="flex items-end gap-1">
-      {/* Y-axis labels */}
       <div className="flex flex-col justify-between h-12 mr-1 text-[8px] text-text-tertiary font-mono tabular-nums shrink-0 w-5 text-right">
         <span>{max}</span>
         <span>{Math.round(max / 2)}</span>
         <span>0</span>
       </div>
-      {/* Bars */}
       <div className="flex items-end gap-[2px] h-12 flex-1">
         {data.map((v, i) => (
           <Tooltip key={i} content={`${v} actions`}>
@@ -116,6 +113,7 @@ function Sparkline({ data, color = 'bg-accent' }: { data: number[]; color?: stri
 }
 
 // ── Alive Agent Character ─────────────────────────────────────────────────────
+// Mood-based faces driven by trust score, with blinking + breathing
 
 function AgentCharacter({ mission, instance }: { mission?: MissionData; instance: Instance }) {
   const [blink, setBlink] = useState(false);
@@ -137,7 +135,7 @@ function AgentCharacter({ mission, instance }: { mission?: MissionData; instance
   if (instance.status !== 'running') {
     return (
       <div className="font-mono text-center" style={{ animation: 'breathe 6s ease-in-out infinite' }}>
-        <div className="text-zinc-600 text-xl">( -_- ) zzz</div>
+        <div className="text-zinc-600 text-2xl">( -_- ) zzz</div>
         <div className="text-[10px] text-zinc-600 mt-1">offline</div>
       </div>
     );
@@ -145,40 +143,62 @@ function AgentCharacter({ mission, instance }: { mission?: MissionData; instance
   if (!mission) {
     return (
       <div className="font-mono text-center animate-pulse">
-        <div className="text-zinc-500 text-xl">( . . )</div>
+        <div className="text-zinc-500 text-2xl">( . . )</div>
         <div className="text-[10px] text-zinc-500 mt-1">connecting</div>
       </div>
     );
   }
 
-  const eye = blink ? '-' : 'o';
-  const eyeW = blink ? '-' : '•';
-  const hasDenied = mission.progress.denied > 2;
-  const hasPending = mission.blockedActions > 0;
+  const trust = mission.trustScore ?? 50;
   const isWorking = mission.currentStep !== 'Idle' && mission.currentStep !== 'No activity yet';
+  const hasPending = mission.blockedActions > 0;
+  const e = blink ? '-' : 'o';
 
-  if (hasDenied) return (
-    <div className="font-mono text-center">
-      <div className="text-red-400 text-xl" style={{ animation: 'breathe 1.5s ease-in-out infinite' }}>( x_x )</div>
-      <div className="text-[10px] text-red-400 mt-1">{mission.progress.denied} denied</div>
-    </div>
-  );
-  if (hasPending) return (
-    <div className="font-mono text-center">
-      <div className="text-amber-400 text-xl animate-breathe">( {blink ? '-' : '.'}_. )</div>
-      <div className="text-[10px] text-amber-400 mt-1">needs your input</div>
-    </div>
-  );
-  if (isWorking) return (
-    <div className="font-mono text-center" style={{ animation: 'breathe 2s ease-in-out infinite' }}>
-      <div className="text-emerald-400 text-xl">( {eyeW}_{eyeW})&gt;</div>
-      <div className="text-[10px] text-emerald-400 mt-1 truncate max-w-[180px]">{mission.currentStep}</div>
-    </div>
-  );
+  // Trust-based mood with working/pending overrides
+  let face: string;
+  let color: string;
+  let label: string;
+  let breatheSpeed = '4s';
+
+  if (hasPending) {
+    face = `( ${blink ? '-' : '?'}_${blink ? '-' : '?'} )`;
+    color = 'text-amber-400';
+    label = 'needs your input';
+    breatheSpeed = '2.5s';
+  } else if (trust <= 20) {
+    face = `( ${blink ? '-' : 'x'}_${blink ? '-' : 'x'} )`;
+    color = 'text-red-400';
+    label = 'struggling';
+    breatheSpeed = '1.5s';
+  } else if (trust <= 40) {
+    face = `( ${blink ? '-' : '.'}_.${blink ? '' : ' '})`;
+    color = 'text-orange-400';
+    label = 'concerned';
+    breatheSpeed = '2s';
+  } else if (trust <= 60) {
+    face = isWorking ? `( ${blink ? '-' : e}_${blink ? '-' : e})>` : `( ${e}_${e} )`;
+    color = isWorking ? 'text-blue-400' : 'text-text-secondary';
+    label = isWorking ? mission.currentStep : 'standing by';
+    breatheSpeed = isWorking ? '2s' : '4s';
+  } else if (trust <= 80) {
+    face = isWorking ? `( ${blink ? '-' : '•'}_${blink ? '-' : '•'})>` : `( ${blink ? '-' : '•'}‿${blink ? '-' : '•'} )`;
+    color = 'text-emerald-400';
+    label = isWorking ? mission.currentStep : 'happy';
+    breatheSpeed = isWorking ? '2s' : '3.5s';
+  } else {
+    face = isWorking ? `( ${blink ? '-' : '★'}‿${blink ? '-' : '★'})>` : `( ${blink ? '-' : '★'}‿${blink ? '-' : '★'} )`;
+    color = 'text-violet-400';
+    label = isWorking ? mission.currentStep : 'thriving';
+    breatheSpeed = '3s';
+  }
+
   return (
-    <div className="font-mono text-center" style={{ animation: 'breathe 4s ease-in-out infinite' }}>
-      <div className="text-text-secondary text-xl">( {eye}_{eye} )</div>
-      <div className="text-[10px] text-text-tertiary mt-1">standing by <span className="animate-blink">_</span></div>
+    <div className="font-mono text-center" style={{ animation: `breathe ${breatheSpeed} ease-in-out infinite` }}>
+      <div className={`${color} text-2xl`}>{face}</div>
+      <div className={`text-[10px] ${color} mt-1 truncate max-w-[200px]`}>
+        {hasPending ? label : isWorking ? <span className="truncate">{label}</span> : label}
+        {!hasPending && !isWorking && <span className="animate-blink"> _</span>}
+      </div>
     </div>
   );
 }
@@ -316,37 +336,32 @@ export function InstanceDetailPage() {
     </div>;
   }
 
+  // ── Safe data extraction (defensive — never crash) ────────────────────────
   const effectiveRole = mission?.role ?? instance.role ?? (instance as any).inferredRole ?? null;
   const roleOverridden = mission?.roleOverridden ?? !!instance.role;
   const byDay = contributions?.byDay ?? [];
   const dailyCounts = byDay.map(d => d.count);
   const flags = flagsData?.flags ?? [];
   const criticalFlags = flags.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
-  const trust = mission?.trustScore ?? 0;
+  const trust = mission?.trustScore ?? 50;
   const totalCost = cost?.costToday ?? mission?.estimatedCost ?? 0;
-  const totalActions = contributions?.summary.totalActions ?? mission?.progress.total ?? 0;
+  const summary = contributions?.summary;
+  const totalActions = summary?.totalActions ?? mission?.progress?.total ?? 0;
 
-  // ── Weather ──────────────────────────────────────────────────────────────
-  const weather = useMemo(() => {
-    if (!mission) return 'cloudy' as const;
-    if (mission.progress.denied > 2 || criticalFlags.length > 0) return 'storm' as const;
-    if (mission.blockedActions > 0 || mission.progress.pending > 0) return 'rain' as const;
-    if (mission.trustScore > 60 && mission.progress.denied === 0) return 'sunny' as const;
-    return 'cloudy' as const;
-  }, [mission, criticalFlags.length]);
+  // ── Weather (trust-based) ──────────────────────────────────────────────────
+  const weather = useMemo(() => trustToWeather(trust), [trust]);
 
-  // ── Contribution Score ───────────────────────────────────────────────────
+  // ── Contribution Score ─────────────────────────────────────────────────────
   const contributionScore = useMemo(() => {
-    if (!contributions || contributions.summary.totalActions === 0) return 0;
-    const s = contributions.summary;
-    const efficiency = parseFloat(s.approvalEfficiency) || 0;
-    const denialRate = parseFloat(s.denialRate) || 0;
-    const outputScore = Math.min(100, (s.filesCreated * 5 + s.filesEdited * 3 + s.commandsExecuted * 2 + s.linesWritten * 0.1));
+    if (!summary || summary.totalActions === 0) return 0;
+    const efficiency = parseFloat(summary.approvalEfficiency) || 0;
+    const denialRate = parseFloat(summary.denialRate) || 0;
+    const outputScore = Math.min(100, ((summary.filesCreated ?? 0) * 5 + (summary.filesEdited ?? 0) * 3 + (summary.commandsExecuted ?? 0) * 2 + (summary.linesWritten ?? 0) * 0.1));
     return Math.round(Math.min(100, (efficiency * 0.3 + (100 - denialRate) * 0.2 + outputScore * 0.5)));
-  }, [contributions]);
+  }, [summary]);
 
   return (
-    <div className="relative min-h-full">
+    <div className="relative">
       <WeatherBackground weather={weather} />
 
       <div className="max-w-5xl mx-auto space-y-5 relative z-10">
@@ -379,11 +394,10 @@ export function InstanceDetailPage() {
         </div>
       </div>
 
-      {/* ── Anomaly Alerts — per-agent, with smart CTAs ─────────────────── */}
+      {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
       {criticalFlags.length > 0 && (
         <div className="space-y-1.5">
           {criticalFlags.slice(0, 3).map(flag => {
-            // Smart CTA based on flag category
             const cta = flag.category === 'sensitive_access' || flag.category === 'privilege_escalation'
               ? { label: 'Update policies', to: '/policies' }
               : flag.category === 'evasion_pattern'
@@ -395,7 +409,7 @@ export function InstanceDetailPage() {
                   <span className="font-mono text-red-400 text-[10px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-red-300 font-medium">{flag.title}</p>
-                    <p className="text-[10px] text-red-400/70 mt-0.5 truncate">{flag.description.split('\n')[0]}</p>
+                    <p className="text-[10px] text-red-400/70 mt-0.5 truncate">{flag.description?.split('\n')[0]}</p>
                     <div className="flex items-center gap-3 mt-2">
                       <Link to={cta.to} className="text-[10px] text-red-300 font-medium hover:text-red-200 font-mono">{cta.label} →</Link>
                       <button
@@ -431,50 +445,48 @@ export function InstanceDetailPage() {
           </div>
           <div>
             <div className="text-[10px] text-text-tertiary font-mono">Files Created</div>
-            <div className="text-2xl font-bold text-blue-400 tabular-nums">{contributions?.summary.filesCreated ?? 0}</div>
+            <div className="text-2xl font-bold text-blue-400 tabular-nums">{summary?.filesCreated ?? 0}</div>
           </div>
           <div>
             <div className="text-[10px] text-text-tertiary font-mono">Files Edited</div>
-            <div className="text-2xl font-bold text-cyan-400 tabular-nums">{contributions?.summary.filesEdited ?? 0}</div>
+            <div className="text-2xl font-bold text-cyan-400 tabular-nums">{summary?.filesEdited ?? 0}</div>
           </div>
           <div>
             <div className="text-[10px] text-text-tertiary font-mono">Lines Written</div>
-            <div className="text-2xl font-bold text-emerald-400 tabular-nums">{contributions?.summary.linesWritten ?? 0}</div>
+            <div className="text-2xl font-bold text-emerald-400 tabular-nums">{summary?.linesWritten ?? 0}</div>
           </div>
           <div>
             <div className="text-[10px] text-text-tertiary font-mono">Commands</div>
-            <div className="text-2xl font-bold text-amber-400 tabular-nums">{contributions?.summary.commandsExecuted ?? 0}</div>
+            <div className="text-2xl font-bold text-amber-400 tabular-nums">{summary?.commandsExecuted ?? 0}</div>
           </div>
         </div>
-        {/* 7-day chart with Y-axis */}
         {dailyCounts.length > 0 ? (
           <div>
             <Sparkline data={dailyCounts} color="bg-accent" />
             <div className="flex justify-between mt-1 text-[9px] text-text-tertiary font-mono ml-7">
-              <span>{byDay[0]?.date.slice(5)}</span>
+              <span>{byDay[0]?.date?.slice(5)}</span>
               <span>last 7 days</span>
-              <span>{byDay[byDay.length - 1]?.date.slice(5)}</span>
+              <span>{byDay[byDay.length - 1]?.date?.slice(5)}</span>
             </div>
           </div>
         ) : (
           <div className="h-12 flex items-center text-[10px] text-text-tertiary font-mono">activity chart appears after first day</div>
         )}
-        {contributions && (
+        {summary && (
           <div className="flex gap-6 mt-3 pt-3 border-t border-border/30 text-[10px] text-text-secondary font-mono">
             <Tooltip content="What % of approval requests were approved">
-              <span>efficiency: {contributions.summary.approvalEfficiency}</span>
+              <span>efficiency: {summary.approvalEfficiency ?? '—'}</span>
             </Tooltip>
             <Tooltip content="What % of agent actions were denied">
-              <span>denial rate: {contributions.summary.denialRate}</span>
+              <span>denial rate: {summary.denialRate ?? '—'}</span>
             </Tooltip>
-            <span>PRs & commits: {contributions.summary.prsAndCommits}</span>
+            <span>PRs & commits: {summary.prsAndCommits ?? 0}</span>
           </div>
         )}
       </div>
 
       {/* ── Trust + Cost + Categories Row ─────────────────────────────────── */}
       <div className="grid md:grid-cols-3 gap-3">
-        {/* Trust */}
         <Tooltip content="Based on approval history, denied actions, and AI anomaly detection. 0 = untrusted, 100 = fully autonomous.">
           <div className="bg-surface-1 border border-border rounded-xl p-4">
             <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">Trust Score</div>
@@ -495,7 +507,6 @@ export function InstanceDetailPage() {
           </div>
         </Tooltip>
 
-        {/* Cost */}
         <Tooltip content="Estimated cost from tool execution heuristics. Actual LLM costs may vary.">
           <div className="bg-surface-1 border border-border rounded-xl p-4">
             <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">Cost</div>
@@ -506,7 +517,6 @@ export function InstanceDetailPage() {
           </div>
         </Tooltip>
 
-        {/* Categories — PIE CHART */}
         <div className="bg-surface-1 border border-border rounded-xl p-4">
           <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">Action Categories</div>
           {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
@@ -526,7 +536,7 @@ export function InstanceDetailPage() {
           <h3 className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Recent Activity</h3>
           <Link to="/activity" className="text-[10px] text-accent hover:text-accent-bright font-mono">all →</Link>
         </div>
-        {!activity?.data.length ? (
+        {!activity?.data?.length ? (
           <div className="p-8 text-center font-mono">
             <div className="text-text-tertiary text-xs" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o ) no actions yet</div>
           </div>

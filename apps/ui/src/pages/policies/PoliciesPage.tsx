@@ -124,6 +124,8 @@ export function PoliciesPage() {
   const [aiSuggestions, setAiSuggestions] = useState<AIPolicySuggestion[]>([]);
   const [aiSummary, setAiSummary] = useState('');
   const [aiRole, setAiRole] = useState('');
+  const [rulePrompt, setRulePrompt] = useState('');
+  const [rulePromptLoading, setRulePromptLoading] = useState(false);
 
   const presetMutation = useMutation({
     mutationFn: (id: string) => applyPreset(id, selectedInstanceId),
@@ -163,6 +165,43 @@ export function PoliciesPage() {
       setAiEnabled(false);
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleRulePrompt = async () => {
+    if (!rulePrompt.trim()) return;
+    setRulePromptLoading(true);
+    try {
+      // Use the AI optimize endpoint with the prompt as context
+      const data = await optimizePolicies(false, selectedInstanceId, rulePrompt.trim());
+      if (data.suggestions?.length > 0) {
+        // Apply each suggestion as a new rule
+        for (const s of data.suggestions) {
+          await createPolicy({
+            matchTool: s.matchTool || '*',
+            riskTier: s.riskTier || '*',
+            decision: s.decision,
+            matchCategory: s.matchCategory,
+            source: 'ai-learned',
+            description: s.description,
+            instanceId: selectedInstanceId,
+          });
+        }
+        qc.invalidateQueries({ queryKey: policyKey });
+        toast(`Added ${data.suggestions.length} rule${data.suggestions.length !== 1 ? 's' : ''} from your prompt`, 'success');
+        setRulePrompt('');
+      } else {
+        toast('AI couldn\'t generate rules from that — try being more specific', 'info');
+      }
+    } catch (err: any) {
+      const msg = err?.body ? JSON.parse(err.body)?.error ?? err.message : err.message ?? '';
+      if (msg.includes('OPENAI_API_KEY') || msg.includes('not configured')) {
+        toast('AI requires OpenAI API key — configure OPENAI_API_KEY in your environment', 'error');
+      } else {
+        toast(msg || 'Failed to create rules from prompt', 'error');
+      }
+    } finally {
+      setRulePromptLoading(false);
     }
   };
 
@@ -395,6 +434,31 @@ export function PoliciesPage() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* ── Natural Language Rule Prompt ─────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-4">
+        <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2 font-mono">Add rules with AI</h2>
+        <p className="text-[10px] text-text-muted mb-3">Describe what you want in plain English — AI will create the rules.</p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={rulePrompt}
+            onChange={e => setRulePrompt(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && rulePrompt.trim() && !rulePromptLoading) handleRulePrompt();
+            }}
+            placeholder="e.g. Block all network requests except to github.com and npm..."
+            className="flex-1 bg-surface-0 border border-border rounded-lg px-3 py-2 text-sm text-text-primary font-mono focus:outline-none focus:border-accent placeholder:text-text-tertiary"
+          />
+          <button
+            onClick={handleRulePrompt}
+            disabled={!rulePrompt.trim() || rulePromptLoading}
+            className="px-4 py-2 bg-accent hover:bg-accent-bright text-white text-xs rounded-lg font-medium transition-colors disabled:opacity-40 shrink-0"
+          >
+            {rulePromptLoading ? '...' : 'Create'}
+          </button>
         </div>
       </div>
 

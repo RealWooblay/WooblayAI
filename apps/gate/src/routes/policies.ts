@@ -216,9 +216,10 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'AI supervisor not configured. Set OPENAI_API_KEY.' });
     }
 
-    const body = request.body as { autoApply?: boolean; instanceId?: string } | null;
+    const body = request.body as { autoApply?: boolean; instanceId?: string; prompt?: string } | null;
     const autoApply = body?.autoApply ?? false;
     const targetInstanceId = body?.instanceId ?? null;
+    const userPrompt = body?.prompt ?? null;
 
     try {
       // Gather context: recent tool calls with categories, approval history, current rules, agent role
@@ -297,7 +298,18 @@ Respond in JSON ONLY:
           },
           {
             role: 'user',
-            content: `ACTIVITY BY CATEGORY (last 100 actions):
+            content: userPrompt
+              ? `USER REQUEST: "${userPrompt}"
+
+Create policy rules that implement the user's request. Be precise — generate the exact rules needed.
+
+CURRENT RULES:
+${currentRulesSummary || '(no rules)'}
+
+Agent role: ${agentRole}
+
+Generate rules from the user's prompt.`
+              : `ACTIVITY BY CATEGORY (last 100 actions):
 ${activitySummary || '(no activity yet)'}
 
 CURRENT RULES:
