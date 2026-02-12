@@ -314,6 +314,20 @@ model Instance {
   @@index([agentRuntime])
 }
 
+// ── Webhook Notifications ────────────────────────────────────────────────────
+
+model Webhook {
+  id        String   @id @default(cuid())
+  userId    String
+  url       String
+  events    String   // JSON array of event types
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([active])
+}
+
 // ── GitHub App Integration ───────────────────────────────────────────────────
 
 model GitHubInstallation {

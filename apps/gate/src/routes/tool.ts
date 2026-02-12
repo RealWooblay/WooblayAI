@@ -19,6 +19,8 @@ import { evaluatePolicy } from '../engine/policy.js';
 import { createReceipt } from '../engine/receipt.js';
 import { createApproval } from '../services/approval.js';
 import { validateBody } from '../middleware/validate.js';
+import { describeToolCall, explainWhyFlagged } from '../engine/analysis.js';
+import { detectFlags } from '../engine/flags.js';
 
 /** Default decision trail when none is provided by the agent. */
 const defaultTrail: DecisionTrail = {
@@ -72,11 +74,23 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           },
         });
 
-        // 3b. Analysis now runs via event bus on receipt.created (see server.ts)
+        // 3b. Run flag detection async (non-blocking)
+        detectFlags(prisma, {
+          toolCallId: toolCall.id,
+          agentPubkey: body.agentPubkey,
+          toolName: body.toolName,
+          args: argsCanonical,
+          riskTier,
+        }).catch((err) => request.log.warn(err, 'Flag detection failed'));
 
         // 4. Evaluate policy
         const policyDecision = await evaluatePolicy(prisma, toolCall);
         const decisionTrail = body.decisionTrail ?? defaultTrail;
+
+        // 4b. Human-readable enrichment
+        const parsedArgs = typeof body.args === 'string' ? JSON.parse(body.args) : body.args;
+        const description = describeToolCall(body.toolName, parsedArgs);
+        const whyFlagged = explainWhyFlagged(riskTier, body.toolName, policyDecision.decision, parsedArgs);
 
         // 5. Handle the decision
         switch (policyDecision.decision) {
@@ -97,6 +111,8 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
               toolCallId: toolCall.id,
               receiptId: receipt.id,
               reason: policyDecision.reason,
+              description,
+              riskTier,
             });
           }
 
@@ -117,6 +133,9 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
               toolCallId: toolCall.id,
               receiptId: receipt.id,
               reason: policyDecision.reason,
+              description,
+              whyFlagged,
+              riskTier,
             });
           }
 
@@ -129,6 +148,9 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
               toolCallId: toolCall.id,
               approvalId: approval.id,
               reason: policyDecision.reason,
+              description,
+              whyFlagged,
+              riskTier,
             });
           }
 

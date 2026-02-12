@@ -26,6 +26,7 @@
     "@wooblay/types": "workspace:*",
     "fastify": "^5.2.0",
     "fastify-plugin": "^5.1.0",
+    "openai": "^6.21.0",
     "ws": "^8.18.0",
     "zod": "^3.24.0"
   },

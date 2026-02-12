@@ -130,7 +130,7 @@ networks:
 export async function instanceRoutes(app: FastifyInstance): Promise<void> {
   // Ensure instances directory exists
   if (!existsSync(INSTANCES_DIR)) {
-    try { mkdirSync(INSTANCES_DIR, { recursive: true }); } catch {}
+    try { mkdirSync(INSTANCES_DIR, { recursive: true }); } catch { }
   }
 
   /**
@@ -154,7 +154,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           const [name, status] = line.split('|');
           if (name) containerStatuses[name] = status;
         }
-      } catch {}
+      } catch { }
 
       const enriched = instances.map((inst) => ({
         ...inst,
@@ -263,7 +263,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
             `docker ps -q --filter "name=wooblay-agent-${name}"`,
             { timeout: 5000, stdio: 'pipe' },
           ).toString().trim() || null;
-        } catch {}
+        } catch { }
 
         await prisma.instance.update({
           where: { id: instance.id },
@@ -307,7 +307,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           `docker ps -a --filter "name=wooblay-agent-${instance.name}" --format "{{.Status}}"`,
           { timeout: 5000, stdio: 'pipe' },
         ).toString().trim() || null;
-      } catch {}
+      } catch { }
 
       return reply.send({ ...instance, liveStatus });
     } catch (err) {
@@ -436,7 +436,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           `docker ps -q --filter "name=wooblay-agent-${instance.name}"`,
           { timeout: 5000, stdio: 'pipe' },
         ).toString().trim() || null;
-      } catch {}
+      } catch { }
 
       await prisma.instance.update({
         where: { id },
@@ -463,7 +463,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const containerName = `wooblay-agent-${instance.name}`;
       try {
         execSync(`docker stop "${containerName}"`, { timeout: 15_000, stdio: 'pipe' });
-      } catch {}
+      } catch { }
 
       await prisma.instance.update({
         where: { id },
@@ -500,7 +500,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           `docker ps -q --filter "name=wooblay-agent-${instance.name}"`,
           { timeout: 5000, stdio: 'pipe' },
         ).toString().trim() || null;
-      } catch {}
+      } catch { }
 
       await prisma.instance.update({
         where: { id },
@@ -530,12 +530,12 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         execSync(`docker stop "${containerName}" 2>/dev/null; docker rm "${containerName}" 2>/dev/null`, {
           timeout: 15_000, stdio: 'pipe',
         });
-      } catch {}
+      } catch { }
 
       // Clean up instance directory
       const dir = getInstanceDir(id);
       if (existsSync(dir)) {
-        try { rmSync(dir, { recursive: true, force: true }); } catch {}
+        try { rmSync(dir, { recursive: true, force: true }); } catch { }
       }
 
       await prisma.instance.delete({ where: { id } });

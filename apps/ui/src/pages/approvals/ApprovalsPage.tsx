@@ -158,10 +158,33 @@ export function ApprovalsPage() {
                 </span>
               </div>
 
-              {/* Hero action */}
-              <code className="text-base font-mono text-text-primary block mb-4 leading-relaxed">
+              {/* Human-readable description */}
+              {item.humanDescription && (
+                <p className="text-sm text-text-primary font-medium mb-1">
+                  {item.humanDescription}
+                </p>
+              )}
+
+              {/* Hero action — raw command */}
+              <code className="text-xs font-mono text-text-secondary block mb-2 leading-relaxed opacity-70">
                 {action}
               </code>
+
+              {/* Why flagged */}
+              {(item as any).whyFlagged && (
+                <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg px-3 py-2 mb-3">
+                  <p className="text-xs text-amber-300">
+                    <span className="font-medium">Why this needs approval:</span> {(item as any).whyFlagged}
+                  </p>
+                </div>
+              )}
+
+              {/* Risk explanation */}
+              {item.riskExplanation && (
+                <p className="text-[11px] text-text-muted mb-3">
+                  {item.riskExplanation}
+                </p>
+              )}
 
               {/* Agent name */}
               <p className="text-xs text-text-muted mb-4">

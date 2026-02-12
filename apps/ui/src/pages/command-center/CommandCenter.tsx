@@ -1,14 +1,12 @@
 /**
  * Dashboard — Mission Control Board
  *
- * Shows what matters:
- * 1. Deployed instances (from Instances page)
- * 2. Pending approvals that need attention
- * 3. Quick stats
- *
- * If nothing is deployed: clean empty state pointing to Instances page.
- * If instances exist: cards per instance with status + any blocked actions.
- * Pending approvals always shown prominently if any exist.
+ * Mission Cards per instance showing:
+ *   - Status, goal, current step
+ *   - Pipeline bar (Planning → Executing → Approval → Done)
+ *   - Key metrics: actions, pending, trust score, cost
+ *   - Sub-agents (if any)
+ *   - Blocked action inline approval
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -17,17 +15,203 @@ import {
   getStats,
   getInstances,
   getApprovals,
-  getActivity,
+  getMission,
   approveApproval,
+  type Instance,
+  type MissionData,
 } from '../../api/client.ts';
-import type { Instance, ActivityItem } from '../../api/client.ts';
 import { StatusDot } from '../../components/common/StatusDot.tsx';
-import { JourneyPipeline } from '../../components/common/JourneyPipeline.tsx';
 import { Button } from '../../components/common/Button.tsx';
 import { Badge, riskTierVariant } from '../../components/common/Badge.tsx';
 import { humanReadableAction } from '../../components/common/ActionSummary.tsx';
 import { useToast } from '../../components/common/Toast.tsx';
-import type { JourneyStep } from '../../components/common/JourneyPipeline.tsx';
+
+// ── Trust Score Badge ────────────────────────────────────────────────────────
+
+function TrustBadge({ score, trend }: { score: number; trend?: string }) {
+  const color = score > 70 ? 'text-emerald-400 bg-emerald-500/10' : score > 40 ? 'text-amber-400 bg-amber-500/10' : 'text-red-400 bg-red-500/10';
+  const arrow = trend === 'up' ? '↑' : trend === 'down' ? '↓' : '';
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${color}`}>
+      {score} {arrow && <span className="text-[9px]">{arrow}</span>}
+    </span>
+  );
+}
+
+// ── Pipeline Bar ─────────────────────────────────────────────────────────────
+
+function PipelineBar({ pipeline, blockedActions }: { pipeline: MissionData['pipeline']; blockedActions: number }) {
+  const stages = [
+    { key: 'PLANNING', label: 'Planning', count: pipeline.PLANNING, color: 'bg-blue-500' },
+    { key: 'EXECUTING', label: 'Executing', count: pipeline.EXECUTING, color: 'bg-indigo-500' },
+    { key: 'AWAITING_APPROVAL', label: 'Approval', count: pipeline.AWAITING_APPROVAL, color: blockedActions > 0 ? 'bg-amber-500 animate-pulse' : 'bg-amber-500' },
+    { key: 'COMPLETED', label: 'Done', count: pipeline.COMPLETED, color: 'bg-emerald-500' },
+  ];
+
+  const total = stages.reduce((a, s) => a + s.count, 0) || 1;
+
+  return (
+    <div>
+      {/* Bar */}
+      <div className="flex h-2 rounded-full overflow-hidden bg-surface-3 gap-px">
+        {stages.map((s) => (
+          s.count > 0 && (
+            <div
+              key={s.key}
+              className={`${s.color} transition-all duration-500`}
+              style={{ width: `${(s.count / total) * 100}%` }}
+            />
+          )
+        ))}
+      </div>
+      {/* Labels */}
+      <div className="flex justify-between mt-1.5">
+        {stages.map((s) => (
+          <div key={s.key} className="text-center flex-1">
+            <span className={`text-[10px] font-medium ${s.count > 0 ? 'text-text-primary' : 'text-text-muted opacity-40'}`}>
+              {s.count > 0 ? s.count : '·'}
+            </span>
+            <p className="text-[8px] text-text-muted">{s.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Mission Card ─────────────────────────────────────────────────────────────
+
+function MissionCard({
+  instance,
+  mission,
+  pendingApproval,
+  onApprove,
+  approving,
+}: {
+  instance: Instance;
+  mission: MissionData | undefined;
+  pendingApproval: any;
+  onApprove: (id: string) => void;
+  approving: boolean;
+}) {
+  const isBlocked = (mission?.blockedActions ?? 0) > 0;
+  const statusLabel = isBlocked ? 'blocked' : instance.status === 'running' ? 'active' : instance.status;
+
+  return (
+    <div
+      className={
+        'rounded-xl border p-5 transition-all ' +
+        (isBlocked
+          ? 'border-amber-500/25 bg-surface-1 shadow-[0_0_20px_-5px_rgba(245,158,11,0.1)]'
+          : 'border-border bg-surface-1 hover:border-border-strong')
+      }
+    >
+      {/* Header: name + status */}
+      <div className="flex items-center gap-3 mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-text-primary truncate">{instance.name}</h3>
+            <StatusDot status={statusLabel} showLabel />
+          </div>
+          {mission?.currentStep && mission.currentStep !== 'Idle' && (
+            <p className="text-xs text-text-secondary mt-0.5 truncate">
+              {mission.currentStep}
+            </p>
+          )}
+        </div>
+
+        {/* Trust score */}
+        {mission && <TrustBadge score={mission.trustScore} trend={mission.trustTrend} />}
+      </div>
+
+      {/* Pipeline bar */}
+      {mission && (
+        <div className="mb-4">
+          <PipelineBar pipeline={mission.pipeline} blockedActions={mission.blockedActions} />
+        </div>
+      )}
+
+      {/* Key metrics row */}
+      <div className="flex items-center gap-4 text-[11px] mb-3">
+        <div>
+          <span className="text-text-muted">Actions: </span>
+          <span className="text-text-primary font-medium">{mission?.progress.total ?? 0}</span>
+        </div>
+        <div>
+          <span className="text-text-muted">Pending: </span>
+          <span className={`font-medium ${(mission?.progress.pending ?? 0) > 0 ? 'text-amber-400' : 'text-text-primary'}`}>
+            {mission?.progress.pending ?? 0}
+          </span>
+        </div>
+        <div>
+          <span className="text-text-muted">Denied: </span>
+          <span className={`font-medium ${(mission?.progress.denied ?? 0) > 0 ? 'text-red-400' : 'text-text-primary'}`}>
+            {mission?.progress.denied ?? 0}
+          </span>
+        </div>
+        {mission?.estimatedCost !== undefined && mission.estimatedCost > 0 && (
+          <div className="ml-auto">
+            <span className="text-text-muted">Cost today: </span>
+            <span className="text-text-primary font-mono">${mission.estimatedCost.toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Sub-agents */}
+      {mission?.subAgents && mission.subAgents.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {mission.subAgents.map((sa) => (
+            <span
+              key={sa.sessionId}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] ${
+                sa.status === 'awaiting_approval'
+                  ? 'bg-amber-500/10 text-amber-400'
+                  : 'bg-surface-3 text-text-muted'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${sa.status === 'awaiting_approval' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+              {sa.lastAction.length > 40 ? sa.lastAction.slice(0, 40) + '...' : sa.lastAction}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Model + runtime info */}
+      <div className="flex items-center gap-3 text-[10px] text-text-muted">
+        <span className="font-mono">{instance.agentRuntime}</span>
+        <span>·</span>
+        <span className="font-mono">{instance.model?.split('-').slice(0, 2).join('-') ?? 'unknown'}</span>
+        {instance.telegramBot && <><span>·</span><span>TG: {instance.telegramBot}</span></>}
+        {instance.githubPat && <><span>·</span><span>GitHub ✓</span></>}
+      </div>
+
+      {/* Blocked action — inline approve */}
+      {pendingApproval && (
+        <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <Badge variant={riskTierVariant(pendingApproval.toolCall?.riskTier ?? 'WRITE')} className="text-[9px]">
+                {pendingApproval.toolCall?.riskTier}
+              </Badge>
+              <span className="text-[10px] text-text-muted">{pendingApproval.toolCall?.toolName}</span>
+            </div>
+            <p className="text-xs text-amber-300 truncate">
+              {pendingApproval.humanDescription || humanReadableAction(pendingApproval.toolCall?.toolName ?? '', pendingApproval.toolCall?.args)}
+            </p>
+          </div>
+          <Button size="xs" onClick={() => onApprove(pendingApproval.id)} disabled={approving}>
+            Approve
+          </Button>
+          <Link to="/approvals">
+            <Button size="xs" variant="ghost">Review</Button>
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main CommandCenter ───────────────────────────────────────────────────────
 
 export function CommandCenter() {
   const { data: stats } = useQuery({
@@ -45,11 +229,24 @@ export function CommandCenter() {
     queryFn: getApprovals,
     refetchInterval: 5_000,
   });
-  const { data: activityResp } = useQuery({
-    queryKey: ['activity'],
-    queryFn: () => getActivity({ pageSize: 30 }),
-    refetchInterval: 5_000,
-  });
+
+  // Fetch mission data for each running instance
+  const running = (instances ?? []).filter((i) => i.status === 'running');
+  const stopped = (instances ?? []).filter((i) => i.status !== 'running');
+
+  // Batch mission queries
+  const missionQueries = running.map((inst) => ({
+    queryKey: ['mission', inst.id],
+    queryFn: () => getMission(inst.id),
+    refetchInterval: 8_000,
+    enabled: inst.status === 'running',
+  }));
+
+  // Use individual queries for each instance
+  const missionResults = missionQueries.map((q) =>
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useQuery(q),
+  );
 
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -63,11 +260,7 @@ export function CommandCenter() {
   });
 
   const pending = approvals ?? [];
-  const activity = activityResp?.data ?? [];
   const allInstances = instances ?? [];
-  const running = allInstances.filter((i) => i.status === 'running');
-  const stopped = allInstances.filter((i) => i.status !== 'running');
-
   const isEmpty = !loadingInstances && allInstances.length === 0 && pending.length === 0;
   const hasData = (stats?.totalToolCalls ?? 0) > 0;
 
@@ -75,16 +268,14 @@ export function CommandCenter() {
     <div className="h-full overflow-y-auto p-6 canvas-bg">
       <div className="max-w-4xl mx-auto">
 
-        {/* ── Header ─────────────────────────────────────── */}
+        {/* ── Header */}
         <div className="mb-6">
           <h1 className="text-lg font-bold text-text-primary">
             {isEmpty && !hasData
               ? 'Welcome to Wooblay'
               : running.length > 0
                 ? `${running.length} Instance${running.length !== 1 ? 's' : ''} Running`
-                : hasData
-                  ? 'Dashboard'
-                  : 'No Instances Running'}
+                : hasData ? 'Dashboard' : 'No Instances Running'}
           </h1>
           {hasData && (
             <p className="text-xs text-text-muted mt-1">
@@ -93,7 +284,7 @@ export function CommandCenter() {
           )}
         </div>
 
-        {/* ── Pending Approvals Banner ────────────────────── */}
+        {/* ── Pending Approvals Banner */}
         {pending.length > 0 && (
           <Link
             to="/approvals"
@@ -109,7 +300,7 @@ export function CommandCenter() {
           </Link>
         )}
 
-        {/* ── Empty State ────────────────────────────────── */}
+        {/* ── Empty State */}
         {isEmpty && !hasData && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="h-16 w-16 rounded-2xl bg-surface-2 border border-border flex items-center justify-center text-2xl mb-6 opacity-60">
@@ -128,7 +319,7 @@ export function CommandCenter() {
           </div>
         )}
 
-        {/* ── No instances but has historical data ────────── */}
+        {/* ── No instances but has historical data */}
         {allInstances.length === 0 && hasData && pending.length === 0 && (
           <div className="mb-6 p-5 rounded-xl bg-surface-1 border border-border text-center">
             <p className="text-sm text-text-secondary mb-3">
@@ -140,31 +331,26 @@ export function CommandCenter() {
           </div>
         )}
 
-        {/* ── Running Instance Cards ─────────────────────── */}
+        {/* ── Mission Cards (Running Instances) */}
         <div className="space-y-3">
-          {running.map((inst) => (
-            <InstanceCard
+          {running.map((inst, idx) => (
+            <MissionCard
               key={inst.id}
               instance={inst}
-              pending={pending}
-              activity={activity}
+              mission={missionResults[idx]?.data}
+              pendingApproval={pending[0]}
               onApprove={(id) => approveMut.mutate(id)}
               approving={approveMut.isPending}
             />
           ))}
         </div>
 
-        {/* ── Stopped Instances ───────────────────────────── */}
+        {/* ── Stopped Instances */}
         {stopped.length > 0 && (
           <div className="mt-4 space-y-2">
-            <p className="text-[10px] text-text-muted uppercase tracking-wider px-1 mb-1">
-              Stopped
-            </p>
+            <p className="text-[10px] text-text-muted uppercase tracking-wider px-1 mb-1">Stopped</p>
             {stopped.map((inst) => (
-              <div
-                key={inst.id}
-                className="rounded-xl border border-border bg-surface-0 p-4 opacity-50"
-              >
+              <div key={inst.id} className="rounded-xl border border-border bg-surface-0 p-4 opacity-50">
                 <div className="flex items-center gap-3">
                   <h3 className="text-sm font-medium text-text-secondary flex-1">{inst.name}</h3>
                   <StatusDot status={inst.status} showLabel />
@@ -173,133 +359,7 @@ export function CommandCenter() {
             ))}
           </div>
         )}
-
-        {/* ── Recent Activity (if instances exist) ────────── */}
-        {allInstances.length > 0 && activity.length > 0 && (
-          <div className="mt-8">
-            <h2 className="text-xs text-text-muted uppercase tracking-wider mb-3">Recent Activity</h2>
-            <div className="space-y-1">
-              {activity.slice(0, 8).map((a) => (
-                <div key={a.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface-1 transition-colors">
-                  <Badge variant={riskTierVariant(a.riskTier)} className="text-[8px] w-20 justify-center shrink-0">
-                    {a.riskTier}
-                  </Badge>
-                  <span className="text-xs text-text-primary font-mono truncate flex-1">
-                    {a.humanDescription || a.toolName}
-                  </span>
-                  <span className="text-[10px] text-text-muted shrink-0">
-                    {a.status === 'completed' ? '✓' : a.approval?.status === 'PENDING' ? '⏳' : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
-    </div>
-  );
-}
-
-/* ── Instance Card Component ─────────────────────────────────────────────── */
-
-function InstanceCard({
-  instance,
-  pending,
-  activity,
-  onApprove,
-  approving,
-}: {
-  instance: Instance;
-  pending: NonNullable<ReturnType<typeof getApprovals> extends Promise<infer T> ? T : never>;
-  activity: ActivityItem[];
-  onApprove: (id: string) => void;
-  approving: boolean;
-}) {
-  // Find first pending approval (could be smarter with instance-agent linking later)
-  const blocked = pending[0] ?? null;
-
-  // Build journey steps from recent activity
-  const steps: JourneyStep[] = activity.slice(0, 15).map((a) => ({
-    label: a.humanDescription || a.toolName,
-    status: a.approval?.status === 'PENDING'
-      ? 'blocked'
-      : a.execution || a.status === 'completed'
-        ? 'done'
-        : 'active',
-  }));
-
-  const latestAction = activity[0]?.humanDescription || activity[0]?.toolName || null;
-
-  return (
-    <div
-      className={
-        'rounded-xl border p-5 transition-colors ' +
-        (blocked
-          ? 'border-amber-500/20 bg-surface-1'
-          : 'border-border bg-surface-1 hover:border-border-strong')
-      }
-    >
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-1">
-        <h3 className="text-sm font-semibold text-text-primary flex-1">
-          {instance.name}
-        </h3>
-        <StatusDot status={blocked ? 'blocked' : 'running'} showLabel />
-      </div>
-
-      {/* Meta */}
-      <div className="flex items-center gap-3 text-xs text-text-muted mb-3">
-        <span className="font-mono">{instance.model || 'openclaw'}</span>
-        {instance.endpoint && <span>· {instance.endpoint}</span>}
-      </div>
-
-      {/* Current task */}
-      {latestAction && (
-        <p className="text-xs text-text-secondary mb-3">
-          Latest: {latestAction}
-        </p>
-      )}
-
-      {/* Journey progress */}
-      {steps.length > 0 ? (
-        <JourneyPipeline steps={steps} />
-      ) : (
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-1.5 bg-surface-3 rounded-full" />
-          <span className="text-xs text-text-muted">Waiting for activity</span>
-        </div>
-      )}
-
-      {/* Blocked action — inline approve */}
-      {blocked && (
-        <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <Badge variant={riskTierVariant(blocked.toolCall?.riskTier ?? 'WRITE')} className="text-[9px]">
-                {blocked.toolCall?.riskTier}
-              </Badge>
-              <span className="text-[10px] text-text-muted">
-                {blocked.toolCall?.toolName}
-              </span>
-            </div>
-            <code className="text-xs font-mono text-amber-300 truncate block">
-              {humanReadableAction(blocked.toolCall?.toolName ?? '', blocked.toolCall?.args)}
-            </code>
-          </div>
-          <Button
-            size="xs"
-            onClick={() => onApprove(blocked.id)}
-            disabled={approving}
-          >
-            Approve
-          </Button>
-          <Link to="/approvals">
-            <Button size="xs" variant="ghost">
-              Review
-            </Button>
-          </Link>
-        </div>
-      )}
     </div>
   );
 }

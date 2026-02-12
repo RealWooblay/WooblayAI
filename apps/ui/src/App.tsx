@@ -21,7 +21,9 @@ import { ApprovalsPage } from './pages/approvals/ApprovalsPage.tsx';
 import { InstancesPage } from './pages/instances/InstancesPage.tsx';
 import { OnboardingPage } from './pages/onboarding/OnboardingPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
-import { ComingSoon } from './components/common/ComingSoon.tsx';
+import { PoliciesPage } from './pages/policies/PoliciesPage.tsx';
+import { ActivityPage } from './pages/activity/ActivityPage.tsx';
+import { AuditPage } from './pages/audit/AuditPage.tsx';
 
 // Has Clerk key? If not, skip auth entirely (local dev / instance mode)
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -122,10 +124,9 @@ function AuthenticatedApp() {
           <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
           <Route path="/instances" element={<PageShell><InstancesPage /></PageShell>} />
           <Route path="/settings" element={<PageShell><SettingsPage /></PageShell>} />
-
-          {/* Coming Soon */}
-          <Route path="/policies" element={<PageShell><ComingSoon feature="Policies" description="Custom policy rules for fine-grained tool control." /></PageShell>} />
-          <Route path="/activity" element={<PageShell><ComingSoon feature="Activity Feed" description="Real-time agent activity monitoring." /></PageShell>} />
+          <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
+          <Route path="/activity" element={<PageShell><ActivityPage /></PageShell>} />
+          <Route path="/audit" element={<PageShell><AuditPage /></PageShell>} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

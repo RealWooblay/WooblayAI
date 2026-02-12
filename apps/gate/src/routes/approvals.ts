@@ -12,7 +12,7 @@ import { prisma } from '../db/client.js';
 import { resolveApproval } from '../services/approval.js';
 import { createReceipt } from '../engine/receipt.js';
 import { validateBody } from '../middleware/validate.js';
-import { describeToolCall, describeRisk } from '../engine/analysis.js';
+import { describeToolCall, describeRisk, explainWhyFlagged } from '../engine/analysis.js';
 
 export async function approvalRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -37,6 +37,7 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
           ...approval,
           humanDescription: describeToolCall(approval.toolCall.toolName, parsedArgs),
           riskExplanation: describeRisk(approval.toolCall.riskTier, approval.toolCall.toolName, parsedArgs),
+          whyFlagged: explainWhyFlagged(approval.toolCall.riskTier, approval.toolCall.toolName, 'APPROVE', parsedArgs),
         };
       });
 
@@ -74,6 +75,7 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
         ...approval,
         humanDescription: describeToolCall(approval.toolCall.toolName, parsedArgs),
         riskExplanation: describeRisk(approval.toolCall.riskTier, approval.toolCall.toolName, parsedArgs),
+        whyFlagged: explainWhyFlagged(approval.toolCall.riskTier, approval.toolCall.toolName, 'APPROVE', parsedArgs),
       });
     } catch (err) {
       request.log.error(err, 'Failed to get approval');

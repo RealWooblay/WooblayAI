@@ -43,7 +43,9 @@ export const authPlugin = fp(async function authPluginInner(app: FastifyInstance
         '/api/users/', '/api/coupons/', '/api/instances',
         '/api/webhooks/', '/api/sync/', '/api/approvals/',
         '/api/policies', '/api/stats', '/api/activity',
-        '/api/receipts', '/api/tool/',
+        '/api/receipts', '/api/tool/', '/api/flags',
+        '/api/audit/', '/api/agents/', '/api/sessions/',
+        '/api/ai/',
       ];
       const path = request.url.split('?')[0];
       if (platformPaths.some((p) => path.startsWith(p))) return;

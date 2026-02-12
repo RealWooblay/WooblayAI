@@ -17,3 +17,6 @@ coverage/
 *.tfvars
 !*.tfvars.example
 .terraform.lock.hcl
+
+# Local instance data
+.instances/
