@@ -58,6 +58,12 @@ services:
       DATABASE_URL: "postgresql://${DB_USER:-wooblay}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-wooblay}"
       WOOBLAY_SERVER_PRIVATE_KEY: "${WOOBLAY_SERVER_PRIVATE_KEY}"
       WOOBLAY_SERVER_PUBLIC_KEY: "${WOOBLAY_SERVER_PUBLIC_KEY}"
+      # Platform mode (multi-user SaaS)
+      PLATFORM_MODE: "${PLATFORM_MODE:-true}"
+      CLERK_SECRET_KEY: "${CLERK_SECRET_KEY:-}"
+      # AI Supervisor (optional — degrades gracefully without key)
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4.1-mini}"
       # Chat proxy needs to reach the agent's Gateway WS
       OPENCLAW_GATEWAY_WS: "ws://172.21.0.30:18789"
       OPENCLAW_GATEWAY_TOKEN: "${OPENCLAW_GATEWAY_TOKEN:-}"
@@ -65,6 +71,7 @@ services:
       RUNTIME_ENV_FILE: "/opt/wooblay/.env"
       COMPOSE_FILE: "/opt/wooblay/docker-compose.yml"
       INSTANCES_DIR: "/opt/wooblay/instances"
+      GATE_INTERNAL_URL: "http://172.21.0.20:4800"
       # ECR image for spawning new agent instances
       AGENT_IMAGE: "${AGENT_IMAGE}"
     depends_on:
