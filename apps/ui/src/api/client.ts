@@ -52,9 +52,16 @@ export async function fetchApi<T = unknown>(
   init?: RequestInit,
 ): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(init?.headers as Record<string, string> ?? {}),
   };
+
+  // Only set Content-Type for requests that have a body
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (method !== 'DELETE' && method !== 'GET' && method !== 'HEAD') {
+    headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
+  } else if (init?.body) {
+    headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
+  }
 
   // Attach Clerk JWT if available
   if (getTokenFn) {
