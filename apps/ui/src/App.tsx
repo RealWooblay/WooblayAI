@@ -6,8 +6,8 @@
  * 3. Activated → Main app with sidebar navigation
  */
 
-import { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { useState, Component, type ErrorInfo, type ReactNode } from 'react';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { SignIn, SignUp, useUser, useAuth } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -151,12 +151,34 @@ function AuthPage({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Error boundary — catches crashes in any page so the whole app doesn't unmount. */
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('[ErrorBoundary]', error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="h-full flex flex-col items-center justify-center p-6 canvas-bg">
+          <pre className="text-red-400 font-mono text-lg mb-2">( x_x )</pre>
+          <p className="text-text-primary font-mono text-sm mb-1">Something crashed</p>
+          <p className="text-text-tertiary font-mono text-xs mb-4 max-w-md text-center">{this.state.error.message}</p>
+          <Link to="/" onClick={() => this.setState({ error: null })}
+            className="text-accent hover:text-accent-bright text-xs font-mono">← back to dashboard</Link>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full overflow-y-auto p-6 canvas-bg animate-fade-in relative">
-      {children}
-      {/* Subtle CRT scanline — applied to every page */}
-      <div className="scanline-overlay pointer-events-none" />
-    </div>
+    <ErrorBoundary>
+      <div className="h-full overflow-y-auto p-6 canvas-bg animate-fade-in relative">
+        {children}
+        <div className="scanline-overlay pointer-events-none" />
+      </div>
+    </ErrorBoundary>
   );
 }

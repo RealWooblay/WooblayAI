@@ -57,7 +57,7 @@ function AgentFace({ mission, instance }: { mission?: MissionData; instance: Ins
   }
 
   const trust = mission.trustScore ?? 50;
-  const hasPending = mission.blockedActions > 0 || (mission.progress?.pending ?? 0) > 0;
+  const hasPending = (mission.blockedActions ?? 0) > 0 || (mission.progress?.pending ?? 0) > 0;
   const isWorking = mission.currentStep !== 'Idle' && mission.currentStep !== 'No activity yet';
 
   let face: string;
@@ -127,8 +127,8 @@ function InstanceCard({ instance }: { instance: Instance }) {
 
   const effectiveRole = mission?.role ?? instance.role ?? instance.inferredRole ?? null;
   const trust = mission?.trustScore ?? 0;
-  const cost = mission?.estimatedCost ?? 0;
-  const actions = mission?.progress.total ?? 0;
+  const cost = Number(mission?.estimatedCost ?? 0) || 0;
+  const actions = mission?.progress?.total ?? 0;
 
   return (
     <Link
@@ -175,8 +175,8 @@ function InstanceCard({ instance }: { instance: Instance }) {
           <span className="text-[10px] text-text-secondary font-mono tabular-nums">${cost.toFixed(2)}</span>
           <span className="text-[10px] text-text-secondary tabular-nums">{actions} actions</span>
 
-          {(mission.progress.pending ?? 0) > 0 && (
-            <span className="ml-auto text-[10px] text-amber-400 font-medium animate-pulse">{mission.progress.pending} pending</span>
+          {(mission.progress?.pending ?? 0) > 0 && (
+            <span className="ml-auto text-[10px] text-amber-400 font-medium animate-pulse">{mission.progress?.pending} pending</span>
           )}
         </div>
       )}

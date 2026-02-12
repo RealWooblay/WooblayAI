@@ -251,7 +251,7 @@ function NetworkBoard({ mission, instances }: { mission?: MissionData; instances
       <div className="font-mono text-[11px] space-y-1">
         <div className="border border-border rounded-lg p-3">
           <span className="text-text-primary font-medium">{mission.instanceName}</span>
-          <span className="text-text-tertiary ml-2">trust:{mission.trustScore} cost:${mission.estimatedCost.toFixed(2)}</span>
+          <span className="text-text-tertiary ml-2">trust:{mission.trustScore ?? 0} cost:${(Number(mission.estimatedCost) || 0).toFixed(2)}</span>
         </div>
         {subAgents.length > 0 && (
           <div className="pl-4 space-y-1">
@@ -344,7 +344,7 @@ export function InstanceDetailPage() {
   const flags = flagsData?.flags ?? [];
   const criticalFlags = flags.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
   const trust = mission?.trustScore ?? 50;
-  const totalCost = cost?.costToday ?? mission?.estimatedCost ?? 0;
+  const totalCost = Number(cost?.costToday ?? mission?.estimatedCost ?? 0) || 0;
   const summary = contributions?.summary;
   const totalActions = summary?.totalActions ?? mission?.progress?.total ?? 0;
 
