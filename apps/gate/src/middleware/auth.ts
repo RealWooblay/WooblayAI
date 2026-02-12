@@ -35,11 +35,15 @@ export const authPlugin = fp(async function authPluginInner(app: FastifyInstance
       if (request.url === '/github/webhook' || request.url === '/github/webhook/') return;
 
       // Skip agent auth for platform API routes (these use Clerk auth instead)
+      // Also skip for /api/tool/execute — in platform mode, managed agent containers
+      // run on the same Docker network and are trusted. The tool route reads
+      // agentPubkey from the request body. Ed25519 signatures are for future
+      // "bring your own instance" mode where agents connect over the internet.
       const platformPaths = [
         '/api/users/', '/api/coupons/', '/api/instances',
         '/api/webhooks/', '/api/sync/', '/api/approvals/',
         '/api/policies', '/api/stats', '/api/activity',
-        '/api/receipts',
+        '/api/receipts', '/api/tool/',
       ];
       const path = request.url.split('?')[0];
       if (platformPaths.some((p) => path.startsWith(p))) return;
