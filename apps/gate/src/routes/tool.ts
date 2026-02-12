@@ -14,7 +14,7 @@ import { canonicalJson } from '@wooblay/crypto';
 import type { ToolExecuteRequest, DecisionTrail } from '@wooblay/types';
 import { Decision } from '@wooblay/types';
 import { prisma } from '../db/client.js';
-import { classifyRisk, classifyCategory } from '../engine/risk.js';
+import { classifyRisk, classifyCategory, classifyWithAI } from '../engine/risk.js';
 import { evaluatePolicy } from '../engine/policy.js';
 import { createReceipt } from '../engine/receipt.js';
 import { createApproval } from '../services/approval.js';
@@ -56,8 +56,34 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
         }
 
         // 1. Classify risk tier and business category
-        const riskTier = classifyRisk(body.toolName, body.args);
-        const category = classifyCategory(body.toolName, body.args);
+        //    Layer 1: Structural (fast, deterministic) — the baseline
+        const structuralRisk = classifyRisk(body.toolName, body.args);
+        const structuralCategory = classifyCategory(body.toolName, body.args);
+
+        //    Layer 2: AI (smart, contextual) — can ESCALATE, never downgrade
+        //    This is what catches `cat /etc/shadow`, suspicious downloads, etc.
+        //    without us having to hardcode every possible sensitive path.
+        let riskTier = structuralRisk;
+        let category = structuralCategory;
+        let aiDescription: string | null = null;
+        let aiWhyReview: string | null = null;
+
+        try {
+          const aiResult = await classifyWithAI(body.toolName, body.args, structuralRisk, structuralCategory);
+          if (aiResult) {
+            riskTier = aiResult.riskTier;
+            category = aiResult.category;
+            aiDescription = aiResult.description || null;
+            aiWhyReview = aiResult.whyReview || null;
+            if (riskTier !== structuralRisk || category !== structuralCategory) {
+              request.log.info(
+                `[AI] Reclassified: ${structuralRisk}/${structuralCategory} → ${riskTier}/${category} — ${aiResult.reasoning}`,
+              );
+            }
+          }
+        } catch (err) {
+          request.log.warn(err, 'AI classification failed, using structural fallback');
+        }
 
         // 2. Canonicalize args for storage
         const argsCanonical = canonicalJson(body.args);
@@ -100,9 +126,12 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
         const decisionTrail = body.decisionTrail ?? defaultTrail;
 
         // 4b. Human-readable enrichment
+        //     AI descriptions take priority — they understand context, not just syntax.
+        //     Regex fallback exists for when AI is unavailable.
         const parsedArgs = typeof body.args === 'string' ? JSON.parse(body.args) : body.args;
-        const description = describeToolCall(body.toolName, parsedArgs);
-        const whyFlagged = explainWhyFlagged(riskTier, body.toolName, policyDecision.decision, parsedArgs);
+        const description = aiDescription || describeToolCall(body.toolName, parsedArgs);
+        const whyFlagged = aiWhyReview
+          || explainWhyFlagged(riskTier, body.toolName, policyDecision.decision, parsedArgs);
 
         // 5. Handle the decision
         switch (policyDecision.decision) {

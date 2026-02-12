@@ -28,6 +28,12 @@ function describeCommand(command: string): string {
     case 'curl':
     case 'wget': {
       const url = parts.find((p) => p.startsWith('http')) ?? parts[1] ?? '<url>';
+      const outputFlag = command.includes('-o ') || command.includes('--output');
+      const toTmp = /\/tmp\//.test(command);
+      const pipeExec = command.includes('| sh') || command.includes('| bash');
+      if (pipeExec) return `⚠️ Download and execute script from ${url} — remote code execution risk`;
+      if (toTmp) return `⚠️ Download to /tmp from ${url} — temporary file, could be executed later`;
+      if (outputFlag) return `Download file from ${url} to disk`;
       return `Download from ${url}`;
     }
     case 'git': {
@@ -73,8 +79,15 @@ function describeCommand(command: string): string {
       return `Change permissions on ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
     case 'chown':
       return `Change ownership of ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
-    case 'cat':
-      return `Read file ${parts[1] ?? '<path>'}`;
+    case 'cat': {
+      const target = parts[1] ?? '<path>';
+      if (/\/etc\/shadow/i.test(target)) return `⚠️ Read /etc/shadow — contains password hashes (highly sensitive)`;
+      if (/\/etc\/passwd/i.test(target)) return `⚠️ Read /etc/passwd — contains system user accounts`;
+      if (/\/etc\/sudoers/i.test(target)) return `⚠️ Read /etc/sudoers — contains privilege escalation config`;
+      if (/\.env/i.test(target)) return `⚠️ Read ${target} — may contain API keys and secrets`;
+      if (/\.ssh/i.test(target)) return `⚠️ Read ${target} — SSH credentials`;
+      return `Read file ${target}`;
+    }
     case 'cd':
       return `Change directory to ${parts[1] ?? '<path>'}`;
     case 'cp':
@@ -235,31 +248,60 @@ export function explainWhyFlagged(
 ): string {
   const tool = toolName.replace(/^(gated_|wooblay_)/, '');
   const description = describeToolCall(toolName, args);
+  const command = String(args['command'] ?? args['cmd'] ?? '');
+  const path = String(args['path'] ?? args['file'] ?? '');
+
+  // Specific context-aware explanations
+  const sensitiveFileReason = getSensitiveContext(command, path);
+  const downloadReason = getDownloadContext(command);
 
   if (policyDecision === 'DENY') {
     if (riskTier === 'DESTRUCTIVE') {
-      return `Automatically blocked: "${description}" is classified as DESTRUCTIVE. Your policy auto-denies destructive actions.`;
+      return `Blocked: This would permanently delete or damage system files. "${description}" cannot be undone.`;
     }
-    return `Automatically blocked by policy. The action "${description}" matched a DENY rule.`;
+    return `Blocked by your security policy. "${description}" matched a deny rule.`;
   }
 
   if (policyDecision === 'APPROVE') {
+    if (sensitiveFileReason) return sensitiveFileReason;
+    if (downloadReason) return downloadReason;
+
     if (riskTier === 'DESTRUCTIVE') {
-      return `Requires approval: "${description}" is classified as DESTRUCTIVE and could cause irreversible changes.`;
+      return `This action could cause permanent damage. "${description}" needs your explicit approval before proceeding.`;
     }
     if (riskTier === 'WRITE') {
       if (tool === 'exec') {
-        const command = String(args['command'] ?? args['cmd'] ?? '');
-        if (/\bgit\s+push\b/.test(command)) return 'Requires approval: pushing code to a remote repository affects shared resources.';
-        if (/\bnpm\s+publish\b/.test(command)) return 'Requires approval: publishing a package is a public, irreversible action.';
-        return `Requires approval: shell commands that modify state need human sign-off under your current policy.`;
+        if (/\bgit\s+push\b/.test(command)) return 'This pushes code to a shared repository — other people will see these changes.';
+        if (/\bnpm\s+publish\b/.test(command)) return 'This publishes a package publicly. Once published, versions cannot be unpublished.';
+        if (/\bchmod\b/.test(command)) return 'This changes file permissions — could affect who can access or execute files.';
+        return `This shell command modifies your system. Review what it does before approving.`;
       }
-      if (tool === 'write') return 'Requires approval: creating or overwriting files needs human sign-off under your current policy.';
-      if (tool === 'edit') return 'Requires approval: editing files needs human sign-off under your current policy.';
-      return `Requires approval: WRITE-level actions need human sign-off under your current policy.`;
+      if (tool === 'write') return `This creates or overwrites a file. Check the content is what you expect.`;
+      if (tool === 'edit') return `This modifies an existing file. Review the change before approving.`;
+      return `This action modifies state and needs your sign-off.`;
     }
-    return `Requires approval: your policy requires human review for this action.`;
+    return `Your policy requires human review for this action.`;
   }
 
-  return ''; // ALLOW — no explanation needed
+  return '';
+}
+
+function getSensitiveContext(command: string, path: string): string {
+  const all = command + ' ' + path;
+  if (/\/etc\/shadow/.test(all)) return '⚠️ Accessing /etc/shadow — this file contains password hashes for all users. This is a high-privilege operation.';
+  if (/\/etc\/passwd/.test(all)) return '⚠️ Accessing /etc/passwd — this file lists all system user accounts. Could be used for reconnaissance.';
+  if (/\/etc\/sudoers/.test(all)) return '⚠️ Accessing sudoers — this controls who has admin privileges on the system.';
+  if (/\.ssh\/(id_rsa|authorized_keys)/.test(all)) return '⚠️ Accessing SSH credentials — could enable remote access to servers.';
+  if (/\.env/.test(all)) return '⚠️ Accessing environment file — likely contains API keys, database passwords, and other secrets.';
+  return '';
+}
+
+function getDownloadContext(command: string): string {
+  if (/(curl|wget)/.test(command) && /https?:\/\//.test(command)) {
+    if (/\|\s*(sh|bash)/.test(command)) return '🚨 This downloads and immediately executes a remote script. This is extremely dangerous — the script could do anything.';
+    if (/\/tmp\//.test(command)) return '⚠️ Downloading a file to /tmp — temporary files are commonly used to stage malware or exploits.';
+    if (/github\.com/.test(command)) return 'Downloading from GitHub. Verify the repository and file are trusted before approving.';
+    return 'Downloading a file from the internet. Verify the URL is trusted.';
+  }
+  return '';
 }
