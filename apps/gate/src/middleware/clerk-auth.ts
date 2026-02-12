@@ -9,6 +9,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 import cookie from '@fastify/cookie';
 import { config } from '../config.js';
 
@@ -32,7 +33,8 @@ function isPublic(url: string): boolean {
   return PUBLIC_PATHS.some((p) => path === p || path === p + '/');
 }
 
-export async function clerkAuthPlugin(app: FastifyInstance): Promise<void> {
+// Use fp() so hooks apply globally, not just inside this encapsulated plugin
+export const clerkAuthPlugin = fp(async function clerkAuthPluginInner(app: FastifyInstance): Promise<void> {
   if (!config.PLATFORM_MODE) return;
   if (!config.CLERK_SECRET_KEY) {
     app.log.warn('PLATFORM_MODE=true but no CLERK_SECRET_KEY — auth disabled');
@@ -100,4 +102,4 @@ export async function clerkAuthPlugin(app: FastifyInstance): Promise<void> {
       }
     },
   );
-}
+});

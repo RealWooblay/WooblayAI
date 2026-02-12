@@ -9,6 +9,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 import { verify } from '@wooblay/crypto';
 
 // Augment Fastify's request type so `agentPubkey` is available downstream
@@ -20,8 +21,9 @@ declare module 'fastify' {
 
 /**
  * Register the auth hook on a Fastify instance.
+ * Wrapped with fp() so hooks apply globally (not encapsulated).
  */
-export async function authPlugin(app: FastifyInstance): Promise<void> {
+export const authPlugin = fp(async function authPluginInner(app: FastifyInstance): Promise<void> {
   app.addHook(
     'onRequest',
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -62,4 +64,4 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
       request.agentPubkey = pubkey;
     },
   );
-}
+});
