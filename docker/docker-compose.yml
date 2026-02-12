@@ -1,0 +1,49 @@
+# Wooblay – Local Development Compose
+# Usage: docker-compose up -d
+
+services:
+  # ── Postgres ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: wooblay-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: wooblay_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Gate ──────────────────────────────────────────────────────────────
+  gate:
+    build:
+      context: ../
+      dockerfile: docker/gate/Dockerfile
+    container_name: wooblay-gate
+    restart: unless-stopped
+    ports:
+      - "4800:4800"
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: development
+      PORT: "4800"
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/wooblay_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4800/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:

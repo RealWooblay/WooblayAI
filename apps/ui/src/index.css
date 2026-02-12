@@ -1,0 +1,276 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Wooblay — The Nerve Center
+   A living, breathing interface for AI agent supervision
+   ============================================================ */
+
+@theme {
+  /* Depth layers */
+  --color-void: #05050c;
+  --color-surface-0: #0a0a14;
+  --color-surface-1: #0f0f1a;
+  --color-surface-2: #151520;
+  --color-surface-3: #1c1c2a;
+
+  /* Borders */
+  --color-border: #1e1e30;
+  --color-border-subtle: #161624;
+  --color-border-strong: #2a2a42;
+
+  /* Text */
+  --color-text-primary: #e4e4f0;
+  --color-text-secondary: #8888a8;
+  --color-text-tertiary: #555570;
+  --color-text-muted: #333348;
+
+  /* Accent: indigo core */
+  --color-accent: #6366f1;
+  --color-accent-bright: #818cf8;
+  --color-accent-dim: #4f46e5;
+  --color-accent-subtle: rgba(99, 102, 241, 0.08);
+
+  /* Semantic */
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-info: #60a5fa;
+}
+
+html { color-scheme: dark; }
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--color-void);
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #222236; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #333350; }
+
+/* ============================================================
+   CANVAS — the spatial foundation
+   ============================================================ */
+
+.canvas-bg {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.04) 0%, transparent 60%),
+    radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.015) 0%, transparent 50%),
+    var(--color-void);
+}
+
+/* Subtle dot grid */
+.dot-grid {
+  background-image: radial-gradient(circle, rgba(99, 102, 241, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* ============================================================
+   GLASS MORPHISM — frosted panels
+   ============================================================ */
+
+.glass {
+  background: rgba(15, 15, 26, 0.75);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid rgba(99, 102, 241, 0.08);
+}
+
+.glass-strong {
+  background: rgba(10, 10, 20, 0.88);
+  backdrop-filter: blur(40px) saturate(1.6);
+  -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.glass-panel {
+  background: rgba(15, 15, 26, 0.82);
+  backdrop-filter: blur(32px) saturate(1.5);
+  -webkit-backdrop-filter: blur(32px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ============================================================
+   ANIMATIONS — living, breathing system
+   ============================================================ */
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.6; }
+  50% { transform: scale(1.05); opacity: 0.3; }
+  100% { transform: scale(0.95); opacity: 0.6; }
+}
+
+@keyframes orbit-pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes float-up {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes flow-dot {
+  0% { offset-distance: 0%; opacity: 0; }
+  5% { opacity: 1; }
+  95% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+@keyframes dash-flow {
+  to { stroke-dashoffset: -20; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.3)); }
+  50% { filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.6)); }
+}
+
+@keyframes ripple {
+  0% { transform: scale(1); opacity: 0.4; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Utility classes */
+.animate-breathe { animation: breathe 3s ease-in-out infinite; }
+.animate-pulse-ring { animation: pulse-ring 2.5s ease-in-out infinite; }
+.animate-orbit-pulse { animation: orbit-pulse 4s ease-in-out infinite; }
+.animate-float-up { animation: float-up 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-slide-in-right { animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-slide-in-up { animation: slide-in-up 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+.animate-glow-pulse { animation: glow-pulse 3s ease-in-out infinite; }
+
+/* Staggered children */
+.stagger-children > * { animation: float-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+
+/* ============================================================
+   NETWORK GRAPH elements
+   ============================================================ */
+
+.gate-core {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, transparent 70%);
+}
+
+.gate-ring {
+  border: 1.5px solid rgba(99, 102, 241, 0.3);
+  animation: pulse-ring 3s ease-in-out infinite;
+}
+
+.agent-node {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+.agent-node:hover {
+  transform: scale(1.15);
+  z-index: 10;
+}
+
+.flow-line {
+  stroke-dasharray: 6 4;
+  animation: dash-flow 1.2s linear infinite;
+}
+
+.flow-particle {
+  animation: flow-dot 2.5s linear infinite;
+}
+
+/* ============================================================
+   APPROVAL CARD — floating interactive cards
+   ============================================================ */
+
+.approval-card {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.approval-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.15),
+    0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================================
+   COMMAND PALETTE
+   ============================================================ */
+
+.command-overlay {
+  background: rgba(5, 5, 12, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.command-input {
+  background: transparent;
+  caret-color: var(--color-accent);
+}
+.command-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Diff viewer */
+.diff-add { background: rgba(52, 211, 153, 0.08); border-left: 2px solid #34d399; }
+.diff-remove { background: rgba(248, 113, 113, 0.08); border-left: 2px solid #f87171; }
+
+/* Glow effects */
+.glow-accent {
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2), 0 0 20px rgba(99, 102, 241, 0.08);
+}
+.glow-success {
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2), 0 0 12px rgba(52, 211, 153, 0.06);
+}
+.glow-danger {
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.2), 0 0 12px rgba(248, 113, 113, 0.06);
+}
+
+/* Skeleton shimmer */
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface-2) 25%, var(--color-surface-3) 50%, var(--color-surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}

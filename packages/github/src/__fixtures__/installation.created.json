@@ -1,0 +1,28 @@
+{
+  "action": "created",
+  "installation": {
+    "id": 99999,
+    "account": {
+      "login": "acme-corp",
+      "type": "Organization"
+    },
+    "app_id": 12345
+  },
+  "repositories": [
+    {
+      "id": 12345,
+      "full_name": "acme-corp/web-app",
+      "name": "web-app",
+      "private": true
+    },
+    {
+      "id": 12346,
+      "full_name": "acme-corp/api-service",
+      "name": "api-service",
+      "private": true
+    }
+  ],
+  "sender": {
+    "login": "admin-user"
+  }
+}

@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Wooblay Runtime Manifest: OpenClaw
+#
+# Defines how to deploy an OpenClaw agent runtime with Wooblay supervision.
+# The deployment system reads this manifest to build the Docker image, configure
+# networking, and provision the EC2 instance.
+#
+# To add a new agent runtime (e.g. CrewAI, AutoGPT), create a new YAML file
+# in this directory with the same structure.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: openclaw
+display_name: "OpenClaw Agent Runtime"
+version: "1.0"
+description: "Multi-agent orchestration framework with Wooblay supervision"
+
+# Docker image configuration
+image:
+  dockerfile: docker/runtimes/openclaw/Dockerfile
+  context: "."
+  ecr_repo_name: "openclaw-wooblay"
+
+# Wooblay adapter configuration
+adapter:
+  type: plugin
+  id: openclaw-plugin
+  description: "Native OpenClaw plugin using before_tool_call/after_tool_call hooks"
+
+# Ports exposed by the agent runtime (internal to the Docker network)
+ports:
+  gateway: 18789
+
+# Default environment variables for the agent runtime container
+env:
+  WOOBLAY_TOOL_FILTER: "risky"
+  WOOBLAY_AGENT_KEY_NAME: "wooblay-agent"
+
+# Resource limits for the agent runtime container
+resources:
+  cpu_shares: 512
+  memory_limit: "1536m"
+  memory_reservation: "1024m"
+
+# Security hardening for the agent container
+security:
+  run_as_user: 1000
+  read_only_rootfs: false # OpenClaw needs writable fs for extensions
+  drop_capabilities:
+    - ALL
+  add_capabilities:
+    - NET_BIND_SERVICE
+  no_new_privileges: true
+  blocked_endpoints:
+    - "169.254.169.254" # EC2 instance metadata
+    - "169.254.170.2" # ECS task credentials
+
+# EC2 instance sizing
+instance:
+  type: "t3.medium"
+  volume_size_gb: 30
+  volume_type: "gp3"

@@ -1,0 +1,50 @@
+{
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "remote": {
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    }
+  },
+  "plugins": {
+    "enabled": true,
+    "entries": {
+      "wooblay": {
+        "enabled": true,
+        "config": {
+          "gateUrl": "${GATE_URL}",
+          "toolFilter": "${WOOBLAY_TOOL_FILTER}"
+        }
+      }
+    }
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "wooblay-audit": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "tools": {
+    "exec": {
+      "host": "gateway",
+      "security": "allowlist",
+      "ask": "always"
+    }
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "name": "default",
+        "model": "claude-sonnet-4-20250514"
+      }
+    ]
+  },
+  "channels": {}
+}

@@ -1,0 +1,75 @@
+# Wooblay – Production-Like Compose (mirrors ECS task definition)
+# Usage: docker-compose -f docker-compose.prod.yml up
+#
+# This compose file mirrors the ECS task definition where the
+# agent-runtime and gate containers run as a single unit.
+
+services:
+  # ── Agent Runtime (OpenClaw + Toolhost sidecar) ───────────────────────
+  agent-runtime:
+    build:
+      context: ../
+      dockerfile: docker/runtimes/openclaw/Dockerfile
+    container_name: wooblay-agent-runtime
+    restart: unless-stopped
+    environment:
+      GATE_URL: http://gate:4800
+      TOOLHOST_PORT: "8990"
+      TOOLHOST_PUBLIC_KEY: ${TOOLHOST_PUBLIC_KEY:-}
+      TOOLHOST_PRIVATE_KEY: ${TOOLHOST_PRIVATE_KEY:-}
+    depends_on:
+      gate:
+        condition: service_healthy
+    networks:
+      - wooblay
+
+  # ── Gate ──────────────────────────────────────────────────────────────
+  gate:
+    build:
+      context: ../
+      dockerfile: docker/gate/Dockerfile
+    container_name: wooblay-gate-prod
+    restart: unless-stopped
+    ports:
+      - "4800:4800"
+    environment:
+      NODE_ENV: production
+      PORT: "4800"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/wooblay_dev}
+      WOOBLAY_SERVER_PUBLIC_KEY: ${WOOBLAY_SERVER_PUBLIC_KEY:-}
+      WOOBLAY_SERVER_PRIVATE_KEY: ${WOOBLAY_SERVER_PRIVATE_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4800/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - wooblay
+
+  # ── Postgres (for local prod-like testing) ────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: wooblay-postgres-prod
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: wooblay_dev
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - wooblay
+
+networks:
+  wooblay:
+    driver: bridge
+
+volumes:
+  postgres_prod_data:

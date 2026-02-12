@@ -1,0 +1,41 @@
+node_modules
+.pnpm-store
+.git
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+dist
+*.tsbuildinfo
+.turbo
+.next
+.cache
+coverage
+
+# Terraform / Infra
+infra/
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform.lock.hcl
+
+# IDE / Editor
+.cursor/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test scripts
+scripts/
+
+# Runtime manifests
+runtimes/
+
+# Plan files
+*.plan.md

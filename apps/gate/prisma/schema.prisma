@@ -1,0 +1,381 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Agent {
+  id          String    @id @default(cuid())
+  pubkey      String    @unique
+  name        String
+  status      String    @default("active")
+  allowlisted Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  toolCalls   ToolCall[]
+  scores      Score[]
+
+  // ── Identity & Trust ──────────────────────────────────────────────────────
+  trustLevel   String    @default("read-only")   // read-only | write-with-approvals | autonomous
+  trustScore   Float     @default(50)
+  parentPubkey String?
+  spawnDepth   Int       @default(0)
+  profileJson  String?   // JSON AgentProfile
+  baselineJson String?   // JSON AgentBaseline
+
+  // Self-referencing lineage
+  parent       Agent?    @relation("AgentLineage", fields: [parentPubkey], references: [pubkey])
+  children     Agent[]   @relation("AgentLineage")
+
+  // Spawn attestations
+  spawnedByMe  SpawnAttestation[] @relation("SpawnerAttestations")
+  spawnedMe    SpawnAttestation[] @relation("SpawnedAttestations")
+
+  @@index([parentPubkey])
+  @@index([trustLevel])
+}
+
+model ToolCall {
+  id          String     @id @default(cuid())
+  taskId      String?
+  sessionId   String?
+  agentPubkey String
+  agent       Agent      @relation(fields: [agentPubkey], references: [pubkey])
+  toolName    String
+  args        String
+  riskTier    String
+  adapter     String?    // Which adapter submitted this call (e.g. "openclaw-plugin", "mcp-toolhost")
+  createdAt   DateTime   @default(now())
+  approval    Approval?
+  execution   Execution?
+  receipt     Receipt?
+
+  @@index([taskId])
+  @@index([agentPubkey])
+  @@index([createdAt])
+  @@index([adapter])
+}
+
+model PolicyRule {
+  id          String   @id @default(cuid())
+  priority    Int      @unique
+  matchTool   String
+  matchArgs   String?
+  riskTier    String
+  decision    String
+  constraints String?
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([priority])
+}
+
+model Approval {
+  id         String    @id @default(cuid())
+  toolCallId String    @unique
+  toolCall   ToolCall  @relation(fields: [toolCallId], references: [id])
+  status     String    @default("PENDING")
+  approver   String?
+  reason     String?
+  createdAt  DateTime  @default(now())
+  decidedAt  DateTime?
+  ttlSeconds Int       @default(300)
+
+  @@index([status])
+}
+
+model Execution {
+  id            String   @id @default(cuid())
+  toolCallId    String   @unique
+  toolCall      ToolCall @relation(fields: [toolCallId], references: [id])
+  status        String
+  stdout        String?
+  stderr        String?
+  exitCode      Int?
+  durationMs    Int?
+  artifactsMeta String?
+  createdAt     DateTime @default(now())
+}
+
+model Receipt {
+  id               String   @id
+  toolCallId       String   @unique
+  toolCall         ToolCall @relation(fields: [toolCallId], references: [id])
+  agentPubkey      String
+  toolName         String
+  riskTier         String
+  policyDecision   String
+  policyRuleId     String?
+  approvalDecision String?
+  approver         String?
+  executionSummary String?
+  decisionTrail    String
+  chainPrev        String?
+  timestamp        String
+  hash             String   @unique
+  signature        String
+  createdAt        DateTime @default(now())
+
+  @@index([chainPrev])
+  @@index([agentPubkey])
+  @@index([createdAt])
+}
+
+model Score {
+  id          String   @id @default(cuid())
+  taskId      String
+  agentPubkey String
+  agent       Agent    @relation(fields: [agentPubkey], references: [pubkey])
+  label       String
+  cost        Float?
+  duration    Float?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([taskId])
+  @@index([agentPubkey])
+}
+
+model Checkpoint {
+  id        String   @id @default(cuid())
+  toolName  String
+  scope     String
+  path      String
+  metadata  String?
+  createdAt DateTime @default(now())
+}
+
+model EventLog {
+  id        Int      @id @default(autoincrement())
+  type      String
+  data      String
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([createdAt])
+}
+
+model AuditFlag {
+  id          String   @id @default(cuid())
+  severity    String   // CRITICAL, HIGH, MEDIUM, LOW, INFO
+  category    String   // velocity_anomaly, evasion_pattern, sensitive_access, privilege_escalation, unusual_pattern
+  title       String
+  description String
+  agentPubkey String?
+  toolCallId  String?
+  metadata    String?  // JSON - supporting evidence
+  dismissed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([severity])
+  @@index([category])
+  @@index([createdAt])
+  @@index([dismissed])
+}
+
+// ── Receipt Analyzer + Agent Identity System ──────────────────────────────────
+
+model SpawnAttestation {
+  id            String   @id @default(cuid())
+  spawnerPubkey String
+  spawnedPubkey String
+  purpose       String
+  scopeJson     String?  // JSON SpawnScope
+  constraints   String?  // human-readable constraints
+  signature     String
+  createdAt     DateTime @default(now())
+
+  spawner       Agent    @relation("SpawnerAttestations", fields: [spawnerPubkey], references: [pubkey])
+  spawned       Agent    @relation("SpawnedAttestations", fields: [spawnedPubkey], references: [pubkey])
+
+  @@index([spawnerPubkey])
+  @@index([spawnedPubkey])
+}
+
+model Analysis {
+  id            String   @id @default(cuid())
+  taskId        String?
+  receiptId     String?
+  agentPubkey   String
+  severity      String                  // CRITICAL | HIGH | MEDIUM | LOW | INFO
+  tags          String                  // JSON string[]
+  summary       String                  // human-readable summary
+  findings      String                  // JSON Finding[]
+  causalChain   String?                 // JSON CausalChainNode[]
+  briefMarkdown String?                 // AI-generated prosecution brief (CRITICAL only)
+  createdAt     DateTime @default(now())
+
+  @@index([taskId])
+  @@index([receiptId])
+  @@index([agentPubkey])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+model Canary {
+  id          String    @id @default(cuid())
+  type        String                    // file | env | url | command
+  value       String                    // the honeypot value
+  description String
+  active      Boolean   @default(true)
+  trippedBy   String?                   // agent pubkey that tripped it
+  trippedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([active])
+  @@index([type])
+}
+
+// ── Multi-Agent Instance Deployment ──────────────────────────────────────────
+
+model Instance {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  status        String   @default("provisioning")  // provisioning, running, stopped, error
+  agentRuntime  String   @default("openclaw")       // openclaw, custom, etc.
+  model         String   @default("claude-sonnet-4-20250514")
+  configJson    String?  // Full runtime config as JSON
+  containerId   String?  // Docker container ID
+  telegramBot   String?  // Telegram bot username / token identifier
+  endpoint      String?  // Internal endpoint URL
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([agentRuntime])
+}
+
+// ── GitHub App Integration ───────────────────────────────────────────────────
+
+model GitHubInstallation {
+  id              String   @id @default(cuid())
+  installationId  Int      @unique
+  accountLogin    String
+  accountType     String   // "Organization" | "User"
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  repos           GitHubRepo[]
+}
+
+model GitHubRepo {
+  id              String   @id @default(cuid())
+  installationId  String
+  installation    GitHubInstallation @relation(fields: [installationId], references: [id])
+  githubId        Int      @unique
+  owner           String
+  name            String
+  fullName        String   @unique
+  createdAt       DateTime @default(now())
+  prs             GitHubPR[]
+
+  @@index([installationId])
+}
+
+model GitHubPR {
+  id              String   @id @default(cuid())
+  repoId          String
+  repo            GitHubRepo @relation(fields: [repoId], references: [id])
+  number          Int
+  title           String
+  state           String   // open, closed, merged
+  isAgentPR       Boolean  @default(false)
+  agentPubkey     String?
+  detectionMode   String?  // "bot" | "label" | "trailer"
+  authorLogin     String
+  headSha         String?
+  baseBranch      String?
+  headBranch      String?
+  createdAt       DateTime
+  mergedAt        DateTime?
+  closedAt        DateTime?
+  updatedAt       DateTime @updatedAt
+  commits         GitHubCommit[]
+  events          GitHubPREvent[]
+  checkResults    GitHubCheckResult[]
+  attribution     GitHubPRAttribution?
+  taskLinks       GitHubTaskLink[]
+
+  @@unique([repoId, number])
+  @@index([agentPubkey])
+  @@index([state])
+}
+
+model GitHubPREvent {
+  id              String   @id @default(cuid())
+  prId            String
+  pr              GitHubPR @relation(fields: [prId], references: [id])
+  eventType       String   // review, comment, push, check_run, workflow_run
+  actorLogin      String
+  payload         String   // JSON
+  createdAt       DateTime
+
+  @@index([prId])
+  @@index([eventType])
+}
+
+model GitHubCommit {
+  id              String   @id @default(cuid())
+  prId            String
+  pr              GitHubPR @relation(fields: [prId], references: [id])
+  sha             String   @unique
+  authorLogin     String
+  authorEmail     String?
+  message         String
+  isAgent         Boolean  @default(false)
+  detectionMode   String?  // "bot" | "trailer" | null
+  linesAdded      Int      @default(0)
+  linesRemoved    Int      @default(0)
+  createdAt       DateTime
+
+  @@index([prId])
+  @@index([isAgent])
+}
+
+model GitHubCheckResult {
+  id              String    @id @default(cuid())
+  prId            String
+  pr              GitHubPR  @relation(fields: [prId], references: [id])
+  checkName       String
+  status          String    // queued, in_progress, completed
+  conclusion      String?   // success, failure, neutral, cancelled, timed_out, action_required, skipped
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([prId])
+}
+
+model GitHubPRAttribution {
+  id                      String   @id @default(cuid())
+  prId                    String   @unique
+  pr                      GitHubPR @relation(fields: [prId], references: [id])
+  agentPubkey             String?
+  agentCommitShas         String   // JSON array
+  humanCommitShas         String   // JSON array
+  agentLOC                Int      @default(0)
+  humanLOC                Int      @default(0)
+  interventionScore       Int      @default(0)
+  interventionBreakdown   String?  // JSON: which factors contributed
+  receiptCoverage         Float?   // 0.0-1.0
+  computedAt              DateTime @default(now())
+
+  @@index([agentPubkey])
+  @@index([interventionScore])
+}
+
+model GitHubTaskLink {
+  id              String   @id @default(cuid())
+  taskId          String
+  prId            String
+  pr              GitHubPR @relation(fields: [prId], references: [id])
+  receiptHashes   String?  // JSON array of linked receipt hashes
+  createdAt       DateTime @default(now())
+
+  @@unique([taskId, prId])
+  @@index([taskId])
+}

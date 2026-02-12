@@ -1,0 +1,40 @@
+{
+  "action": "submitted",
+  "review": {
+    "id": 100001,
+    "user": {
+      "login": "senior-dev",
+      "type": "User"
+    },
+    "body": "Looks good overall but please fix the error handling in auth.ts",
+    "state": "changes_requested",
+    "submitted_at": "2026-02-10T12:00:00Z"
+  },
+  "pull_request": {
+    "number": 42,
+    "title": "feat: add user authentication flow",
+    "state": "open",
+    "user": {
+      "login": "wooblay-bot[bot]",
+      "type": "Bot"
+    },
+    "labels": [],
+    "head": {
+      "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+      "ref": "feat/auth-flow"
+    },
+    "base": {
+      "ref": "main"
+    }
+  },
+  "repository": {
+    "id": 12345,
+    "full_name": "acme-corp/web-app"
+  },
+  "installation": {
+    "id": 99999
+  },
+  "sender": {
+    "login": "senior-dev"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "wooblay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Supervised autonomy for agents — approvals, identity, receipts, scoring.",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "clean": "turbo clean",
+    "db:generate": "pnpm --filter @wooblay/gate exec prisma generate",
+    "db:migrate": "pnpm --filter @wooblay/gate exec prisma migrate dev",
+    "db:push": "pnpm --filter @wooblay/gate exec prisma db push"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "action": "completed",
+  "workflow_run": {
+    "id": 300001,
+    "name": "Deploy Preview",
+    "head_sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    "status": "completed",
+    "conclusion": "success",
+    "run_started_at": "2026-02-10T10:15:00Z",
+    "updated_at": "2026-02-10T10:20:00Z",
+    "path": ".github/workflows/deploy-preview.yml",
+    "actor": {
+      "login": "github-actions[bot]"
+    }
+  },
+  "repository": {
+    "id": 12345,
+    "full_name": "acme-corp/web-app"
+  },
+  "installation": {
+    "id": 99999
+  },
+  "sender": {
+    "login": "github-actions[bot]"
+  }
+}

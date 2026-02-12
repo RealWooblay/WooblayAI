@@ -1,0 +1,46 @@
+{
+  "ref": "refs/heads/feat/auth-flow",
+  "before": "0000000000000000000000000000000000000000",
+  "after": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+  "commits": [
+    {
+      "id": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+      "message": "fix: improve error handling in auth module\n\nWooblay-Agent-Pubkey: abc123pubkey456\nWooblay-Task-Id: task-7890",
+      "timestamp": "2026-02-10T13:00:00Z",
+      "author": {
+        "name": "wooblay-bot",
+        "email": "bot@wooblay.dev",
+        "username": "wooblay-bot[bot]"
+      },
+      "added": ["src/auth/handler.ts"],
+      "removed": [],
+      "modified": ["src/auth/middleware.ts"]
+    },
+    {
+      "id": "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+      "message": "chore: fix typo in README",
+      "timestamp": "2026-02-10T13:05:00Z",
+      "author": {
+        "name": "John Developer",
+        "email": "john@acme.com",
+        "username": "john-dev"
+      },
+      "added": [],
+      "removed": [],
+      "modified": ["README.md"]
+    }
+  ],
+  "head_commit": {
+    "id": "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+  },
+  "pusher": {
+    "name": "john-dev"
+  },
+  "repository": {
+    "id": 12345,
+    "full_name": "acme-corp/web-app"
+  },
+  "installation": {
+    "id": 99999
+  }
+}

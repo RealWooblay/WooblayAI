@@ -1,0 +1,313 @@
+/**
+ * Wooblay OpenClaw Plugin — v5 (Gated Tools via registerTool)
+ *
+ * STRATEGY:
+ *   1. Register gated replacement tools (gated_exec, gated_write, etc.)
+ *   2. OpenClaw config denies built-in risky tools, allows gated ones
+ *   3. Each gated tool calls Wooblay Gate for policy decision before executing
+ *   4. Gate is the decision-maker. Plugin is just the adapter.
+ *
+ * FLOW:
+ *   Agent calls gated_exec("rm -rf /tmp")
+ *     → Plugin POSTs to Gate /api/tool/execute
+ *     → Gate evaluates policy → returns EXECUTE / DENY / PENDING_APPROVAL
+ *     → EXECUTE: plugin runs command via child_process, returns output
+ *     → DENY: plugin returns "BLOCKED" message to agent
+ *     → PENDING: plugin polls Gate for up to 100s, then executes or blocks
+ */
+
+// ─── Gate HTTP Client ────────────────────────────────────────────────────────
+
+async function askGate(
+  gateUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<{ decision: string; approvalId?: string; reason?: string; toolCallId?: string; receiptId?: string }> {
+  const res = await fetch(`${gateUrl}/api/tool/execute`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      toolName,
+      args,
+      agentPubkey: 'openclaw-runtime',
+      requestSignature: 'wooblay-plugin-v5',
+      adapter: 'openclaw-plugin-v5',
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Gate ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+async function waitForApproval(
+  gateUrl: string,
+  approvalId: string,
+  timeoutMs: number = 100_000,
+  pollMs: number = 2_000,
+): Promise<'APPROVED' | 'DENIED' | 'TIMEOUT'> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${gateUrl}/api/approvals/${approvalId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'APPROVED') return 'APPROVED';
+        if (data.status === 'DENIED') return 'DENIED';
+        if (data.status === 'EXPIRED') return 'DENIED';
+      }
+    } catch { /* retry */ }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return 'TIMEOUT';
+}
+
+async function gateHealth(gateUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${gateUrl}/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Tool Execution Helpers ──────────────────────────────────────────────────
+
+type ToolResult = { content: Array<{ type: 'text'; text: string }> };
+
+function textResult(text: string): ToolResult {
+  return { content: [{ type: 'text', text }] };
+}
+
+async function gatedAction(
+  gateUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  executeFn: () => Promise<string>,
+  logger: { info: (...a: any[]) => void; error: (...a: any[]) => void },
+): Promise<ToolResult> {
+  try {
+    const decision = await askGate(gateUrl, toolName, args);
+
+    if (decision.decision === 'EXECUTE') {
+      logger.info(`[wooblay] ALLOWED: ${toolName} — ${JSON.stringify(args).slice(0, 200)}`);
+      const output = await executeFn();
+      return textResult(output);
+    }
+
+    if (decision.decision === 'DENY') {
+      logger.info(`[wooblay] BLOCKED: ${toolName} — ${decision.reason}`);
+      return textResult(`BLOCKED by Wooblay policy: ${decision.reason}`);
+    }
+
+    if (decision.decision === 'PENDING_APPROVAL' && decision.approvalId) {
+      logger.info(`[wooblay] PENDING: ${toolName} — waiting for approval (${decision.approvalId})`);
+      const result = await waitForApproval(gateUrl, decision.approvalId);
+
+      if (result === 'APPROVED') {
+        logger.info(`[wooblay] APPROVED: ${toolName}`);
+        const output = await executeFn();
+        return textResult(output);
+      }
+
+      logger.info(`[wooblay] NOT APPROVED (${result}): ${toolName}`);
+      return textResult(
+        `This action requires human approval. ` +
+        `Approval ID: ${decision.approvalId}. ` +
+        `Check the Wooblay dashboard to approve or deny.`
+      );
+    }
+
+    return textResult(`Unknown Gate decision: ${decision.decision}`);
+  } catch (err: any) {
+    logger.error(`[wooblay] Gate error for ${toolName}: ${err.message}`);
+    return textResult(`Wooblay Gate unreachable — action blocked for safety. Error: ${err.message}`);
+  }
+}
+
+// ─── Plugin Entry Point ──────────────────────────────────────────────────────
+
+interface PluginApi {
+  config: Record<string, any>;
+  logger: { info: (...args: any[]) => void; warn: (...args: any[]) => void; error: (...args: any[]) => void };
+  registerTool?: (tool: Record<string, any>) => void;
+  registerService?: (service: { id: string; start: () => void; stop: () => void }) => void;
+  registerGatewayMethod?: (method: string, handler: (...args: any[]) => void) => void;
+  registerCommand?: (opts: Record<string, any>) => void;
+}
+
+export default function register(api: PluginApi): void {
+  const logger = api.logger ?? console;
+  const pluginConfig = api.config?.plugins?.entries?.wooblay?.config ?? {};
+  const gateUrl: string = pluginConfig.gateUrl
+    ?? process.env['GATE_URL']
+    ?? process.env['WOOBLAY_GATE_URL']
+    ?? 'http://wooblay-gate:4800';
+
+  logger.info('[wooblay] v5 plugin loading (gated tools via registerTool)');
+  logger.info(`[wooblay] Gate URL: ${gateUrl}`);
+
+  if (!api.registerTool) {
+    logger.error('[wooblay] FATAL: api.registerTool not available — plugin cannot register gated tools');
+    return;
+  }
+
+  // ── GATED TOOLS ────────────────────────────────────────────────────────────
+
+  // 1. gated_exec — shell command execution
+  api.registerTool({
+    name: 'gated_exec',
+    description: 'Execute a shell command. All commands are reviewed by Wooblay policy before execution.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'The shell command to execute' },
+        cwd: { type: 'string', description: 'Working directory (optional)' },
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
+      },
+      required: ['command'],
+    },
+    async execute(_id: string, params: { command: string; cwd?: string; timeout?: number }) {
+      return gatedAction(gateUrl, 'exec', params, async () => {
+        const { execSync } = await import('child_process');
+        const timeout = params.timeout ?? 30_000;
+        return execSync(params.command, {
+          cwd: params.cwd,
+          timeout,
+          encoding: 'utf-8',
+          maxBuffer: 2 * 1024 * 1024,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      }, logger);
+    },
+  });
+
+  // 2. gated_write — write file contents
+  api.registerTool({
+    name: 'gated_write',
+    description: 'Write content to a file. Reviewed by Wooblay policy before writing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path to write to' },
+        content: { type: 'string', description: 'Content to write' },
+      },
+      required: ['path', 'content'],
+    },
+    async execute(_id: string, params: { path: string; content: string }) {
+      return gatedAction(gateUrl, 'write', params, async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+        // Ensure parent directory exists
+        const dir = path.dirname(params.path);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(params.path, params.content, 'utf-8');
+        return `File written: ${params.path} (${params.content.length} chars)`;
+      }, logger);
+    },
+  });
+
+  // 3. gated_edit — edit a file (read, apply changes, write back)
+  api.registerTool({
+    name: 'gated_edit',
+    description: 'Edit a file by replacing old text with new text. Reviewed by Wooblay policy.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path to edit' },
+        old_string: { type: 'string', description: 'Text to find and replace' },
+        new_string: { type: 'string', description: 'Replacement text' },
+      },
+      required: ['path', 'old_string', 'new_string'],
+    },
+    async execute(_id: string, params: { path: string; old_string: string; new_string: string }) {
+      return gatedAction(gateUrl, 'edit', params, async () => {
+        const fs = await import('fs');
+        const content = fs.readFileSync(params.path, 'utf-8');
+        if (!content.includes(params.old_string)) {
+          throw new Error(`old_string not found in ${params.path}`);
+        }
+        const updated = content.replace(params.old_string, params.new_string);
+        fs.writeFileSync(params.path, updated, 'utf-8');
+        return `File edited: ${params.path}`;
+      }, logger);
+    },
+  });
+
+  // 4. gated_web_fetch — fetch a URL
+  api.registerTool({
+    name: 'gated_web_fetch',
+    description: 'Fetch content from a URL. Reviewed by Wooblay policy.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to fetch' },
+        method: { type: 'string', description: 'HTTP method (default: GET)' },
+        body: { type: 'string', description: 'Request body (for POST/PUT)' },
+      },
+      required: ['url'],
+    },
+    async execute(_id: string, params: { url: string; method?: string; body?: string }) {
+      return gatedAction(gateUrl, 'web_fetch', params, async () => {
+        const res = await fetch(params.url, {
+          method: params.method ?? 'GET',
+          body: params.body,
+          headers: params.body ? { 'content-type': 'application/json' } : undefined,
+        });
+        const text = await res.text();
+        return text.slice(0, 50_000); // Cap response size
+      }, logger);
+    },
+  });
+
+  logger.info('[wooblay] Registered gated tools: gated_exec, gated_write, gated_edit, gated_web_fetch');
+
+  // ── HEALTH CHECK SERVICE ───────────────────────────────────────────────────
+
+  if (api.registerService) {
+    let healthInterval: ReturnType<typeof setInterval> | null = null;
+    api.registerService({
+      id: 'wooblay-health',
+      start: () => {
+        healthInterval = setInterval(async () => {
+          const ok = await gateHealth(gateUrl);
+          if (!ok) logger.warn('[wooblay] Gate health check FAILED — gated tools will block all actions');
+        }, 30_000);
+        logger.info('[wooblay] Health check service started (every 30s)');
+      },
+      stop: () => {
+        if (healthInterval) clearInterval(healthInterval);
+        logger.info('[wooblay] Health check service stopped');
+      },
+    });
+  }
+
+  // ── SLASH COMMAND ──────────────────────────────────────────────────────────
+
+  if (api.registerCommand) {
+    api.registerCommand({
+      name: 'wooblay',
+      description: 'Show Wooblay supervision status',
+      handler: async () => {
+        const healthy = await gateHealth(gateUrl);
+        return {
+          text: healthy
+            ? `Wooblay supervision ACTIVE.\nGate: ${gateUrl}\nGated tools: gated_exec, gated_write, gated_edit, gated_web_fetch`
+            : `Wooblay Gate UNREACHABLE at ${gateUrl}.\nAll gated tool calls will be BLOCKED for safety.`,
+        };
+      },
+    });
+  }
+
+  // ── GATEWAY RPC ────────────────────────────────────────────────────────────
+
+  if (api.registerGatewayMethod) {
+    api.registerGatewayMethod('wooblay.status', async ({ respond }: any) => {
+      const healthy = await gateHealth(gateUrl);
+      respond(true, { ok: healthy, gateUrl, version: 'v5', strategy: 'gated-tools' });
+    });
+  }
+
+  logger.info('[wooblay] v5 plugin loaded — all risky tools gated through Wooblay Gate');
+}
