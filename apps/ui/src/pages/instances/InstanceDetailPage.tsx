@@ -23,6 +23,7 @@ import {
 } from '../../api/client.ts';
 import { Tooltip } from '../../components/common/Tooltip.tsx';
 import { Button } from '../../components/common/Button.tsx';
+import { WeatherBackground } from '../../components/weather/WeatherBackground.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -334,19 +335,6 @@ export function InstanceDetailPage() {
     return 'cloudy' as const;
   }, [mission, criticalFlags.length]);
 
-  const rainDrops = useMemo(() => {
-    if (weather !== 'rain' && weather !== 'storm') return [];
-    const count = weather === 'storm' ? 30 : 16;
-    const chars = '·.:|/';
-    return Array.from({ length: count }, (_, i) => ({
-      left: (i / count) * 100 + (Math.random() * 4 - 2),
-      char: chars[Math.floor(Math.random() * chars.length)],
-      duration: 2.5 + Math.random() * 3,
-      delay: Math.random() * -5,
-      size: weather === 'storm' ? 12 : 10,
-    }));
-  }, [weather]);
-
   // ── Contribution Score ───────────────────────────────────────────────────
   const contributionScore = useMemo(() => {
     if (!contributions || contributions.summary.totalActions === 0) return 0;
@@ -358,33 +346,8 @@ export function InstanceDetailPage() {
   }, [contributions]);
 
   return (
-    <div className="relative">
-      {/* Weather Background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-        {weather === 'sunny' && (
-          <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.02] via-transparent to-transparent" />
-        )}
-        {weather === 'rain' && (
-          <div className="absolute inset-0 bg-gradient-to-b from-blue-500/[0.03] via-transparent to-transparent" />
-        )}
-        {weather === 'storm' && (
-          <div className="absolute inset-0 bg-gradient-to-b from-red-500/[0.04] via-transparent to-transparent animate-pulse" style={{ animationDuration: '4s' }} />
-        )}
-        {rainDrops.map((d, i) => (
-          <span
-            key={i}
-            className={`absolute font-mono ${weather === 'storm' ? 'text-red-500/20' : 'text-blue-500/15'}`}
-            style={{
-              left: `${d.left}%`,
-              top: '-20px',
-              fontSize: d.size,
-              animation: `rain-fall ${d.duration}s linear ${d.delay}s infinite`,
-            }}
-          >
-            {d.char}
-          </span>
-        ))}
-      </div>
+    <div className="relative min-h-full">
+      <WeatherBackground weather={weather} />
 
       <div className="max-w-5xl mx-auto space-y-5 relative z-10">
       <Link to="/" className="text-[10px] text-text-tertiary hover:text-text-secondary transition-colors font-mono">← dashboard</Link>

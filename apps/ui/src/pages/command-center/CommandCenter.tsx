@@ -19,86 +19,7 @@ import {
   type MissionData,
 } from '../../api/client.ts';
 import { Button } from '../../components/common/Button.tsx';
-
-// ── Weather System ────────────────────────────────────────────────────────────
-// Background animation based on agent health: sunny → cloudy → rain → storm
-
-type Weather = 'sunny' | 'cloudy' | 'rain' | 'storm';
-
-const RAIN_CHARS = '·.:|/';
-
-function WeatherBackground({ weather }: { weather: Weather }) {
-  const drops = useMemo(() => {
-    if (weather !== 'rain' && weather !== 'storm') return [];
-    const count = weather === 'storm' ? 35 : 20;
-    return Array.from({ length: count }, (_, i) => ({
-      left: (i / count) * 100 + (Math.random() * 4 - 2),
-      char: RAIN_CHARS[Math.floor(Math.random() * RAIN_CHARS.length)],
-      duration: 2 + Math.random() * 3,
-      delay: Math.random() * -5,
-      size: weather === 'storm' ? 12 : 10,
-    }));
-  }, [weather]);
-
-  const particles = useMemo(() => {
-    if (weather !== 'sunny') return [];
-    return Array.from({ length: 12 }, () => ({
-      left: Math.random() * 100,
-      top: Math.random() * 100,
-      duration: 4 + Math.random() * 6,
-      delay: Math.random() * -8,
-    }));
-  }, [weather]);
-
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-      {/* Base gradient */}
-      {weather === 'sunny' && (
-        <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.02] via-transparent to-transparent" />
-      )}
-      {weather === 'rain' && (
-        <div className="absolute inset-0 bg-gradient-to-b from-blue-500/[0.03] via-transparent to-transparent" />
-      )}
-      {weather === 'storm' && (
-        <div className="absolute inset-0 bg-gradient-to-b from-red-500/[0.04] via-transparent to-transparent animate-pulse" style={{ animationDuration: '4s' }} />
-      )}
-
-      {/* Rain drops */}
-      {drops.map((d, i) => (
-        <span
-          key={i}
-          className={`absolute font-mono ${weather === 'storm' ? 'text-red-500/20' : 'text-blue-500/15'}`}
-          style={{
-            left: `${d.left}%`,
-            top: '-20px',
-            fontSize: d.size,
-            animation: `rain-fall ${d.duration}s linear ${d.delay}s infinite`,
-          }}
-        >
-          {d.char}
-        </span>
-      ))}
-
-      {/* Sunny particles */}
-      {particles.map((p, i) => (
-        <span
-          key={i}
-          className="absolute text-amber-400/10 font-mono text-[8px]"
-          style={{
-            left: `${p.left}%`,
-            top: `${p.top}%`,
-            animation: `breathe ${p.duration}s ease-in-out ${p.delay}s infinite`,
-          }}
-        >
-          ·
-        </span>
-      ))}
-
-      {/* Scanline */}
-      <div className="scanline-overlay" />
-    </div>
-  );
-}
+import { WeatherBackground, type Weather } from '../../components/weather/WeatherBackground.tsx';
 
 // ── Alive Agent Face ──────────────────────────────────────────────────────────
 // Real blinking, breathing, emotional state
@@ -390,7 +311,6 @@ export function CommandCenter() {
           <div className="pt-3 border-t border-border/30 flex items-center gap-6">
             <Link to="/activity" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">activity →</Link>
             <Link to="/policies" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">policies →</Link>
-            <Link to="/audit" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">audit →</Link>
           </div>
         )}
       </div>

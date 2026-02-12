@@ -24,7 +24,6 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/approvals', label: 'Approvals', icon: '⬡', badge: true },
   { to: '/policies', label: 'Policies', icon: '◇' },
   { to: '/activity', label: 'Activity', icon: '◈' },
-  { to: '/audit', label: 'Audit', icon: '⬢' },
 ];
 
 export function Sidebar() {

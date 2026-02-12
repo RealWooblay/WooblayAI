@@ -1,5 +1,11 @@
 /**
- * Activity — AI Summary first, flags, contribution score, then logs.
+ * Activity — Unified activity log + compliance audit on one page.
+ *
+ * Top:    Chain integrity banner + session stats + export buttons
+ * Middle: Anomaly flags (if any)
+ * Filter: Date range + risk/status selectors
+ * Main:   Action log with expandable details
+ * Bottom: Pagination
  */
 
 import { useState } from 'react';
@@ -9,12 +15,19 @@ import {
   getActivity,
   getFlags,
   dismissFlag,
-  getInstanceContributions,
   getInstances,
+  getInstanceContributions,
+  getAuditReport,
+  getChainIntegrity,
+  getAuditReportCsv,
   type ActivityItem,
   type AuditFlag,
+  type AuditReport,
+  type ChainIntegrity,
 } from '../../api/client.ts';
 import { Tooltip } from '../../components/common/Tooltip.tsx';
+
+// ── Color maps ───────────────────────────────────────────────────────────────
 
 const riskColor: Record<string, string> = {
   READ: 'text-blue-400 bg-blue-500/10',
@@ -39,12 +52,22 @@ const severityColor: Record<string, string> = {
   INFO: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
 };
 
+// ── Main ─────────────────────────────────────────────────────────────────────
+
 export function ActivityPage() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [riskFilter, setRiskFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Date range for audit / export
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const [from, setFrom] = useState(weekAgo.toISOString().slice(0, 10));
+  const [to, setTo] = useState(now.toISOString().slice(0, 10));
+
+  // ── Queries ──────────────────────────────────────────────────────────────
 
   const { data: activity, isLoading } = useQuery({
     queryKey: ['activity', page, riskFilter, statusFilter],
@@ -64,7 +87,6 @@ export function ActivityPage() {
     refetchInterval: 30_000,
   });
 
-  // Get contribution data for any running instance
   const runningInstance = instances?.find(i => i.status === 'running');
   const { data: contributions } = useQuery({
     queryKey: ['contributions', runningInstance?.id],
@@ -73,10 +95,24 @@ export function ActivityPage() {
     refetchInterval: 30_000,
   });
 
+  const { data: auditReport } = useQuery<AuditReport>({
+    queryKey: ['audit-report', from, to],
+    queryFn: () => getAuditReport(from, to),
+    refetchInterval: 30_000,
+  });
+
+  const { data: chain } = useQuery<ChainIntegrity>({
+    queryKey: ['chain-integrity', from, to],
+    queryFn: () => getChainIntegrity(from, to),
+    refetchInterval: 30_000,
+  });
+
   const dismissMutation = useMutation({
     mutationFn: dismissFlag,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }),
   });
+
+  // ── Derived ──────────────────────────────────────────────────────────────
 
   const flags = flagsData?.flags ?? [];
   const flagSummary = flagsData?.summary ?? {};
@@ -86,33 +122,119 @@ export function ActivityPage() {
   const allowedCount = activity?.data?.filter(a => a.status === 'allowed' || a.status === 'auto-allowed').length ?? 0;
   const approvedCount = activity?.data?.filter(a => a.status === 'approved').length ?? 0;
 
+  // ── Export handlers ──────────────────────────────────────────────────────
+
+  const handleDownloadCsv = async () => {
+    try {
+      const csv = await getAuditReportCsv(from, to);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wooblay-audit-${from}-${to}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download CSV:', err);
+    }
+  };
+
+  const handleDownloadJson = () => {
+    if (!auditReport) return;
+    const blob = new Blob([JSON.stringify(auditReport, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wooblay-audit-${from}-${to}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold text-text-primary">Activity</h1>
-        <p className="text-sm text-text-muted mt-0.5">Agent actions, AI detections, and contribution analysis</p>
+      {/* ── Header + Export ───────────────────────────────────────────────── */}
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-text-primary">Activity</h1>
+          <p className="text-sm text-text-muted mt-0.5">Agent actions, AI detections, and compliance</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleDownloadJson}
+            disabled={!auditReport}
+            className="px-3 py-1.5 bg-surface-2 hover:bg-surface-3 text-text-primary text-[10px] rounded-lg border border-border transition-colors disabled:opacity-30"
+          >
+            Export JSON
+          </button>
+          <button
+            onClick={handleDownloadCsv}
+            className="px-3 py-1.5 bg-surface-2 hover:bg-surface-3 text-text-primary text-[10px] rounded-lg border border-border transition-colors"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
-      {/* ── AI Summary Banner ───────────────────────────────────────────────── */}
+      {/* ── Chain Integrity ───────────────────────────────────────────────── */}
+      <div className={`rounded-xl border p-3 flex items-center gap-3 ${
+        chain
+          ? chain.chainValid
+            ? 'bg-emerald-500/5 border-emerald-500/20'
+            : 'bg-red-500/5 border-red-500/20'
+          : 'bg-surface-1 border-border'
+      }`}>
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+          chain
+            ? chain.chainValid
+              ? 'bg-emerald-500/20 text-emerald-400'
+              : 'bg-red-500/20 text-red-400'
+            : 'bg-surface-3 text-text-muted'
+        }`}>
+          {chain ? (chain.chainValid ? '✓' : '✗') : '?'}
+        </div>
+        <div className="min-w-0">
+          <Tooltip content="Cryptographic hash chain ensures no audit records have been tampered with">
+            <p className={`text-xs font-medium ${
+              chain ? (chain.chainValid ? 'text-emerald-400' : 'text-red-400') : 'text-text-muted'
+            }`}>
+              {chain ? (chain.chainValid ? 'Chain Verified — No Tampering' : 'Chain Integrity Issues') : 'Verifying chain...'}
+            </p>
+          </Tooltip>
+          <p className="text-[10px] text-text-muted">
+            {chain
+              ? `${chain.totalReceipts} receipts · ${chain.hashesVerified} verified${chain.gaps.length > 0 ? ` · ${chain.gaps.length} gaps` : ''}`
+              : 'Checking cryptographic receipts...'}
+          </p>
+        </div>
+      </div>
+
+      {/* ── Session Summary ───────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-4">
-        <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-3">Session Summary</h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           <div>
             <div className="text-[10px] text-text-muted">Total Actions</div>
-            <div className="text-xl font-bold text-text-primary tabular-nums">{totalItems}</div>
+            <div className="text-xl font-bold text-text-primary tabular-nums">{auditReport?.summary?.totalActions ?? totalItems}</div>
           </div>
           <div>
             <div className="text-[10px] text-text-muted">Auto-Allowed</div>
-            <div className="text-xl font-bold text-emerald-400 tabular-nums">{allowedCount}</div>
+            <div className="text-xl font-bold text-emerald-400 tabular-nums">{auditReport?.summary?.autoAllowed ?? allowedCount}</div>
           </div>
           <div>
             <div className="text-[10px] text-text-muted">Human Approved</div>
-            <div className="text-xl font-bold text-yellow-400 tabular-nums">{approvedCount}</div>
+            <div className="text-xl font-bold text-yellow-400 tabular-nums">{auditReport?.summary?.humanApproved ?? approvedCount}</div>
           </div>
           <div>
             <div className="text-[10px] text-text-muted">Denied</div>
-            <div className="text-xl font-bold text-red-400 tabular-nums">{deniedCount}</div>
+            <div className="text-xl font-bold text-red-400 tabular-nums">{auditReport?.summary?.denied ?? deniedCount}</div>
           </div>
+          <Tooltip content="Average time for human to approve a pending action">
+            <div>
+              <div className="text-[10px] text-text-muted">Avg Approval</div>
+              <div className="text-xl font-bold text-text-primary tabular-nums">
+                {auditReport?.summary ? `${(auditReport.summary.avgApprovalTimeMs / 1000).toFixed(1)}s` : '—'}
+              </div>
+            </div>
+          </Tooltip>
           <Tooltip content="Number of AI-detected anomalies requiring attention">
             <div>
               <div className="text-[10px] text-text-muted">AI Flags</div>
@@ -121,7 +243,6 @@ export function ActivityPage() {
           </Tooltip>
         </div>
 
-        {/* Contribution quick stats */}
         {contributions && (
           <div className="mt-3 pt-3 border-t border-border flex gap-6 text-[10px] text-text-muted">
             <span>{contributions.summary.filesCreated} files created</span>
@@ -133,25 +254,22 @@ export function ActivityPage() {
         )}
       </div>
 
-      {/* ── Flag Severity Cards — with CTAs ────────────────────────────────── */}
+      {/* ── Anomaly Flags ─────────────────────────────────────────────────── */}
       {totalFlags > 0 && (
         <div className="space-y-2">
           <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Detected Anomalies</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {flags.slice(0, 6).map((flag: AuditFlag) => (
               <div key={flag.id} className={`rounded-xl border p-3 ${severityColor[flag.severity] ?? ''}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[9px] font-bold uppercase">{flag.severity}</span>
-                      <span className="text-[9px] opacity-50">{flag.category.replace(/_/g, ' ')}</span>
-                    </div>
-                    <p className="text-xs font-medium">{flag.title}</p>
-                    <p className="text-[10px] opacity-70 mt-0.5 line-clamp-2">{flag.description}</p>
+                <div className="min-w-0 mb-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[9px] font-bold uppercase">{flag.severity}</span>
+                    <span className="text-[9px] opacity-50">{flag.category.replace(/_/g, ' ')}</span>
                   </div>
+                  <p className="text-xs font-medium">{flag.title}</p>
+                  <p className="text-[10px] opacity-70 mt-0.5 line-clamp-2">{flag.description}</p>
                 </div>
-                {/* CTAs */}
-                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">
+                <div className="flex items-center gap-2 pt-2 border-t border-white/5">
                   {flag.severity === 'CRITICAL' || flag.severity === 'HIGH' ? (
                     <Link to="/policies" className="text-[10px] font-medium hover:underline">
                       Update policies →
@@ -174,8 +292,18 @@ export function ActivityPage() {
         </div>
       )}
 
-      {/* ── Filters ─────────────────────────────────────────────────────────── */}
-      <div className="flex gap-3">
+      {/* ── Filters ───────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-[10px] text-text-muted mb-0.5">From</label>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+            className="bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label className="block text-[10px] text-text-muted mb-0.5">To</label>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+            className="bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent" />
+        </div>
         <select
           value={riskFilter}
           onChange={(e) => { setRiskFilter(e.target.value); setPage(1); }}
@@ -199,17 +327,18 @@ export function ActivityPage() {
         </select>
       </div>
 
-      {/* ── Activity Log ────────────────────────────────────────────────────── */}
+      {/* ── Action Log ────────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-border">
+        <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
           <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Action Log</h2>
+          {activity && <span className="text-[10px] text-text-tertiary">{activity.total} total</span>}
         </div>
 
         {isLoading ? (
           <div className="p-8 text-center text-text-muted text-sm animate-pulse">Loading activity...</div>
         ) : !activity?.data.length ? (
           <div className="p-12 text-center">
-            <div className="text-3xl opacity-10 mb-3">_</div>
+            <div className="font-mono text-3xl opacity-10 mb-3">_</div>
             <p className="text-sm text-text-muted">No activity recorded yet.</p>
             <p className="text-xs text-text-muted mt-1">Agent actions will appear here once your agent starts working.</p>
           </div>
@@ -253,7 +382,12 @@ export function ActivityPage() {
                         </>
                       )}
                       {item.receipt && (
-                        <div className="col-span-2"><span className="text-text-muted">Receipt:</span> <span className="text-text-primary font-mono text-[10px]">{item.receipt.hash.slice(0, 24)}...</span></div>
+                        <div className="col-span-2">
+                          <span className="text-text-muted">Receipt:</span>{' '}
+                          <Tooltip content={`Full hash: ${item.receipt.hash}`}>
+                            <span className="text-text-primary font-mono text-[10px]">{item.receipt.hash.slice(0, 24)}…</span>
+                          </Tooltip>
+                        </div>
                       )}
                     </div>
                     {item.args && (
@@ -272,7 +406,7 @@ export function ActivityPage() {
         )}
       </div>
 
-      {/* Pagination */}
+      {/* ── Pagination ────────────────────────────────────────────────────── */}
       {activity && activity.total > 30 && (
         <div className="flex justify-center gap-3">
           <button
