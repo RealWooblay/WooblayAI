@@ -60,6 +60,8 @@ jobs:
               \"cd /opt/wooblay\",
               \"aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}\",
               \"sed -i 's|GATE_IMAGE=.*|GATE_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:mvp|' .env\",
+              \"grep -q '^OPENAI_API_KEY=' .env || echo 'OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}' >> .env\",
+              \"sed -i 's|OPENAI_API_KEY=.*|OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}|' .env\",
               \"docker compose pull gate\",
               \"docker compose up -d\",
               \"sleep 15\",

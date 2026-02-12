@@ -68,8 +68,10 @@ export async function evaluatePolicy(
     // Match business category (if specified on rule)
     if (rule.matchCategory && rule.matchCategory !== '*') {
       const toolCategory = (toolCall as any).category as string | null;
-      if (toolCategory && rule.matchCategory !== toolCategory) continue;
-      // If tool has no category yet, don't filter by category
+      // If the tool call has no category, category-specific rules should NOT match.
+      // This prevents uncategorized calls from accidentally matching permissive category rules.
+      if (!toolCategory) continue;
+      if (rule.matchCategory !== toolCategory) continue;
     }
 
     // Match args pattern (optional JSON substring match)

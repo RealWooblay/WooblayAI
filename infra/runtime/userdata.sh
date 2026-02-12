@@ -60,6 +60,8 @@ AGENT_IMAGE=$(echo "$SECRET_JSON" | jq -r '.agent_image')
 SERVER_PRIVATE_KEY=$(echo "$SECRET_JSON" | jq -r '.wooblay_server_private_key')
 SERVER_PUBLIC_KEY=$(echo "$SECRET_JSON" | jq -r '.wooblay_server_public_key')
 TOOL_FILTER=$(echo "$SECRET_JSON" | jq -r '.tool_filter')
+OPENAI_API_KEY=$(echo "$SECRET_JSON" | jq -r '.openai_api_key // empty')
+OPENAI_MODEL=$(echo "$SECRET_JSON" | jq -r '.openai_model // "gpt-4o-mini"')
 
 echo "  ✓ Config loaded for tenant: ${tenant_name}"
 echo "  ✓ Gate image: $GATE_IMAGE"
@@ -95,6 +97,8 @@ AGENT_IMAGE=$AGENT_IMAGE
 WOOBLAY_SERVER_PRIVATE_KEY=$SERVER_PRIVATE_KEY
 WOOBLAY_SERVER_PUBLIC_KEY=$SERVER_PUBLIC_KEY
 WOOBLAY_TOOL_FILTER=$TOOL_FILTER
+OPENAI_API_KEY=$OPENAI_API_KEY
+OPENAI_MODEL=$${OPENAI_MODEL:-gpt-4o-mini}
 ENVEOF
 
 chmod 600 "$RUNTIME_DIR/.env"
@@ -137,6 +141,8 @@ services:
       DATABASE_URL: "postgresql://$${DB_USER:-wooblay}:$${DB_PASSWORD}@postgres:5432/$${DB_NAME:-wooblay}"
       WOOBLAY_SERVER_PRIVATE_KEY: "$${WOOBLAY_SERVER_PRIVATE_KEY}"
       WOOBLAY_SERVER_PUBLIC_KEY: "$${WOOBLAY_SERVER_PUBLIC_KEY}"
+      OPENAI_API_KEY: "$${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "$${OPENAI_MODEL:-gpt-4o-mini}"
     depends_on:
       postgres:
         condition: service_healthy

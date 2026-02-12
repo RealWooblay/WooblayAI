@@ -41,6 +41,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/wooblay_dev}
       WOOBLAY_SERVER_PUBLIC_KEY: ${WOOBLAY_SERVER_PUBLIC_KEY:-}
       WOOBLAY_SERVER_PRIVATE_KEY: ${WOOBLAY_SERVER_PRIVATE_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:4800/health"]
       interval: 10s

@@ -25,17 +25,6 @@ import { Button } from '../../components/common/Button.tsx';
 
 type Weather = 'sunny' | 'cloudy' | 'rain' | 'storm';
 
-function getWeather(missions: MissionData[]): Weather {
-  if (missions.length === 0) return 'cloudy';
-  const avgTrust = missions.reduce((s, m) => s + m.trustScore, 0) / missions.length;
-  const totalDenied = missions.reduce((s, m) => s + m.progress.denied, 0);
-  const hasCritical = missions.some(m => m.blockedActions > 2);
-  if (hasCritical || totalDenied > 5) return 'storm';
-  if (totalDenied > 0 || missions.some(m => m.blockedActions > 0)) return 'rain';
-  if (avgTrust > 60) return 'sunny';
-  return 'cloudy';
-}
-
 const RAIN_CHARS = '·.:|/';
 
 function WeatherBackground({ weather }: { weather: Weather }) {
@@ -286,7 +275,6 @@ export function CommandCenter() {
   const { data: approvals } = useQuery({ queryKey: ['approvals', 'pending'], queryFn: getApprovals, refetchInterval: 5_000 });
   const { data: flagsData } = useQuery({ queryKey: ['flags', 'dashboard'], queryFn: () => getFlags({ dismissed: 'false', limit: '5' }), refetchInterval: 10_000 });
 
-  // Collect missions for weather calculation
   const allInstances = instances ?? [];
   const running = allInstances.filter(i => i.status === 'running');
   const stopped = allInstances.filter(i => i.status !== 'running');
@@ -296,13 +284,14 @@ export function CommandCenter() {
   const isEmpty = !loadingInstances && allInstances.length === 0;
   const hasData = (stats?.totalToolCalls ?? 0) > 0;
 
-  // Fetch missions for all running instances to compute weather
-  const missionQueries = running.map(inst =>
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useQuery({ queryKey: ['mission', inst.id], queryFn: () => getMission(inst.id), refetchInterval: 5_000, enabled: true }),
-  );
-  const missions = missionQueries.map(q => q.data).filter(Boolean) as MissionData[];
-  const weather = getWeather(missions);
+  // Derive weather from available data (no hooks-in-loops)
+  const weather: Weather = useMemo(() => {
+    if (running.length === 0) return 'cloudy';
+    if (criticalFlags.length > 0 || (stats?.byDecision?.['DENY'] ?? 0) > 5) return 'storm';
+    if (pending.length > 0 || criticalFlags.length > 0) return 'rain';
+    if ((stats?.byDecision?.['DENY'] ?? 0) === 0 && hasData) return 'sunny';
+    return 'cloudy';
+  }, [running.length, criticalFlags.length, pending.length, stats, hasData]);
 
   return (
     <div className="h-full overflow-y-auto p-6 canvas-bg relative">

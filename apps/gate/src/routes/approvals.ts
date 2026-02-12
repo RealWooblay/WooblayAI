@@ -105,11 +105,31 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
         // keep empty
       }
 
+      // Try AI-powered descriptions first
+      let aiDesc = aiDescriptionCache.get(approval.toolCallId);
+      if (!aiDesc) {
+        try {
+          const structRisk = classifyRisk(approval.toolCall.toolName, parsedArgs);
+          const structCat = classifyCategory(approval.toolCall.toolName, parsedArgs);
+          const aiResult = await classifyWithAI(approval.toolCall.toolName, parsedArgs, structRisk, structCat);
+          if (aiResult?.description) {
+            aiDesc = { description: aiResult.description, whyReview: aiResult.whyReview };
+            aiDescriptionCache.set(approval.toolCallId, aiDesc);
+          }
+        } catch {
+          // AI unavailable — fall through to regex
+        }
+      }
+
+      const fallbackDesc = describeToolCall(approval.toolCall.toolName, parsedArgs);
+      const fallbackRisk = describeRisk(approval.toolCall.riskTier, approval.toolCall.toolName, parsedArgs);
+      const fallbackWhy = explainWhyFlagged(approval.toolCall.riskTier, approval.toolCall.toolName, 'APPROVE', parsedArgs);
+
       return reply.send({
         ...approval,
-        humanDescription: describeToolCall(approval.toolCall.toolName, parsedArgs),
-        riskExplanation: describeRisk(approval.toolCall.riskTier, approval.toolCall.toolName, parsedArgs),
-        whyFlagged: explainWhyFlagged(approval.toolCall.riskTier, approval.toolCall.toolName, 'APPROVE', parsedArgs),
+        humanDescription: aiDesc?.description || fallbackDesc,
+        riskExplanation: aiDesc?.whyReview || fallbackRisk,
+        whyFlagged: aiDesc?.whyReview || fallbackWhy,
       });
     } catch (err) {
       request.log.error(err, 'Failed to get approval');

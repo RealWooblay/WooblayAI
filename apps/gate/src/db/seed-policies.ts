@@ -1,9 +1,15 @@
 /**
- * Seed default policy rules on first startup.
+ * Policy presets — agentic-first.
  *
- * Only runs if the policy table is empty — does not overwrite existing policies.
- * Provides a sensible "balanced" default: read-only auto-allowed, writes require
- * approval, destructive auto-denied.
+ * Philosophy: Agents should be able to WORK. The value of Wooblay is not
+ * blanket blocking — it's AI-powered anomaly detection that flags what's
+ * OUT OF THE NORM. Policies set broad guardrails. The AI supervisor catches
+ * the weird stuff within allowed categories.
+ *
+ * Categories: code, git, packages, shell, files, network, secrets, infra,
+ *             communication, destructive, data, other
+ *
+ * Only seeds if the policy table is empty — does not overwrite existing.
  */
 
 import type { PrismaClient } from '@prisma/client';
@@ -15,57 +21,89 @@ export interface PolicyPreset {
     priority: number;
     matchTool: string;
     riskTier: string;
+    matchCategory?: string;
     decision: string;
+    description?: string;
     enabled: boolean;
   }>;
 }
 
-/** Balanced: safe reads auto-allowed, writes need approval, destructive denied. */
+/**
+ * Balanced: The agent can code, commit, push, run commands, install packages
+ * freely. Destructive ops need a human glance. Secrets and infra are hard-blocked.
+ * AI anomaly detection handles the "that's weird" stuff within allowed categories.
+ */
 export const PRESET_BALANCED: PolicyPreset = {
   name: 'Balanced',
-  description: 'Safe reads auto-allowed. Writes need human approval. Destructive actions auto-denied.',
+  description: 'Agent works autonomously. Destructive ops need review. Secrets and infra blocked. AI flags anomalies.',
   rules: [
-    // Safe read-only tools
-    { priority: 10,  matchTool: 'read',            riskTier: '*',           decision: 'ALLOW', enabled: true },
-    { priority: 20,  matchTool: 'web_search',      riskTier: '*',           decision: 'ALLOW', enabled: true },
-    { priority: 30,  matchTool: 'web_fetch',       riskTier: 'READ',        decision: 'ALLOW', enabled: true },
-    { priority: 40,  matchTool: 'sessions_list',   riskTier: '*',           decision: 'ALLOW', enabled: true },
-    { priority: 50,  matchTool: 'sessions_history', riskTier: '*',          decision: 'ALLOW', enabled: true },
-    { priority: 60,  matchTool: 'agents_list',     riskTier: '*',           decision: 'ALLOW', enabled: true },
-    { priority: 70,  matchTool: 'memory_*',        riskTier: '*',           decision: 'ALLOW', enabled: true },
-    { priority: 80,  matchTool: 'session_status',  riskTier: '*',           decision: 'ALLOW', enabled: true },
-    // Exec: read-only shell commands auto-allowed
-    { priority: 100, matchTool: 'exec',            riskTier: 'READ',        decision: 'ALLOW', enabled: true },
-    // Exec: write-level needs approval
-    { priority: 200, matchTool: 'exec',            riskTier: 'WRITE',       decision: 'APPROVE', enabled: true },
-    // Exec: destructive auto-denied
-    { priority: 300, matchTool: 'exec',            riskTier: 'DESTRUCTIVE', decision: 'DENY', enabled: true },
-    // Catch-all: destructive denied, write needs approval
-    { priority: 900, matchTool: '*',               riskTier: 'DESTRUCTIVE', decision: 'DENY', enabled: true },
-    { priority: 950, matchTool: '*',               riskTier: 'WRITE',       decision: 'APPROVE', enabled: true },
+    // ── Safety nets (highest priority) ────────────────────────────────────
+    // Hard-block dangerous categories regardless of risk tier
+    { priority: 5,   matchTool: '*', riskTier: '*', matchCategory: 'secrets',     decision: 'DENY', description: 'Secrets & credentials — blocked', enabled: true },
+    { priority: 6,   matchTool: '*', riskTier: '*', matchCategory: 'infra',       decision: 'DENY', description: 'Infrastructure changes — blocked', enabled: true },
+
+    // Destructive actions always need a human look (even in allowed categories)
+    { priority: 10,  matchTool: '*', riskTier: 'DESTRUCTIVE', decision: 'APPROVE', description: 'Destructive operations — needs review', enabled: true },
+
+    // ── Reads are always safe ─────────────────────────────────────────────
+    { priority: 20,  matchTool: '*', riskTier: 'READ', decision: 'ALLOW', description: 'Read-only actions — safe', enabled: true },
+
+    // ── Work categories — the agent needs to function ─────────────────────
+    { priority: 100, matchTool: '*', riskTier: '*', matchCategory: 'code',     decision: 'ALLOW', description: 'Code changes — auto-allowed', enabled: true },
+    { priority: 110, matchTool: '*', riskTier: '*', matchCategory: 'git',      decision: 'ALLOW', description: 'Git operations — auto-allowed', enabled: true },
+    { priority: 120, matchTool: '*', riskTier: '*', matchCategory: 'files',    decision: 'ALLOW', description: 'File operations — auto-allowed', enabled: true },
+    { priority: 130, matchTool: '*', riskTier: '*', matchCategory: 'shell',    decision: 'ALLOW', description: 'Shell commands — auto-allowed', enabled: true },
+    { priority: 140, matchTool: '*', riskTier: '*', matchCategory: 'packages', decision: 'ALLOW', description: 'Package installs — auto-allowed', enabled: true },
+
+    // ── External-facing — worth a glance ──────────────────────────────────
+    { priority: 200, matchTool: '*', riskTier: '*', matchCategory: 'network',       decision: 'APPROVE', description: 'Network requests — needs review', enabled: true },
+    { priority: 210, matchTool: '*', riskTier: '*', matchCategory: 'data',          decision: 'APPROVE', description: 'Data access — needs review', enabled: true },
+    { priority: 220, matchTool: '*', riskTier: '*', matchCategory: 'communication', decision: 'APPROVE', description: 'Communication — needs review', enabled: true },
+
+    // ── Catch-all for uncategorized ───────────────────────────────────────
+    { priority: 900, matchTool: '*', riskTier: 'WRITE', decision: 'APPROVE', description: 'Other writes — needs review', enabled: true },
   ],
 };
 
-/** Strict: everything except reads needs approval. */
+/**
+ * Strict: Agent can code and read freely. Everything else needs approval.
+ * Secrets, infra, destructive outright blocked.
+ */
 export const PRESET_STRICT: PolicyPreset = {
   name: 'Strict',
-  description: 'Everything except pure reads requires human approval. Maximum safety.',
+  description: 'Maximum safety. Only reads and code auto-allowed. Everything else needs approval or is blocked.',
   rules: [
-    { priority: 10,  matchTool: 'read',  riskTier: '*',           decision: 'ALLOW', enabled: true },
-    { priority: 100, matchTool: '*',      riskTier: 'READ',        decision: 'ALLOW', enabled: true },
-    { priority: 200, matchTool: '*',      riskTier: 'DESTRUCTIVE', decision: 'DENY', enabled: true },
-    { priority: 900, matchTool: '*',      riskTier: '*',           decision: 'APPROVE', enabled: true },
+    // Hard blocks
+    { priority: 5,   matchTool: '*', riskTier: '*', matchCategory: 'secrets', decision: 'DENY', description: 'Secrets — blocked', enabled: true },
+    { priority: 6,   matchTool: '*', riskTier: '*', matchCategory: 'infra',   decision: 'DENY', description: 'Infrastructure — blocked', enabled: true },
+    { priority: 10,  matchTool: '*', riskTier: 'DESTRUCTIVE',                 decision: 'DENY', description: 'Destructive — blocked', enabled: true },
+
+    // Safe actions
+    { priority: 20,  matchTool: '*', riskTier: 'READ',                        decision: 'ALLOW', description: 'Read-only — safe', enabled: true },
+    { priority: 100, matchTool: '*', riskTier: '*', matchCategory: 'code',    decision: 'ALLOW', description: 'Code changes — auto-allowed', enabled: true },
+
+    // Everything else: human approval
+    { priority: 900, matchTool: '*', riskTier: '*', decision: 'APPROVE', description: 'All other actions — needs review', enabled: true },
   ],
 };
 
-/** Permissive: most things auto-allowed, only destructive needs approval. */
+/**
+ * Permissive: Full trust. Agent does whatever it wants.
+ * Only secrets are hard-blocked. Destructive gets a quick review.
+ */
 export const PRESET_PERMISSIVE: PolicyPreset = {
   name: 'Permissive',
-  description: 'Most actions auto-allowed. Only destructive operations need approval.',
+  description: 'Full trust mode. Agent works freely. Only secrets blocked, destructive reviewed.',
   rules: [
-    { priority: 10,  matchTool: '*', riskTier: 'READ',        decision: 'ALLOW', enabled: true },
-    { priority: 20,  matchTool: '*', riskTier: 'WRITE',       decision: 'ALLOW', enabled: true },
-    { priority: 100, matchTool: '*', riskTier: 'DESTRUCTIVE', decision: 'APPROVE', enabled: true },
+    // Only hard-block secrets
+    { priority: 5,   matchTool: '*', riskTier: '*', matchCategory: 'secrets', decision: 'DENY', description: 'Secrets — blocked', enabled: true },
+
+    // Destructive gets a quick human check
+    { priority: 10,  matchTool: '*', riskTier: 'DESTRUCTIVE', decision: 'APPROVE', description: 'Destructive — quick review', enabled: true },
+
+    // Everything else: go for it
+    { priority: 20,  matchTool: '*', riskTier: 'READ',  decision: 'ALLOW', description: 'Read-only — safe', enabled: true },
+    { priority: 30,  matchTool: '*', riskTier: 'WRITE', decision: 'ALLOW', description: 'Writes — auto-allowed', enabled: true },
   ],
 };
 

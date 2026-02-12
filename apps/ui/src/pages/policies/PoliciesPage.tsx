@@ -42,21 +42,53 @@ const DECISION_STYLES: Record<string, { label: string; icon: string; color: stri
   DENY: { label: 'Blocked', icon: '✕', color: 'text-red-400', bg: 'bg-red-500/8 border-red-500/15' },
 };
 
-/** Build summary grouped by category. */
-function summarizeRules(rules: PolicyRule[]): Array<{ category: string; label: string; decision: string }> {
-  const byCat: Record<string, string> = {};
-  const priority: Record<string, number> = { DENY: 3, APPROVE: 2, ALLOW: 1 };
+/**
+ * Build summary from rules. Shows category-based rules first (what humans understand),
+ * then catch-all rules. Skips internal/redundant entries.
+ */
+function summarizeRules(rules: PolicyRule[]): Array<{ category: string; label: string; decision: string; description?: string }> {
+  const result: Array<{ category: string; label: string; decision: string; description?: string }> = [];
+  const seenCats = new Set<string>();
 
-  for (const rule of rules) {
-    if (!rule.enabled) continue;
-    const cat = rule.matchCategory ?? (rule.riskTier === 'DESTRUCTIVE' ? 'destructive' : rule.riskTier === 'READ' ? 'files' : 'shell');
-    const existing = priority[byCat[cat]] ?? 0;
-    if ((priority[rule.decision] ?? 0) > existing) byCat[cat] = rule.decision;
+  // Sort by priority ascending (most important first)
+  const sorted = [...rules].filter(r => r.enabled).sort((a, b) => a.priority - b.priority);
+
+  for (const rule of sorted) {
+    if (rule.matchCategory && rule.matchCategory !== '*') {
+      // Category-specific rule — this is what humans care about
+      if (seenCats.has(rule.matchCategory)) continue;
+      seenCats.add(rule.matchCategory);
+      result.push({
+        category: rule.matchCategory,
+        label: CATEGORY_LABELS[rule.matchCategory] ?? rule.matchCategory,
+        decision: rule.decision,
+        description: rule.description ?? undefined,
+      });
+    }
   }
 
-  return Object.entries(byCat)
-    .sort((a, b) => (priority[b[1]] ?? 0) - (priority[a[1]] ?? 0))
-    .map(([cat, decision]) => ({ category: cat, label: CATEGORY_LABELS[cat] ?? cat, decision }));
+  // Add catch-all rules (no category) as a summary line
+  const catchAlls = sorted.filter(r => !r.matchCategory || r.matchCategory === '*');
+  for (const rule of catchAlls) {
+    const key = `_catchall_${rule.riskTier}`;
+    if (seenCats.has(key)) continue;
+    seenCats.add(key);
+    // Only show non-obvious catch-alls
+    if (rule.riskTier === 'READ' && rule.decision === 'ALLOW') continue; // obvious
+    const tierLabel = rule.riskTier === '*' ? 'All other actions' : rule.riskTier === 'WRITE' ? 'Other writes' : rule.riskTier === 'DESTRUCTIVE' ? 'Destructive (uncategorized)' : rule.riskTier;
+    result.push({
+      category: key,
+      label: tierLabel,
+      decision: rule.decision,
+      description: rule.description ?? undefined,
+    });
+  }
+
+  // Sort: DENY first, then APPROVE, then ALLOW
+  const decisionOrder: Record<string, number> = { DENY: 0, APPROVE: 1, ALLOW: 2 };
+  result.sort((a, b) => (decisionOrder[a.decision] ?? 1) - (decisionOrder[b.decision] ?? 1));
+
+  return result;
 }
 
 export function PoliciesPage() {
