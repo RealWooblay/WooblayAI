@@ -29,6 +29,7 @@ interface WizardData {
   name: string;
   model: string;
   anthropicApiKey: string;
+  githubToken: string;
   telegramEnabled: boolean;
   telegramBotToken: string;
   telegramAllowedUsers: string;
@@ -48,6 +49,7 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
     name: '',
     model: MODELS[0],
     anthropicApiKey: '',
+    githubToken: '',
     telegramEnabled: false,
     telegramBotToken: '',
     telegramAllowedUsers: '',
@@ -62,7 +64,7 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
       toast('Instance deployed successfully', 'success');
       onClose();
       setStep(1);
-      setData({ name: '', model: MODELS[0], anthropicApiKey: '', telegramEnabled: false, telegramBotToken: '', telegramAllowedUsers: '' });
+      setData({ name: '', model: MODELS[0], anthropicApiKey: '', githubToken: '', telegramEnabled: false, telegramBotToken: '', telegramAllowedUsers: '' });
     },
     onError: (err) => toast(`Deploy failed: ${err.message}`, 'error'),
   });
@@ -74,6 +76,7 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
       name: data.name,
       model: data.model,
       anthropicApiKey: data.anthropicApiKey,
+      githubToken: data.githubToken || undefined,
       telegramEnabled: data.telegramEnabled,
       telegramBotToken: data.telegramBotToken || undefined,
       telegramAllowedUsers: data.telegramAllowedUsers || undefined,
@@ -134,6 +137,19 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
                 placeholder="sk-ant-..."
                 className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 font-mono"
               />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">GitHub Token (optional)</label>
+              <input
+                type="password"
+                value={data.githubToken}
+                onChange={(e) => setData({ ...data, githubToken: e.target.value })}
+                placeholder="ghp_... or github_pat_..."
+                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 font-mono"
+              />
+              <p className="text-[10px] text-text-muted mt-1">
+                Allows the agent to interact with GitHub (create PRs, commit code, etc.)
+              </p>
             </div>
             <div className="flex justify-end pt-2">
               <Button onClick={() => setStep(2)} disabled={!data.name.trim()}>
@@ -208,6 +224,12 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-text-muted">GitHub</span>
+                <span className="text-text-primary font-mono text-xs">
+                  {data.githubToken ? '••••' + data.githubToken.slice(-4) : 'Not set'}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-text-muted">Telegram</span>
                 <span className="text-text-primary">{data.telegramEnabled ? 'Enabled' : 'Disabled'}</span>
               </div>
@@ -238,6 +260,7 @@ function ConfigureModal({ instance, open, onClose }: { instance: Instance; open:
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramAllowedUsers, setTelegramAllowedUsers] = useState(existingConfig.telegramAllowedUsers ?? '');
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [githubToken, setGithubToken] = useState('');
   const [model, setModel] = useState(instance.model || MODELS[0]);
 
   const updateMut = useMutation({
@@ -262,6 +285,7 @@ function ConfigureModal({ instance, open, onClose }: { instance: Instance; open:
       body.telegramEnabled = false;
     }
     if (anthropicApiKey.trim()) body.anthropicApiKey = anthropicApiKey.trim();
+    if (githubToken.trim()) body.githubToken = githubToken.trim();
     updateMut.mutate(body);
   };
 
@@ -294,6 +318,21 @@ function ConfigureModal({ instance, open, onClose }: { instance: Instance; open:
               placeholder={existingConfig.anthropicApiKey === '***SET***' ? 'Already set — enter to change' : 'sk-ant-...'}
               className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 font-mono"
             />
+          </div>
+
+          {/* GitHub Token */}
+          <div>
+            <label className="text-xs text-text-secondary mb-1 block">GitHub Token</label>
+            <input
+              type="password"
+              value={githubToken}
+              onChange={(e) => setGithubToken(e.target.value)}
+              placeholder={instance.githubPat ? 'Already set — enter to change' : 'ghp_... or github_pat_...'}
+              className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 font-mono"
+            />
+            <p className="text-[10px] text-text-muted mt-1">
+              Allows the agent to create PRs, commit code, etc.
+            </p>
           </div>
 
           {/* Telegram */}
@@ -403,6 +442,9 @@ function InstanceCard({ instance }: { instance: Instance }) {
           <StatusDot status={instance.status} showLabel />
           {instance.telegramBot && (
             <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full">TG</span>
+          )}
+          {instance.githubPat && (
+            <span className="text-[10px] bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded-full">GH</span>
           )}
           <span className="ml-auto text-[11px] text-text-muted font-mono">
             {instance.model || 'openclaw'}

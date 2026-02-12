@@ -13,3 +13,9 @@ variable "aws_region" {
   type        = string
   default     = "us-east-1"
 }
+
+variable "platform_db_instance_class" {
+  description = "RDS instance class for the central platform database"
+  type        = string
+  default     = "db.t4g.micro"
+}

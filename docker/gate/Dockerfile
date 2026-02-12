@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ── Stage 1: Build everything ─────────────────────────────────────────
 FROM node:22-alpine AS build
 
@@ -5,11 +6,22 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 
-# Copy the full monorepo (use .dockerignore to exclude node_modules, dist, etc.)
-COPY . .
+# Copy lockfile first for better layer caching
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/gate/package.json ./apps/gate/
+COPY apps/ui/package.json ./apps/ui/
+COPY packages/types/package.json ./packages/types/
+COPY packages/crypto/package.json ./packages/crypto/
+COPY packages/schemas/package.json ./packages/schemas/
+COPY packages/gate-client/package.json ./packages/gate-client/
+COPY packages/adapters/openclaw/package.json ./packages/adapters/openclaw/
 
-# Install all dependencies
-RUN pnpm install --frozen-lockfile || pnpm install
+# Install with cache mount (reuses across builds — huge speedup)
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile || pnpm install
+
+# Now copy source code (changes here don't bust the install cache)
+COPY . .
 
 # Generate Prisma client
 RUN pnpm --filter @wooblay/gate exec prisma generate
@@ -19,6 +31,12 @@ RUN pnpm --filter @wooblay/types build || true
 RUN pnpm --filter @wooblay/schemas build || true
 RUN pnpm --filter @wooblay/crypto build || true
 RUN pnpm --filter @wooblay/gate build
+
+# Vite embeds VITE_ env vars at build time — pass via --build-arg
+ARG VITE_CLERK_PUBLISHABLE_KEY=""
+ARG VITE_API_URL=""
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+ENV VITE_API_URL=$VITE_API_URL
 RUN pnpm --filter @wooblay/ui build
 
 

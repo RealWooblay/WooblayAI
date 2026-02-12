@@ -17,6 +17,11 @@
     "db:push": "pnpm --filter @wooblay/gate exec prisma db push"
   },
   "devDependencies": {
+    "playwright": "^1.58.2",
     "tsx": "^4.19.0"
+  },
+  "dependencies": {
+    "@clerk/clerk-react": "^5.60.0",
+    "@clerk/fastify": "^2.6.21"
   }
 }

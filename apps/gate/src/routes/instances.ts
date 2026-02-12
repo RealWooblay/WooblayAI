@@ -17,10 +17,49 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/client.js';
+import { config } from '../config.js';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
+
+/**
+ * Helper to resolve the current user's DB id from the Clerk-provided clerkUserId.
+ * Returns null if not in platform mode or user doesn't exist.
+ */
+async function resolveUserId(request: FastifyRequest): Promise<string | null> {
+  if (!config.PLATFORM_MODE) return null;
+  const clerkId = request.clerkUserId;
+  if (!clerkId) return null;
+  const user = await prisma.user.findUnique({ where: { clerkId }, select: { id: true } });
+  return user?.id ?? null;
+}
+
+/**
+ * In platform mode, verify the requesting user owns the instance.
+ * In instance mode, always returns true (no multi-user).
+ */
+async function checkInstanceOwnership(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  instanceId: string,
+): Promise<{ instance: NonNullable<Awaited<ReturnType<typeof prisma.instance.findUnique>>> } | null> {
+  const instance = await prisma.instance.findUnique({ where: { id: instanceId } });
+  if (!instance) {
+    reply.code(404).send({ error: 'Instance not found' });
+    return null;
+  }
+
+  if (config.PLATFORM_MODE) {
+    const userId = await resolveUserId(request);
+    if (userId && instance.userId && instance.userId !== userId) {
+      reply.code(403).send({ error: 'Access denied' });
+      return null;
+    }
+  }
+
+  return { instance };
+}
 
 // Base directory for per-instance configs
 const INSTANCES_DIR = process.env['INSTANCES_DIR'] ?? '/opt/wooblay/instances';
@@ -97,10 +136,12 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
   /**
    * GET /api/instances — List all instances.
    */
-  app.get('/api/instances', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/instances', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      const userId = await resolveUserId(request);
       const instances = await prisma.instance.findMany({
         orderBy: { createdAt: 'desc' },
+        ...(userId ? { where: { userId } } : {}),
       });
 
       // Enrich with live container status if possible
@@ -122,7 +163,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
       return reply.send(enriched);
     } catch (err) {
-      _request.log.error(err, 'Failed to list instances');
+      request.log.error(err, 'Failed to list instances');
       return reply.code(500).send({ error: 'Internal server error' });
     }
   });
@@ -139,6 +180,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       telegramBotToken?: string;
       telegramAllowedUsers?: string;
       telegramEnabled?: boolean;
+      githubToken?: string;
       policyPreset?: string;
       configOverrides?: Record<string, string>;
     };
@@ -146,6 +188,8 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
     if (!body.name || typeof body.name !== 'string') {
       return reply.code(400).send({ error: 'Missing "name" field' });
     }
+
+    const userId = await resolveUserId(request);
 
     // Sanitize name
     const name = body.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 32);
@@ -164,19 +208,23 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const instance = await prisma.instance.create({
         data: {
           name,
+          userId: userId ?? undefined,
           status: 'provisioning',
           agentRuntime: body.agentRuntime ?? 'openclaw',
           model: body.model ?? 'claude-sonnet-4-20250514',
           configJson: JSON.stringify({
             port,
             gatewayToken,
+            syncToken: generateToken(),    // for event sync back to platform
             anthropicApiKey: body.anthropicApiKey ? '***SET***' : '',
+            githubPat: body.githubToken ? '***SET***' : '',
             telegramEnabled: body.telegramEnabled ?? false,
             telegramAllowedUsers: body.telegramAllowedUsers ?? '',
             policyPreset: body.policyPreset ?? 'balanced',
             ...body.configOverrides,
           }),
           telegramBot: body.telegramEnabled ? 'configured' : null,
+          githubPat: !!body.githubToken,
           endpoint: `http://wooblay-agent-${name}:${port}`,
         },
       });
@@ -194,6 +242,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         ...(body.anthropicApiKey ? { ANTHROPIC_API_KEY: body.anthropicApiKey } : {}),
         ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
         ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),
+        ...(body.githubToken ? { GITHUB_TOKEN: body.githubToken } : {}),
         ...(body.configOverrides ?? {}),
       };
 
@@ -280,6 +329,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       telegramBotToken: string;
       telegramAllowedUsers: string;
       telegramEnabled: boolean;
+      githubToken: string;
       configOverrides: Record<string, string>;
     }>;
 
@@ -338,6 +388,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           ...(body.anthropicApiKey ? { ANTHROPIC_API_KEY: body.anthropicApiKey } : {}),
           ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
           ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),
+          ...(body.githubToken ? { GITHUB_TOKEN: body.githubToken } : {}),
           ...(body.configOverrides ?? {}),
         };
         writeInstanceEnv(dir, envConfig);
