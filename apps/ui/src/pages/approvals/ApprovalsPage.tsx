@@ -15,6 +15,9 @@ import { Badge, riskTierVariant } from '../../components/common/Badge.tsx';
 import { Button } from '../../components/common/Button.tsx';
 import { humanReadableAction } from '../../components/common/ActionSummary.tsx';
 import { useToast } from '../../components/common/Toast.tsx';
+import { Tooltip } from '../../components/common/Tooltip.tsx';
+import { createPolicy } from '../../api/client.ts';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 function timeRemaining(createdAt: string, ttlSeconds: number): string {
   const elapsed = (Date.now() - new Date(createdAt).getTime()) / 1000;
@@ -30,9 +33,28 @@ export function ApprovalsPage() {
   const approveMut = useApproveApproval();
   const denyMut = useDenyApproval();
   const { toast } = useToast();
+  const qc = useQueryClient();
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const alwaysAllowMut = useMutation({
+    mutationFn: (item: any) => {
+      const tc = item.toolCall;
+      const toolName = tc?.toolName?.replace(/^(wooblay_|gated_)/, '') ?? '*';
+      return createPolicy({
+        matchTool: toolName,
+        riskTier: tc?.riskTier ?? 'WRITE',
+        decision: 'ALLOW',
+        source: 'from-approval',
+        description: `Auto-allow ${toolName} (from approval)`,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['policies'] });
+      toast('Policy created — future similar actions will be auto-approved', 'success');
+    },
+  });
 
   const items = approvals ?? [];
 
@@ -145,14 +167,16 @@ export function ApprovalsPage() {
               )}
               onClick={() => setSelectedIdx(idx)}
             >
-              {/* Risk + Tool */}
+              {/* Risk + Category + Tool */}
               <div className="flex items-center gap-2 mb-2">
                 <Badge variant={riskTierVariant(tc?.riskTier ?? 'READ')}>
                   {tc?.riskTier ?? 'READ'}
                 </Badge>
-                <span className="text-[11px] text-text-muted font-medium uppercase tracking-wider">
-                  {tc?.toolName}
-                </span>
+                <Tooltip content={`Risk tier: ${tc?.riskTier ?? 'READ'} — determines approval requirements`}>
+                  <span className="text-[11px] text-text-muted font-medium uppercase tracking-wider">
+                    {tc?.toolName}
+                  </span>
+                </Tooltip>
                 <span className="ml-auto text-[11px] text-text-muted">
                   {item.ttlSeconds ? timeRemaining(item.createdAt, item.ttlSeconds) : ''}
                 </span>
@@ -221,6 +245,27 @@ export function ApprovalsPage() {
                 >
                   Deny
                 </Button>
+                <Tooltip content="Approve this and automatically allow all future similar actions">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      approveMut.mutate(
+                        { id: item.id, body: { approver: 'dashboard' } },
+                        {
+                          onSuccess: () => {
+                            toast('Approved + policy created', 'success');
+                            alwaysAllowMut.mutate(item);
+                          },
+                        },
+                      );
+                    }}
+                    disabled={alwaysAllowMut.isPending}
+                    className="px-3 py-1 text-[10px] bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg transition-colors"
+                  >
+                    Always Allow Similar
+                  </button>
+                </Tooltip>
+
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

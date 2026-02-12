@@ -11,7 +11,7 @@
  */
 
 import type { PrismaClient, ToolCall } from '@prisma/client';
-import { assessThreat, analyzeBehavior, isAIEnabled } from '../services/ai-supervisor.js';
+import { assessThreat, analyzeBehavior, inferRole, isAIEnabled } from '../services/ai-supervisor.js';
 
 interface FlagInput {
   toolCallId: string;
@@ -19,6 +19,8 @@ interface FlagInput {
   toolName: string;
   args: string;
   riskTier: string;
+  category?: string | null;
+  instanceId?: string | null;
 }
 
 /**
@@ -55,6 +57,19 @@ export async function detectFlags(
 }
 
 /**
+ * Resolve the effective agent role from the instance.
+ */
+async function getAgentRole(prisma: PrismaClient, instanceId?: string | null): Promise<string | null> {
+  if (!instanceId) {
+    // Try to find the most recent instance
+    const instance = await prisma.instance.findFirst({ orderBy: { updatedAt: 'desc' } });
+    return instance?.role ?? instance?.inferredRole ?? null;
+  }
+  const instance = await prisma.instance.findUnique({ where: { id: instanceId } });
+  return instance?.role ?? instance?.inferredRole ?? null;
+}
+
+/**
  * AI-powered threat assessment and behavioral analysis.
  * Runs asynchronously after rule-based detection.
  */
@@ -67,7 +82,7 @@ async function runAIAnalysis(
     where: { agentPubkey: input.agentPubkey },
     orderBy: { createdAt: 'desc' },
     take: 15,
-    select: { toolName: true, args: true, riskTier: true, createdAt: true },
+    select: { toolName: true, args: true, riskTier: true, category: true, createdAt: true },
   });
 
   let parsedArgs: Record<string, unknown> = {};
@@ -77,12 +92,17 @@ async function runAIAnalysis(
     // keep empty
   }
 
-  // 1. Real-time threat assessment on the current action
+  // Resolve agent role for context
+  const agentRole = await getAgentRole(prisma, input.instanceId);
+
+  // 1. Real-time threat assessment with role context + pattern anomaly detection
   const threat = await assessThreat(
     input.toolName,
     parsedArgs,
     input.riskTier,
-    recentActions.map((a) => ({ toolName: a.toolName, args: a.args, riskTier: a.riskTier })),
+    recentActions.map((a) => ({ toolName: a.toolName, args: a.args, riskTier: a.riskTier, category: a.category })),
+    agentRole,
+    input.category,
   );
 
   if (threat && threat.threatLevel !== 'none' && threat.concerns.length > 0) {
@@ -105,13 +125,15 @@ async function runAIAnalysis(
           threatLevel: threat.threatLevel,
           recommendation: threat.recommendation,
           concerns: threat.concerns,
+          agentRole: agentRole ?? null,
+          category: input.category ?? null,
           model: 'ai-supervisor',
         }),
       },
     });
   }
 
-  // 2. Periodic behavioral analysis (every 10th action to avoid cost)
+  // 2. Periodic behavioral analysis + role inference (every 10th action to avoid cost)
   const actionCount = await prisma.toolCall.count({
     where: { agentPubkey: input.agentPubkey },
   });
@@ -128,6 +150,7 @@ async function runAIAnalysis(
       toolName: a.toolName,
       args: a.args,
       riskTier: a.riskTier,
+      category: a.category,
       createdAt: a.createdAt.toISOString(),
       status: a.approval?.status === 'DENIED' ? 'denied'
         : a.approval?.status === 'APPROVED' ? 'approved'
@@ -136,7 +159,8 @@ async function runAIAnalysis(
         : 'pending',
     }));
 
-    const patterns = await analyzeBehavior(input.agentPubkey, enriched);
+    // Behavior analysis with role context
+    const patterns = await analyzeBehavior(input.agentPubkey, enriched, agentRole);
 
     for (const p of patterns) {
       await prisma.auditFlag.create({
@@ -150,10 +174,36 @@ async function runAIAnalysis(
           metadata: JSON.stringify({
             pattern: p.pattern,
             evidence: p.evidence,
+            agentRole: agentRole ?? null,
             model: 'ai-supervisor',
           }),
         },
       });
+    }
+
+    // 3. Role inference — update inferredRole on the instance
+    if (input.instanceId || true) { // Always try to infer
+      try {
+        const roleResult = await inferRole(
+          enriched.map(a => ({ toolName: a.toolName, args: a.args, category: a.category })),
+        );
+        if (roleResult && roleResult.confidence !== 'low') {
+          // Find the instance to update (use first instance if no instanceId)
+          const instance = input.instanceId
+            ? await prisma.instance.findUnique({ where: { id: input.instanceId } })
+            : await prisma.instance.findFirst({ orderBy: { updatedAt: 'desc' } });
+
+          if (instance && !instance.role) {
+            // Only update inferredRole if user hasn't set a manual override
+            await prisma.instance.update({
+              where: { id: instance.id },
+              data: { inferredRole: roleResult.role },
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[flags] Role inference failed (non-critical):', err);
+      }
     }
   }
 }

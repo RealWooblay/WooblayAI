@@ -331,6 +331,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       telegramEnabled: boolean;
       githubToken: string;
       configOverrides: Record<string, string>;
+      role: string;
     }>;
 
     try {
@@ -341,6 +342,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const updateData: Record<string, unknown> = {};
       if (body.model) updateData.model = body.model;
       if (body.agentRuntime) updateData.agentRuntime = body.agentRuntime;
+      if (body.role !== undefined) updateData.role = body.role || null;
       if (body.telegramEnabled !== undefined) {
         updateData.telegramBot = body.telegramEnabled ? 'configured' : null;
       }

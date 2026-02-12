@@ -171,6 +171,8 @@ code, pre, .font-mono {
 }
 
 /* Utility classes */
+.animate-blink { animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
 .animate-breathe { animation: breathe 3s ease-in-out infinite; }
 .animate-pulse-ring { animation: pulse-ring 2.5s ease-in-out infinite; }
 .animate-orbit-pulse { animation: orbit-pulse 4s ease-in-out infinite; }

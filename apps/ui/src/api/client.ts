@@ -234,6 +234,8 @@ export interface Instance {
   telegramBot: string | null;
   githubPat: boolean;
   endpoint: string | null;
+  inferredRole: string | null;
+  role: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -299,9 +301,12 @@ export interface PolicyRule {
   priority: number;
   matchTool: string;
   matchArgs: string | null;
+  matchCategory: string | null;
   riskTier: string;
   decision: string;
   constraints: string | null;
+  source: string;
+  description: string | null;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -317,8 +322,31 @@ export interface PolicyPresetInfo {
 export const getPolicies = () => fetchApi<PolicyRule[]>('/api/policies');
 export const getPresets = () => fetchApi<PolicyPresetInfo[]>('/api/policies/presets');
 
-export const createPolicy = (body: { matchTool: string; riskTier: string; decision: string; matchArgs?: string }) =>
+export const createPolicy = (body: { matchTool: string; riskTier: string; decision: string; matchArgs?: string; matchCategory?: string; source?: string; description?: string }) =>
   fetchApi<PolicyRule>('/api/policies', { method: 'POST', body: JSON.stringify(body) });
+
+export interface AIPolicySuggestion {
+  action: string;
+  matchCategory: string;
+  matchTool: string;
+  riskTier: string;
+  decision: string;
+  description: string;
+  reasoning: string;
+}
+
+export interface AIPolicyOptimizeResult {
+  suggestions: AIPolicySuggestion[];
+  summary: string;
+  applied: boolean;
+  agentRole: string;
+}
+
+export const optimizePolicies = (autoApply?: boolean) =>
+  fetchApi<AIPolicyOptimizeResult>('/api/policies/ai-optimize', {
+    method: 'POST',
+    body: JSON.stringify({ autoApply: autoApply ?? false }),
+  });
 
 export const updatePolicy = (id: string, body: Partial<PolicyRule>) =>
   fetchApi<PolicyRule>(`/api/policies/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -429,6 +457,11 @@ export interface MissionData {
   trustTrend: 'up' | 'down' | 'stable';
   estimatedCost: number;
   costBurnRate: number;
+  role: string | null;
+  inferredRole: string | null;
+  roleOverridden: boolean;
+  categoryBreakdown: Record<string, number>;
+  lastActionCategory: string | null;
 }
 
 export const getMission = (instanceId: string) =>

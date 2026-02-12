@@ -35,6 +35,8 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
         take: 10,
       });
 
+      const effectiveRole = instance.role ?? instance.inferredRole ?? null;
+
       const agentPubkey = agents[0]?.pubkey;
       if (!agentPubkey) {
         return reply.send({
@@ -50,6 +52,9 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
           trustScore: 70,
           trustTrend: 'stable' as const,
           estimatedCost: 0,
+          role: effectiveRole,
+          inferredRole: instance.inferredRole,
+          roleOverridden: !!instance.role,
         });
       }
 
@@ -120,6 +125,16 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
       // Cost
       const cost = await computeCostSummary(prisma, { agentPubkey });
 
+      // Category breakdown
+      const categoryBreakdown: Record<string, number> = {};
+      for (const tc of recentCalls) {
+        const cat = (tc as any).category ?? 'other';
+        categoryBreakdown[cat] = (categoryBreakdown[cat] ?? 0) + 1;
+      }
+
+      // Last action with category
+      const lastActionCategory = recentCalls[0] ? ((recentCalls[0] as any).category ?? 'other') : null;
+
       return reply.send({
         instanceId: id,
         instanceName: instance.name,
@@ -144,6 +159,11 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
         trustTrend: trust.trend,
         estimatedCost: cost.costToday,
         costBurnRate: cost.burnRatePerHour,
+        role: effectiveRole,
+        inferredRole: instance.inferredRole,
+        roleOverridden: !!instance.role,
+        categoryBreakdown,
+        lastActionCategory,
       });
     } catch (err) {
       request.log.error(err, 'Failed to get mission data');

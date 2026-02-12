@@ -7,6 +7,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/client.js';
 import { ALL_PRESETS } from '../db/seed-policies.js';
+import { isAIEnabled } from '../services/ai-supervisor.js';
+import OpenAI from 'openai';
+import { config } from '../config.js';
 
 export async function policyRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -36,7 +39,10 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       riskTier: string;
       decision: string;
       matchArgs?: string;
+      matchCategory?: string;
       constraints?: string;
+      source?: string;
+      description?: string;
       enabled?: boolean;
     };
 
@@ -64,7 +70,10 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
           riskTier: body.riskTier,
           decision: body.decision,
           matchArgs: body.matchArgs ?? null,
+          matchCategory: body.matchCategory ?? null,
           constraints: body.constraints ?? null,
+          source: body.source ?? 'manual',
+          description: body.description ?? null,
           enabled: body.enabled ?? true,
         },
       });
@@ -180,5 +189,160 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       ruleCount: preset.rules.length,
     }));
     return reply.send(presets);
+  });
+
+  /**
+   * POST /api/policies/ai-optimize — AI analyzes patterns and suggests/applies policy changes.
+   *
+   * Body: { autoApply?: boolean }
+   */
+  app.post('/api/policies/ai-optimize', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!isAIEnabled()) {
+      return reply.code(400).send({ error: 'AI supervisor not configured. Set OPENAI_API_KEY.' });
+    }
+
+    const body = request.body as { autoApply?: boolean } | null;
+    const autoApply = body?.autoApply ?? false;
+
+    try {
+      // Gather context: recent tool calls with categories, approval history, current rules, agent role
+      const recentCalls = await prisma.toolCall.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        include: { approval: true, receipt: true },
+      });
+
+      const currentRules = await prisma.policyRule.findMany({
+        where: { enabled: true },
+        orderBy: { priority: 'asc' },
+      });
+
+      // Get instance role
+      const instance = await prisma.instance.findFirst({ orderBy: { updatedAt: 'desc' } });
+      const agentRole = instance?.role ?? instance?.inferredRole ?? 'unknown';
+
+      // Summarize activity by category
+      const categoryStats: Record<string, { total: number; approved: number; denied: number; autoAllowed: number }> = {};
+      for (const tc of recentCalls) {
+        const cat = (tc as any).category ?? 'other';
+        if (!categoryStats[cat]) categoryStats[cat] = { total: 0, approved: 0, denied: 0, autoAllowed: 0 };
+        categoryStats[cat].total++;
+        if (tc.approval?.status === 'APPROVED') categoryStats[cat].approved++;
+        else if (tc.approval?.status === 'DENIED' || tc.receipt?.policyDecision === 'DENY') categoryStats[cat].denied++;
+        else if (tc.receipt?.policyDecision === 'ALLOW') categoryStats[cat].autoAllowed++;
+      }
+
+      const activitySummary = Object.entries(categoryStats)
+        .map(([cat, s]) => `- ${cat}: ${s.total} total (${s.autoAllowed} auto-allowed, ${s.approved} human-approved, ${s.denied} denied)`)
+        .join('\n');
+
+      const currentRulesSummary = currentRules
+        .map(r => `- #${r.priority}: ${r.matchTool} [${r.riskTier}] ${r.matchCategory ? `(${r.matchCategory})` : ''} → ${r.decision} (source: ${r.source})`)
+        .join('\n');
+
+      const ai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+      const response = await ai.chat.completions.create({
+        model: config.OPENAI_MODEL,
+        temperature: 0.2,
+        max_tokens: 1000,
+        messages: [
+          {
+            role: 'system',
+            content: `You are a policy optimizer for an AI agent supervision system. Analyze the agent's activity patterns and suggest policy rule changes.
+
+The agent's role is: "${agentRole}"
+
+Categories: code, git, packages, shell, files, network, secrets, infra, communication, destructive, data, other
+Decisions: ALLOW (auto-proceed), APPROVE (human review), DENY (block)
+
+Suggest rules that:
+- Auto-allow categories with high approval rates and zero denials (if the agent's role fits)
+- Require approval for categories with mixed history
+- Block categories that are outside the agent's role or have been frequently denied
+
+Respond in JSON ONLY:
+{
+  "suggestions": [
+    {
+      "action": "add|remove|update",
+      "matchCategory": "category_name",
+      "matchTool": "*",
+      "riskTier": "*",
+      "decision": "ALLOW|APPROVE|DENY",
+      "description": "Human-readable explanation",
+      "reasoning": "Why this change makes sense"
+    }
+  ],
+  "summary": "One sentence overview of changes"
+}`,
+          },
+          {
+            role: 'user',
+            content: `ACTIVITY BY CATEGORY (last 100 actions):
+${activitySummary || '(no activity yet)'}
+
+CURRENT RULES:
+${currentRulesSummary || '(no rules)'}
+
+Agent role: ${agentRole}
+
+Suggest policy optimizations.`,
+          },
+        ],
+      });
+
+      const text = response.choices[0]?.message?.content ?? '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return reply.code(500).send({ error: 'AI returned invalid response' });
+      }
+
+      const result = JSON.parse(jsonMatch[0]) as {
+        suggestions: Array<{
+          action: string;
+          matchCategory: string;
+          matchTool: string;
+          riskTier: string;
+          decision: string;
+          description: string;
+          reasoning: string;
+        }>;
+        summary: string;
+      };
+
+      // Auto-apply if requested
+      if (autoApply && result.suggestions.length > 0) {
+        for (const suggestion of result.suggestions) {
+          if (suggestion.action === 'add') {
+            const maxRule = await prisma.policyRule.findFirst({
+              orderBy: { priority: 'desc' },
+              select: { priority: true },
+            });
+            await prisma.policyRule.create({
+              data: {
+                priority: (maxRule?.priority ?? 0) + 10,
+                matchTool: suggestion.matchTool || '*',
+                riskTier: suggestion.riskTier || '*',
+                matchCategory: suggestion.matchCategory,
+                decision: suggestion.decision,
+                description: suggestion.description,
+                source: 'ai-learned',
+                enabled: true,
+              },
+            });
+          }
+        }
+      }
+
+      return reply.send({
+        suggestions: result.suggestions,
+        summary: result.summary,
+        applied: autoApply,
+        agentRole,
+      });
+    } catch (err) {
+      request.log.error(err, 'AI policy optimization failed');
+      return reply.code(500).send({ error: 'AI analysis failed' });
+    }
   });
 }

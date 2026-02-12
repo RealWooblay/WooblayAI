@@ -108,6 +108,7 @@ model ToolCall {
   toolName    String
   args        String
   riskTier    String
+  category    String?    // Business-context category: code, git, packages, shell, files, network, secrets, infra, communication, destructive, data, other
   adapter     String?    // Which adapter submitted this call (e.g. "openclaw-plugin", "mcp-toolhost")
   createdAt   DateTime   @default(now())
   approval    Approval?
@@ -118,19 +119,23 @@ model ToolCall {
   @@index([agentPubkey])
   @@index([createdAt])
   @@index([adapter])
+  @@index([category])
 }
 
 model PolicyRule {
-  id          String   @id @default(cuid())
-  priority    Int      @unique
-  matchTool   String
-  matchArgs   String?
-  riskTier    String
-  decision    String
-  constraints String?
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  priority      Int      @unique
+  matchTool     String
+  matchArgs     String?
+  riskTier      String
+  matchCategory String?  // Business-context category filter: "code", "git", "secrets", etc. or "*"
+  decision      String
+  constraints   String?
+  source        String   @default("manual") // "manual" | "preset" | "ai-learned" | "from-approval"
+  description   String?  // Human-readable: "Allow code changes"
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([priority])
 }
@@ -306,6 +311,8 @@ model Instance {
   telegramBot   String?  // Telegram bot username / token identifier
   endpoint      String?  // Internal endpoint URL
   githubPat     Boolean  @default(false) // Whether a GitHub PAT is configured
+  inferredRole  String?  // AI-derived role: "Frontend developer building React dashboard"
+  role          String?  // User-corrected role override
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

@@ -14,7 +14,7 @@ import { canonicalJson } from '@wooblay/crypto';
 import type { ToolExecuteRequest, DecisionTrail } from '@wooblay/types';
 import { Decision } from '@wooblay/types';
 import { prisma } from '../db/client.js';
-import { classifyRisk } from '../engine/risk.js';
+import { classifyRisk, classifyCategory } from '../engine/risk.js';
 import { evaluatePolicy } from '../engine/policy.js';
 import { createReceipt } from '../engine/receipt.js';
 import { createApproval } from '../services/approval.js';
@@ -55,8 +55,9 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           request.log.info(`Auto-registered agent: ${body.agentPubkey} (adapter: ${body.adapter})`);
         }
 
-        // 1. Classify risk tier
+        // 1. Classify risk tier and business category
         const riskTier = classifyRisk(body.toolName, body.args);
+        const category = classifyCategory(body.toolName, body.args);
 
         // 2. Canonicalize args for storage
         const argsCanonical = canonicalJson(body.args);
@@ -70,6 +71,7 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
             toolName: body.toolName,
             args: argsCanonical,
             riskTier,
+            category,
             adapter: body.adapter ?? null,
           },
         });
@@ -81,6 +83,7 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           toolName: body.toolName,
           args: argsCanonical,
           riskTier,
+          category,
         }).catch((err) => request.log.warn(err, 'Flag detection failed'));
 
         // 4. Evaluate policy
