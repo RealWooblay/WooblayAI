@@ -309,6 +309,7 @@ export interface PolicyRule {
   source: string;
   description: string | null;
   enabled: boolean;
+  instanceId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -320,10 +321,11 @@ export interface PolicyPresetInfo {
   ruleCount: number;
 }
 
-export const getPolicies = () => fetchApi<PolicyRule[]>('/api/policies');
+export const getPolicies = (instanceId?: string) =>
+  fetchApi<PolicyRule[]>(`/api/policies${toQueryString({ instanceId })}`);
 export const getPresets = () => fetchApi<PolicyPresetInfo[]>('/api/policies/presets');
 
-export const createPolicy = (body: { matchTool: string; riskTier: string; decision: string; matchArgs?: string; matchCategory?: string; source?: string; description?: string }) =>
+export const createPolicy = (body: { matchTool: string; riskTier: string; decision: string; matchArgs?: string; matchCategory?: string; source?: string; description?: string; instanceId?: string }) =>
   fetchApi<PolicyRule>('/api/policies', { method: 'POST', body: JSON.stringify(body) });
 
 export interface AIPolicySuggestion {
@@ -343,10 +345,10 @@ export interface AIPolicyOptimizeResult {
   agentRole: string;
 }
 
-export const optimizePolicies = (autoApply?: boolean) =>
+export const optimizePolicies = (autoApply?: boolean, instanceId?: string) =>
   fetchApi<AIPolicyOptimizeResult>('/api/policies/ai-optimize', {
     method: 'POST',
-    body: JSON.stringify({ autoApply: autoApply ?? false }),
+    body: JSON.stringify({ autoApply: autoApply ?? false, instanceId }),
   });
 
 export const updatePolicy = (id: string, body: Partial<PolicyRule>) =>
@@ -355,8 +357,8 @@ export const updatePolicy = (id: string, body: Partial<PolicyRule>) =>
 export const deletePolicy = (id: string) =>
   fetchApi<void>(`/api/policies/${id}`, { method: 'DELETE' });
 
-export const applyPreset = (name: string) =>
-  fetchApi<{ preset: string; description: string; rules: PolicyRule[] }>(`/api/policies/presets/${name}`, { method: 'POST', body: '{}' });
+export const applyPreset = (name: string, instanceId?: string) =>
+  fetchApi<{ preset: string; description: string; rules: PolicyRule[] }>(`/api/policies/presets/${name}${toQueryString({ instanceId })}`, { method: 'POST', body: '{}' });
 
 // ---------------------------------------------------------------------------
 // Flags
@@ -385,7 +387,7 @@ export const getFlags = (params?: { severity?: string; dismissed?: string; limit
   fetchApi<FlagsResponse>(`/api/flags${toQueryString(params as Record<string, string | number | boolean | undefined> ?? {})}`);
 
 export const dismissFlag = (id: string) =>
-  fetchApi<AuditFlag>(`/api/flags/${id}/dismiss`, { method: 'POST' });
+  fetchApi<AuditFlag>(`/api/flags/${id}/dismiss`, { method: 'POST', body: '{}' });
 
 // ---------------------------------------------------------------------------
 // Audit

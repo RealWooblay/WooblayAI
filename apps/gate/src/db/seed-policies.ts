@@ -107,10 +107,24 @@ export const PRESET_PERMISSIVE: PolicyPreset = {
   ],
 };
 
+/**
+ * Monitor Only: Everything auto-allowed. AI detection still flags anomalies.
+ * Zero blocking — purely observational. Great for trusted agents where you
+ * just want the AI supervisor to watch and flag, not gate.
+ */
+export const PRESET_MONITOR: PolicyPreset = {
+  name: 'Monitor Only',
+  description: 'Everything auto-allowed. AI detection still flags anomalies. Zero blocking.',
+  rules: [
+    { priority: 10, matchTool: '*', riskTier: '*', decision: 'ALLOW', description: 'All actions auto-allowed — AI monitors for anomalies', enabled: true },
+  ],
+};
+
 export const ALL_PRESETS: Record<string, PolicyPreset> = {
   balanced: PRESET_BALANCED,
   strict: PRESET_STRICT,
   permissive: PRESET_PERMISSIVE,
+  monitor: PRESET_MONITOR,
 };
 
 /**

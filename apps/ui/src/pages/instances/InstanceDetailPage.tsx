@@ -5,7 +5,7 @@
  * Pie chart for categories. Role management. Network board.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -17,6 +17,7 @@ import {
   updateInstance,
   getActivity,
   getFlags,
+  dismissFlag,
   type MissionData,
   type Instance,
 } from '../../api/client.ts';
@@ -302,6 +303,11 @@ export function InstanceDetailPage() {
     queryFn: () => getFlags({ dismissed: 'false', limit: '5' }),
     refetchInterval: 15_000,
   });
+  const qc = useQueryClient();
+  const dismissMutation = useMutation({
+    mutationFn: dismissFlag,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }),
+  });
 
   if (isLoading || !instance) {
     return <div className="flex items-center justify-center h-64">
@@ -319,8 +325,68 @@ export function InstanceDetailPage() {
   const totalCost = cost?.costToday ?? mission?.estimatedCost ?? 0;
   const totalActions = contributions?.summary.totalActions ?? mission?.progress.total ?? 0;
 
+  // ── Weather ──────────────────────────────────────────────────────────────
+  const weather = useMemo(() => {
+    if (!mission) return 'cloudy' as const;
+    if (mission.progress.denied > 2 || criticalFlags.length > 0) return 'storm' as const;
+    if (mission.blockedActions > 0 || mission.progress.pending > 0) return 'rain' as const;
+    if (mission.trustScore > 60 && mission.progress.denied === 0) return 'sunny' as const;
+    return 'cloudy' as const;
+  }, [mission, criticalFlags.length]);
+
+  const rainDrops = useMemo(() => {
+    if (weather !== 'rain' && weather !== 'storm') return [];
+    const count = weather === 'storm' ? 30 : 16;
+    const chars = '·.:|/';
+    return Array.from({ length: count }, (_, i) => ({
+      left: (i / count) * 100 + (Math.random() * 4 - 2),
+      char: chars[Math.floor(Math.random() * chars.length)],
+      duration: 2.5 + Math.random() * 3,
+      delay: Math.random() * -5,
+      size: weather === 'storm' ? 12 : 10,
+    }));
+  }, [weather]);
+
+  // ── Contribution Score ───────────────────────────────────────────────────
+  const contributionScore = useMemo(() => {
+    if (!contributions || contributions.summary.totalActions === 0) return 0;
+    const s = contributions.summary;
+    const efficiency = parseFloat(s.approvalEfficiency) || 0;
+    const denialRate = parseFloat(s.denialRate) || 0;
+    const outputScore = Math.min(100, (s.filesCreated * 5 + s.filesEdited * 3 + s.commandsExecuted * 2 + s.linesWritten * 0.1));
+    return Math.round(Math.min(100, (efficiency * 0.3 + (100 - denialRate) * 0.2 + outputScore * 0.5)));
+  }, [contributions]);
+
   return (
-    <div className="max-w-5xl mx-auto space-y-5">
+    <div className="relative">
+      {/* Weather Background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {weather === 'sunny' && (
+          <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.02] via-transparent to-transparent" />
+        )}
+        {weather === 'rain' && (
+          <div className="absolute inset-0 bg-gradient-to-b from-blue-500/[0.03] via-transparent to-transparent" />
+        )}
+        {weather === 'storm' && (
+          <div className="absolute inset-0 bg-gradient-to-b from-red-500/[0.04] via-transparent to-transparent animate-pulse" style={{ animationDuration: '4s' }} />
+        )}
+        {rainDrops.map((d, i) => (
+          <span
+            key={i}
+            className={`absolute font-mono ${weather === 'storm' ? 'text-red-500/20' : 'text-blue-500/15'}`}
+            style={{
+              left: `${d.left}%`,
+              top: '-20px',
+              fontSize: d.size,
+              animation: `rain-fall ${d.duration}s linear ${d.delay}s infinite`,
+            }}
+          >
+            {d.char}
+          </span>
+        ))}
+      </div>
+
+      <div className="max-w-5xl mx-auto space-y-5 relative z-10">
       <Link to="/" className="text-[10px] text-text-tertiary hover:text-text-secondary transition-colors font-mono">← dashboard</Link>
 
       {/* ── Header with Character ─────────────────────────────────────────── */}
@@ -350,28 +416,51 @@ export function InstanceDetailPage() {
         </div>
       </div>
 
-      {/* ── Anomaly Alerts ────────────────────────────────────────────────── */}
+      {/* ── Anomaly Alerts — per-agent, with smart CTAs ─────────────────── */}
       {criticalFlags.length > 0 && (
         <div className="space-y-1.5">
-          {criticalFlags.slice(0, 3).map(flag => (
-            <Link key={flag.id} to="/activity"
-              className="block bg-red-500/5 border border-red-500/20 rounded-xl p-3 hover:border-red-500/30 transition-colors">
-              <div className="flex items-start gap-3">
-                <span className="font-mono text-red-400 text-[10px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
-                <div className="min-w-0">
-                  <p className="text-xs text-red-300 font-medium">{flag.title}</p>
-                  <p className="text-[10px] text-red-400/70 mt-0.5 truncate">{flag.description.split('\n')[0]}</p>
+          {criticalFlags.slice(0, 3).map(flag => {
+            // Smart CTA based on flag category
+            const cta = flag.category === 'sensitive_access' || flag.category === 'privilege_escalation'
+              ? { label: 'Update policies', to: '/policies' }
+              : flag.category === 'evasion_pattern'
+              ? { label: 'Review approvals', to: '/approvals' }
+              : { label: 'View activity', to: '/activity' };
+            return (
+              <div key={flag.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-3">
+                <div className="flex items-start gap-3">
+                  <span className="font-mono text-red-400 text-[10px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-red-300 font-medium">{flag.title}</p>
+                    <p className="text-[10px] text-red-400/70 mt-0.5 truncate">{flag.description.split('\n')[0]}</p>
+                    <div className="flex items-center gap-3 mt-2">
+                      <Link to={cta.to} className="text-[10px] text-red-300 font-medium hover:text-red-200 font-mono">{cta.label} →</Link>
+                      <button
+                        onClick={() => dismissMutation.mutate(flag.id)}
+                        className="text-[10px] text-red-400/30 hover:text-red-400/70 font-mono"
+                      >dismiss</button>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-[9px] text-red-400/50 font-mono ml-auto shrink-0">review →</span>
               </div>
-            </Link>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* ── Contribution Score (HERO) ─────────────────────────────────────── */}
       <div className="bg-surface-1 border border-accent/15 rounded-xl p-5">
-        <h2 className="text-xs text-accent uppercase tracking-wider font-mono font-medium mb-4">Contribution Tracking</h2>
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="text-xs text-accent uppercase tracking-wider font-mono font-medium">Contribution Tracking</h2>
+          <Tooltip content="Score = 30% approval efficiency + 20% (100 − denial rate) + 50% output volume (files, edits, commands, lines)">
+            <div className="text-right">
+              <div className="text-[10px] text-text-tertiary font-mono">Contribution Score</div>
+              <div className={`text-3xl font-bold tabular-nums font-mono ${
+                contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
+              }`}>{contributionScore}</div>
+            </div>
+          </Tooltip>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
           <div>
             <div className="text-[10px] text-text-tertiary font-mono">Total Actions</div>
@@ -496,6 +585,7 @@ export function InstanceDetailPage() {
       </div>
 
       {showRoleModal && <RoleModal instance={instance} onClose={() => setShowRoleModal(false)} />}
+      </div>
     </div>
   );
 }

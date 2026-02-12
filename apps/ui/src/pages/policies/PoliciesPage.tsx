@@ -1,15 +1,17 @@
 /**
- * Policies — AI-Driven Security, Transparent, Simple
+ * Policies — Per-Agent, AI-Driven, Transparent
  *
- * Visual lockdown feel. AI supervisor with pattern recognition.
- * Simple presets, understandable summaries, working buttons.
+ * Pick an agent → see/edit its policies.
+ * Shared among sub-agents of the same instance.
+ * Monitor-only mode available (AI detection, zero blocking).
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getPolicies,
   getPresets,
+  getInstances,
   createPolicy,
   updatePolicy,
   deletePolicy,
@@ -94,7 +96,26 @@ function summarizeRules(rules: PolicyRule[]): Array<{ category: string; label: s
 export function PoliciesPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data: rules = [], isLoading } = useQuery({ queryKey: ['policies'], queryFn: getPolicies });
+
+  // ── Instance selector ───────────────────────────────────────────────────
+  const { data: instances = [] } = useQuery({ queryKey: ['instances'], queryFn: getInstances });
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | undefined>(undefined);
+
+  // Auto-select first running instance
+  useEffect(() => {
+    if (!selectedInstanceId && instances.length > 0) {
+      const running = instances.find(i => i.status === 'running');
+      setSelectedInstanceId(running?.id ?? instances[0]?.id);
+    }
+  }, [instances, selectedInstanceId]);
+
+  const selectedInstance = instances.find(i => i.id === selectedInstanceId);
+  const policyKey = ['policies', selectedInstanceId ?? 'global'];
+
+  const { data: rules = [], isLoading } = useQuery({
+    queryKey: policyKey,
+    queryFn: () => getPolicies(selectedInstanceId),
+  });
   const { data: presets = [] } = useQuery({ queryKey: ['presets'], queryFn: getPresets });
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -105,9 +126,9 @@ export function PoliciesPage() {
   const [aiRole, setAiRole] = useState('');
 
   const presetMutation = useMutation({
-    mutationFn: (id: string) => applyPreset(id),
+    mutationFn: (id: string) => applyPreset(id, selectedInstanceId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['policies'] });
+      qc.invalidateQueries({ queryKey: policyKey });
       setPresetConfirm(null);
       toast('Preset applied — rules updated', 'success');
     },
@@ -116,23 +137,23 @@ export function PoliciesPage() {
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => updatePolicy(id, { enabled }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['policies'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: policyKey }),
   });
 
   const delMutation = useMutation({
     mutationFn: (id: string) => deletePolicy(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['policies'] }); toast('Rule deleted', 'info'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: policyKey }); toast('Rule deleted', 'info'); },
   });
 
   const runAI = async () => {
     setAiLoading(true);
     try {
-      const data = await optimizePolicies(false);
+      const data = await optimizePolicies(false, selectedInstanceId);
       setAiSuggestions(data.suggestions);
       setAiSummary(data.summary);
       setAiRole(data.agentRole);
     } catch (err: any) {
-      const msg = err.message ?? '';
+      const msg = err?.body ? JSON.parse(err.body)?.error ?? err.message : err.message ?? '';
       if (msg.includes('OPENAI_API_KEY') || msg.includes('not configured')) {
         toast('AI requires OpenAI API key — configure OPENAI_API_KEY in your environment', 'error');
         setAiSummary('AI not configured — set OPENAI_API_KEY to enable smart policy analysis');
@@ -154,8 +175,9 @@ export function PoliciesPage() {
         matchCategory: s.matchCategory,
         source: 'ai-learned',
         description: s.description,
+        instanceId: selectedInstanceId,
       }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['policies'] }); toast('AI rule applied', 'success'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: policyKey }); toast('AI rule applied', 'success'); },
     onError: (err: Error) => toast(`Failed: ${err.message}`, 'error'),
   });
 
@@ -166,14 +188,32 @@ export function PoliciesPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-5">
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-lg font-bold text-text-primary font-mono">
-          <span className="text-accent">[</span> policies <span className="text-accent">]</span>
-        </h1>
-        <p className="text-xs text-text-secondary mt-1">
-          {enabledCount} active rules controlling agent behavior
-        </p>
+      {/* ── Header + Agent Selector ─────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-bold text-text-primary font-mono">
+            <span className="text-accent">[</span> policies <span className="text-accent">]</span>
+          </h1>
+          <p className="text-xs text-text-secondary mt-1">
+            {enabledCount} rules for <span className="text-text-primary font-medium">{selectedInstance?.name ?? 'global default'}</span>
+          </p>
+        </div>
+        {instances.length > 0 && (
+          <div className="shrink-0">
+            <label className="text-[9px] text-text-tertiary uppercase tracking-wider font-mono block mb-1">Agent</label>
+            <select
+              value={selectedInstanceId ?? ''}
+              onChange={e => { setSelectedInstanceId(e.target.value || undefined); setAiEnabled(false); setAiSuggestions([]); }}
+              className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent min-w-[160px]"
+            >
+              {instances.map(inst => (
+                <option key={inst.id} value={inst.id}>
+                  {inst.name} {inst.status === 'running' ? '●' : '○'}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* ── AI Supervisor Section ──────────────────────────────────────────── */}
@@ -319,7 +359,7 @@ export function PoliciesPage() {
       {/* ── Presets ────────────────────────────────────────────────────────── */}
       <div>
         <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3 font-mono">Quick presets</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {presets.map(p => {
             const isConfirming = presetConfirm === p.id;
             const isApplying = presetMutation.isPending && presetConfirm === p.id;

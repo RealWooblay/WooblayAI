@@ -17,7 +17,9 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/policies', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
+      const { instanceId } = _request.query as { instanceId?: string };
       const rules = await prisma.policyRule.findMany({
+        where: { instanceId: instanceId ?? null },
         orderBy: { priority: 'asc' },
       });
       return reply.send(rules);
@@ -44,6 +46,7 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       source?: string;
       description?: string;
       enabled?: boolean;
+      instanceId?: string;
     };
 
     if (!body.matchTool || !body.riskTier || !body.decision) {
@@ -56,8 +59,10 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      // Auto-assign priority: max existing + 10
+      // Auto-assign priority: max existing for same instanceId + 10
+      const targetInstanceId = body.instanceId ?? null;
       const maxRule = await prisma.policyRule.findFirst({
+        where: { instanceId: targetInstanceId },
         orderBy: { priority: 'desc' },
         select: { priority: true },
       });
@@ -75,6 +80,7 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
           source: body.source ?? 'manual',
           description: body.description ?? null,
           enabled: body.enabled ?? true,
+          instanceId: targetInstanceId,
         },
       });
 
@@ -154,6 +160,8 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post('/api/policies/presets/:name', async (request: FastifyRequest, reply: FastifyReply) => {
     const { name } = request.params as { name: string };
+    const { instanceId } = request.query as { instanceId?: string };
+    const targetInstanceId = instanceId ?? null;
     const preset = ALL_PRESETS[name];
 
     if (!preset) {
@@ -163,13 +171,14 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       await prisma.$transaction([
-        prisma.policyRule.deleteMany(),
+        prisma.policyRule.deleteMany({ where: { instanceId: targetInstanceId } }),
         ...preset.rules.map((rule) =>
-          prisma.policyRule.create({ data: rule }),
+          prisma.policyRule.create({ data: { ...rule, instanceId: targetInstanceId } }),
         ),
       ]);
 
       const rules = await prisma.policyRule.findMany({
+        where: { instanceId: targetInstanceId },
         orderBy: { priority: 'asc' },
       });
 
@@ -207,11 +216,13 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'AI supervisor not configured. Set OPENAI_API_KEY.' });
     }
 
-    const body = request.body as { autoApply?: boolean } | null;
+    const body = request.body as { autoApply?: boolean; instanceId?: string } | null;
     const autoApply = body?.autoApply ?? false;
+    const targetInstanceId = body?.instanceId ?? null;
 
     try {
       // Gather context: recent tool calls with categories, approval history, current rules, agent role
+      // MVP: use most recent agent's tool calls (in production, filter by instance→agent mapping)
       const recentCalls = await prisma.toolCall.findMany({
         orderBy: { createdAt: 'desc' },
         take: 100,
@@ -219,12 +230,14 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       });
 
       const currentRules = await prisma.policyRule.findMany({
-        where: { enabled: true },
+        where: { enabled: true, instanceId: targetInstanceId },
         orderBy: { priority: 'asc' },
       });
 
       // Get instance role
-      const instance = await prisma.instance.findFirst({ orderBy: { updatedAt: 'desc' } });
+      const instance = targetInstanceId
+        ? await prisma.instance.findUnique({ where: { id: targetInstanceId } })
+        : await prisma.instance.findFirst({ orderBy: { updatedAt: 'desc' } });
       const agentRole = instance?.role ?? instance?.inferredRole ?? 'unknown';
 
       // Summarize activity by category
@@ -321,6 +334,7 @@ Suggest policy optimizations.`,
         for (const suggestion of result.suggestions) {
           if (suggestion.action === 'add') {
             const maxRule = await prisma.policyRule.findFirst({
+              where: { instanceId: targetInstanceId },
               orderBy: { priority: 'desc' },
               select: { priority: true },
             });
@@ -334,6 +348,7 @@ Suggest policy optimizations.`,
                 description: suggestion.description,
                 source: 'ai-learned',
                 enabled: true,
+                instanceId: targetInstanceId,
               },
             });
           }

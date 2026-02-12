@@ -123,20 +123,23 @@ model ToolCall {
 }
 
 model PolicyRule {
-  id            String   @id @default(cuid())
-  priority      Int      @unique
+  id            String    @id @default(cuid())
+  instanceId    String?   // null = global default; set = instance-specific (shared with sub-agents)
+  instance      Instance? @relation(fields: [instanceId], references: [id])
+  priority      Int
   matchTool     String
   matchArgs     String?
   riskTier      String
-  matchCategory String?  // Business-context category filter: "code", "git", "secrets", etc. or "*"
+  matchCategory String?   // Business-context category filter: "code", "git", "secrets", etc. or "*"
   decision      String
   constraints   String?
-  source        String   @default("manual") // "manual" | "preset" | "ai-learned" | "from-approval"
-  description   String?  // Human-readable: "Allow code changes"
-  enabled       Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  source        String    @default("manual") // "manual" | "preset" | "ai-learned" | "from-approval"
+  description   String?   // Human-readable: "Allow code changes"
+  enabled       Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
+  @@index([instanceId, priority])
   @@index([priority])
 }
 
@@ -315,6 +318,8 @@ model Instance {
   role          String?  // User-corrected role override
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  policyRules   PolicyRule[]
 
   @@index([userId])
   @@index([status])

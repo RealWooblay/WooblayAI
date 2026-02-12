@@ -121,8 +121,8 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           instanceId: agentInstance?.id ?? null,
         }).catch((err) => request.log.warn(err, 'Flag detection failed'));
 
-        // 4. Evaluate policy
-        const policyDecision = await evaluatePolicy(prisma, toolCall);
+        // 4. Evaluate policy (instance-specific rules override globals)
+        const policyDecision = await evaluatePolicy(prisma, toolCall, agentInstance?.id ?? null);
         const decisionTrail = body.decisionTrail ?? defaultTrail;
 
         // 4b. Human-readable enrichment

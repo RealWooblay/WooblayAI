@@ -220,7 +220,9 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/instances/:id/contributions', async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
     try {
-      const result = await computeContributions(prisma, {});
+      const agents = await prisma.agent.findMany({ orderBy: { createdAt: 'desc' }, take: 1 });
+      const agentPubkey = agents[0]?.pubkey;
+      const result = await computeContributions(prisma, { agentPubkey });
       return reply.send(result);
     } catch (err) {
       request.log.error(err, 'Failed to compute contributions');
