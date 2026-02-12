@@ -54,6 +54,11 @@ export const clerkAuthPlugin = fp(async function clerkAuthPluginInner(app: Fasti
       if (request.headers['x-agent-pubkey']) return;
       if (!request.url.startsWith('/api/')) return;
 
+      // Skip Clerk auth for internal Docker network requests (agent → gate).
+      // These come from managed containers on the 172.x.x.x network, not the internet.
+      const host = request.headers.host ?? '';
+      if (host.startsWith('172.') || host.startsWith('10.') || host === 'localhost:4800') return;
+
       // Try Bearer token first (API clients), then __session cookie (browser)
       let token: string | undefined;
 
