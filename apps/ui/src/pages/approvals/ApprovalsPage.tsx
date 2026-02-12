@@ -218,10 +218,10 @@ export function ApprovalsPage() {
                       {typeof tc?.args === 'string' ? tc.args : JSON.stringify(tc?.args, null, 2)}
                     </pre>
                   </div>
-                  {item.description && (
+                  {item.riskExplanation && (
                     <div>
-                      <h4 className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Description</h4>
-                      <p className="text-xs text-text-secondary">{item.description}</p>
+                      <h4 className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Risk Explanation</h4>
+                      <p className="text-xs text-text-secondary">{item.riskExplanation}</p>
                     </div>
                   )}
                   <div className="flex gap-6 text-[11px] text-text-muted">

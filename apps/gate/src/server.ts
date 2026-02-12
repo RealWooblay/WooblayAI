@@ -3,6 +3,12 @@
  *
  * Bootstraps the Fastify server, registers all middleware and route modules,
  * and starts listening on the configured port.
+ *
+ * Supports two modes:
+ *   - **platform** (PLATFORM_MODE=true): Central SaaS API with Clerk auth, user management,
+ *     billing, instance orchestration, and synced receipt aggregation.
+ *   - **instance** (default): Per-tenant runtime with agent signature auth, policy eval,
+ *     tool gating, and local receipts.
  */
 
 import Fastify from 'fastify';
@@ -10,9 +16,10 @@ import cors from '@fastify/cors';
 
 import { config } from './config.js';
 import { authPlugin } from './middleware/auth.js';
+import { clerkAuthPlugin } from './middleware/clerk-auth.js';
 import { registerStatic } from './static.js';
 
-// Route modules (MVP only)
+// Route modules — shared (both modes)
 import { healthRoutes } from './routes/health.js';
 import { toolRoutes } from './routes/tool.js';
 import { approvalRoutes } from './routes/approvals.js';
@@ -21,6 +28,10 @@ import { statsRoutes } from './routes/stats.js';
 import { executionRoutes } from './routes/executions.js';
 import { activityRoutes } from './routes/activity.js';
 import { instanceRoutes } from './routes/instances.js';
+
+// Route modules — platform mode only
+import { userRoutes } from './routes/users.js';
+import { syncRoutes } from './routes/sync.js';
 
 /**
  * Build and configure the Fastify application.
@@ -37,9 +48,12 @@ export async function buildApp() {
   await app.register(cors, { origin: true });
 
   // ── Middleware ───────────────────────────────────────────────────────
+  // Agent signature auth (instance mode — agent-to-gate requests)
   await app.register(authPlugin);
+  // Clerk JWT auth (platform mode — browser-to-API requests)
+  await app.register(clerkAuthPlugin);
 
-  // ── Routes (MVP) ────────────────────────────────────────────────────
+  // ── Routes (both modes) ─────────────────────────────────────────────
   await app.register(healthRoutes);
   await app.register(toolRoutes);
   await app.register(approvalRoutes);
@@ -48,6 +62,10 @@ export async function buildApp() {
   await app.register(executionRoutes);
   await app.register(activityRoutes);
   await app.register(instanceRoutes);
+
+  // ── Routes (platform mode only) ─────────────────────────────────────
+  await app.register(userRoutes);
+  await app.register(syncRoutes);
 
   // ── Static UI ───────────────────────────────────────────────────────
   await registerStatic(app);
@@ -71,6 +89,19 @@ async function start() {
     }
   } catch (err) {
     console.error('[seed] Failed to seed default policies:', err);
+  }
+
+  // Seed default beta coupon in platform mode
+  if (config.PLATFORM_MODE) {
+    try {
+      const { seedDefaultCoupon } = await import('./db/seed-coupons.js');
+      const created = await seedDefaultCoupon(prisma);
+      if (created) {
+        console.log('[seed] Created default beta coupon: WOOBLAY-BETA-2026');
+      }
+    } catch (err) {
+      console.error('[seed] Failed to seed default coupon:', err);
+    }
   }
 
   try {

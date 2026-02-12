@@ -1,26 +1,26 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
 import { getApprovals } from '../../api/client.ts';
 import clsx from 'clsx';
-import { useState } from 'react';
 
-const MAIN_NAV: ReadonlyArray<{ to: string; label: string; icon: string; end?: boolean; badge?: boolean }> = [
+const NAV_ITEMS: ReadonlyArray<{
+  to: string;
+  label: string;
+  icon: string;
+  end?: boolean;
+  badge?: boolean;
+}> = [
   { to: '/', label: 'Dashboard', icon: '◉', end: true },
-  { to: '/approvals', label: 'Approvals', icon: '⬡', badge: true },
   { to: '/instances', label: 'Instances', icon: '◎' },
+  { to: '/approvals', label: 'Approvals', icon: '⬡', badge: true },
+  { to: '/policies', label: 'Policies', icon: '◇' },
+  { to: '/activity', label: 'Activity', icon: '◈' },
 ];
-
-const MORE_NAV = [
-  { to: '/policies', label: 'Policies' },
-  { to: '/agents', label: 'Agents' },
-  { to: '/audit', label: 'Audit Trail' },
-  { to: '/receipts', label: 'Receipts' },
-  { to: '/scoring', label: 'Scoring' },
-] as const;
 
 export function Sidebar() {
   const location = useLocation();
-  const [moreOpen, setMoreOpen] = useState(false);
+  const { user } = useUser();
 
   const { data: approvals } = useQuery({
     queryKey: ['approvals', 'pending'],
@@ -36,11 +36,12 @@ export function Sidebar() {
         <span className="text-sm font-bold tracking-tight text-text-primary">
           wooblay
         </span>
+        <span className="text-[9px] text-accent-bright ml-1.5 font-medium">beta</span>
       </div>
 
-      {/* Main Nav */}
+      {/* Navigation */}
       <nav className="flex-1 px-3 space-y-0.5">
-        {MAIN_NAV.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const isActive = item.end
             ? location.pathname === item.to
             : location.pathname.startsWith(item.to);
@@ -74,53 +75,39 @@ export function Sidebar() {
             </NavLink>
           );
         })}
-
-        {/* More section */}
-        <div className="pt-3">
-          <button
-            onClick={() => setMoreOpen(!moreOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-muted hover:text-text-secondary transition-colors w-full"
-          >
-            <span className={clsx('transition-transform text-[9px]', moreOpen && 'rotate-90')}>
-              ▸
-            </span>
-            More
-          </button>
-
-          {moreOpen && (
-            <div className="space-y-0.5 mt-0.5 animate-slide-in-up">
-              {MORE_NAV.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={() =>
-                    clsx(
-                      'flex items-center gap-3 px-3 py-1.5 rounded-lg text-[12px] transition-all',
-                      location.pathname.startsWith(item.to)
-                        ? 'text-text-primary bg-surface-2'
-                        : 'text-text-muted hover:text-text-secondary hover:bg-surface-1',
-                    )
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          )}
-        </div>
       </nav>
 
-      {/* Bottom: Command palette */}
-      <div className="px-4 py-3 border-t border-border">
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-1 border border-border hover:border-border-strong text-[11px] text-text-muted hover:text-text-secondary transition-all cursor-pointer"
+      {/* Bottom: User + Settings */}
+      <div className="px-3 pb-4 space-y-1">
+        <NavLink
+          to="/settings"
+          className={() =>
+            clsx(
+              'flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
+              location.pathname === '/settings'
+                ? 'bg-accent-subtle text-accent-bright'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-2',
+            )
+          }
         >
-          <span className="flex-1 text-left">Search...</span>
-          <kbd className="text-[9px] font-mono bg-surface-2 px-1.5 py-0.5 rounded text-text-muted">
-            ⌘K
-          </kbd>
-        </button>
+          <span className="text-[11px] w-5 text-center opacity-40">⚙</span>
+          <span className="flex-1">Settings</span>
+        </NavLink>
+
+        {user && (
+          <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
+            {user.imageUrl ? (
+              <img src={user.imageUrl} alt="" className="h-6 w-6 rounded-full border border-border" />
+            ) : (
+              <div className="h-6 w-6 rounded-full bg-surface-3 border border-border flex items-center justify-center text-[9px] text-text-muted">
+                {(user.firstName?.[0] || user.primaryEmailAddress?.emailAddress?.[0] || '?').toUpperCase()}
+              </div>
+            )}
+            <span className="text-[11px] text-text-muted truncate">
+              {user.firstName || user.primaryEmailAddress?.emailAddress || 'User'}
+            </span>
+          </div>
+        )}
       </div>
     </aside>
   );

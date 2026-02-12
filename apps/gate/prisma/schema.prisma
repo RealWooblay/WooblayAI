@@ -7,6 +7,67 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ── Platform: Users & Billing ────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  activated Boolean  @default(false)  // true once a valid coupon is redeemed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  instances  Instance[]
+  coupons    UserCoupon[]
+
+  @@index([clerkId])
+}
+
+model Coupon {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  maxUses     Int         @default(100)
+  currentUses Int         @default(0)
+  expiresAt   DateTime?
+  metadata    String?     // JSON
+  createdAt   DateTime    @default(now())
+  redemptions UserCoupon[]
+}
+
+model UserCoupon {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  couponId   String
+  coupon     Coupon   @relation(fields: [couponId], references: [id])
+  redeemedAt DateTime @default(now())
+
+  @@unique([userId, couponId])
+  @@index([userId])
+}
+
+// ── Synced audit trail (from per-instance Gates) ─────────────────────────────
+
+model SyncedReceipt {
+  id           String   @id @default(cuid())
+  instanceId   String
+  receiptHash  String
+  agentPubkey  String?
+  toolName     String?
+  riskTier     String?
+  decision     String?
+  data         String   // JSON — full receipt payload
+  syncedAt     DateTime @default(now())
+
+  @@unique([instanceId, receiptHash])
+  @@index([instanceId])
+  @@index([syncedAt])
+}
+
+// ── Agent Runtime ────────────────────────────────────────────────────────────
+
 model Agent {
   id          String    @id @default(cuid())
   pubkey      String    @unique
@@ -235,6 +296,8 @@ model Canary {
 model Instance {
   id            String   @id @default(cuid())
   name          String   @unique
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
   status        String   @default("provisioning")  // provisioning, running, stopped, error
   agentRuntime  String   @default("openclaw")       // openclaw, custom, etc.
   model         String   @default("claude-sonnet-4-20250514")
@@ -242,9 +305,11 @@ model Instance {
   containerId   String?  // Docker container ID
   telegramBot   String?  // Telegram bot username / token identifier
   endpoint      String?  // Internal endpoint URL
+  githubPat     Boolean  @default(false) // Whether a GitHub PAT is configured
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([userId])
   @@index([status])
   @@index([agentRuntime])
 }

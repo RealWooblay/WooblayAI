@@ -9,6 +9,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 import { verify } from '@wooblay/crypto';
 
 // Augment Fastify's request type so `agentPubkey` is available downstream
@@ -20,8 +21,9 @@ declare module 'fastify' {
 
 /**
  * Register the auth hook on a Fastify instance.
+ * Wrapped with fp() so hooks apply globally (not encapsulated).
  */
-export async function authPlugin(app: FastifyInstance): Promise<void> {
+export const authPlugin = fp(async function authPluginInner(app: FastifyInstance): Promise<void> {
   app.addHook(
     'onRequest',
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -31,6 +33,20 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
 
       // Skip for GitHub webhook (uses its own HMAC-SHA256 verification)
       if (request.url === '/github/webhook' || request.url === '/github/webhook/') return;
+
+      // Skip agent auth for platform API routes (these use Clerk auth instead)
+      // Also skip for /api/tool/execute — in platform mode, managed agent containers
+      // run on the same Docker network and are trusted. The tool route reads
+      // agentPubkey from the request body. Ed25519 signatures are for future
+      // "bring your own instance" mode where agents connect over the internet.
+      const platformPaths = [
+        '/api/users/', '/api/coupons/', '/api/instances',
+        '/api/webhooks/', '/api/sync/', '/api/approvals/',
+        '/api/policies', '/api/stats', '/api/activity',
+        '/api/receipts', '/api/tool/',
+      ];
+      const path = request.url.split('?')[0];
+      if (platformPaths.some((p) => path.startsWith(p))) return;
 
       const pubkey = request.headers['x-agent-pubkey'] as string | undefined;
       const signature = request.headers['x-request-signature'] as string | undefined;
@@ -52,4 +68,4 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
       request.agentPubkey = pubkey;
     },
   );
-}
+});

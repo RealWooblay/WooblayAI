@@ -1,5 +1,9 @@
 /**
  * Gate server configuration — loaded from environment variables with sensible defaults.
+ *
+ * The Gate can run in two modes:
+ *   - **platform** (PLATFORM_MODE=true): Central SaaS API — user accounts, billing, instance orchestration.
+ *   - **instance** (default): Per-tenant runtime — policy eval, tool gating, receipts. Agents run here.
  */
 
 export const config = {
@@ -20,13 +24,16 @@ export const config = {
   /** Current environment. */
   NODE_ENV: process.env['NODE_ENV'] ?? 'development',
 
-  // ── GitHub App ──────────────────────────────────────────────────────────
-  /** GitHub App ID. */
-  GITHUB_APP_ID: process.env['GITHUB_APP_ID'] ?? '',
-  /** GitHub App private key (PEM-encoded, base64 or multi-line). */
-  GITHUB_APP_PRIVATE_KEY: process.env['GITHUB_APP_PRIVATE_KEY'] ?? '',
-  /** GitHub webhook secret for HMAC-SHA256 verification. */
-  GITHUB_WEBHOOK_SECRET: process.env['GITHUB_WEBHOOK_SECRET'] ?? '',
-  /** Dashboard URL for links in Check Runs. */
+  // ── Platform mode ───────────────────────────────────────────────────────
+  /** Whether this Gate runs as the central platform (true) or a per-instance runtime (false). */
+  PLATFORM_MODE: process.env['PLATFORM_MODE'] === 'true',
+
+  /** Clerk publishable key (frontend sends this). */
+  CLERK_PUBLISHABLE_KEY: process.env['CLERK_PUBLISHABLE_KEY'] ?? '',
+
+  /** Clerk secret key (backend verifies JWTs). */
+  CLERK_SECRET_KEY: process.env['CLERK_SECRET_KEY'] ?? '',
+
+  /** Dashboard URL (Vercel frontend). */
   WOOBLAY_DASHBOARD_URL: process.env['WOOBLAY_DASHBOARD_URL'] ?? 'http://localhost:5173',
 } as const;

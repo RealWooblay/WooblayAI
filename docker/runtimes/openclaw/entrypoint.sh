@@ -22,6 +22,19 @@ else
   echo "  Agents:       single (main) with model ${OPENCLAW_MODEL}"
 fi
 
+# ── GitHub Token ──────────────────────────────────────────────────────────
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+if [ -n "${GITHUB_TOKEN}" ]; then
+  echo "  GitHub:       Token set (${#GITHUB_TOKEN} chars)"
+  # Set as global env so OpenClaw agent tools (gated_exec with git commands) can use it
+  export GH_TOKEN="${GITHUB_TOKEN}"
+  export GITHUB_TOKEN="${GITHUB_TOKEN}"
+  # Configure git to use the token for HTTPS repos
+  git config --global credential.helper "!f() { echo \"username=token\"; echo \"password=${GITHUB_TOKEN}\"; }; f"
+else
+  echo "  GitHub:       not configured"
+fi
+
 # ── Build channels config JSON ────────────────────────────────────────────
 TELEGRAM_ENABLED="${TELEGRAM_ENABLED:-false}"
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
