@@ -1,13 +1,15 @@
 /**
  * Clerk authentication middleware for platform mode.
  *
- * Verifies Clerk JWTs from the Authorization header (Bearer token)
- * and attaches the Clerk userId to the request.
+ * Extracts the Clerk userId from:
+ *   1. Authorization: Bearer <token> header (API clients)
+ *   2. __session cookie (browser requests — set by Clerk's frontend SDK)
  *
  * When PLATFORM_MODE=false (instance mode), this middleware is a no-op.
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import cookie from '@fastify/cookie';
 import { config } from '../config.js';
 
 // Augment Fastify's request type
@@ -37,7 +39,9 @@ export async function clerkAuthPlugin(app: FastifyInstance): Promise<void> {
     return;
   }
 
-  // Use @clerk/backend's standalone verifyToken (more reliable than the Fastify plugin)
+  // Register cookie parser so we can read __session
+  await app.register(cookie);
+
   const { verifyToken } = await import('@clerk/backend');
 
   app.addHook(
@@ -45,24 +49,35 @@ export async function clerkAuthPlugin(app: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (request.method === 'OPTIONS') return;
       if (isPublic(request.url)) return;
-      // Allow agent-auth'd requests (from instance Gates)
       if (request.headers['x-agent-pubkey']) return;
-      // Allow static file requests
       if (!request.url.startsWith('/api/')) return;
 
+      // Try Bearer token first (API clients), then __session cookie (browser)
+      let token: string | undefined;
+
       const authHeader = request.headers.authorization;
-      if (!authHeader?.startsWith('Bearer ')) {
-        return reply.code(401).send({ error: 'Missing authorization token' });
+      if (authHeader?.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
       }
 
-      const token = authHeader.slice(7);
+      if (!token) {
+        // Clerk sets a __session cookie in the browser
+        const cookies = request.cookies;
+        if (cookies?.['__session']) {
+          token = cookies['__session'];
+        }
+      }
+
+      if (!token) {
+        return reply.code(401).send({ error: 'Not authenticated' });
+      }
 
       try {
         const payload = await verifyToken(token, {
           secretKey: config.CLERK_SECRET_KEY,
         });
         if (!payload.sub) {
-          return reply.code(401).send({ error: 'Invalid token — no subject' });
+          return reply.code(401).send({ error: 'Invalid token' });
         }
         request.clerkUserId = payload.sub;
       } catch (err) {
