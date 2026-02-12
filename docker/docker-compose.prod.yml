@@ -28,6 +28,9 @@ services:
     build:
       context: ../
       dockerfile: docker/gate/Dockerfile
+      args:
+        VITE_CLERK_PK: ${VITE_CLERK_PUBLISHABLE_KEY:-}
+        VITE_API_URL: ${VITE_API_URL:-}
     container_name: wooblay-gate-prod
     restart: unless-stopped
     ports:

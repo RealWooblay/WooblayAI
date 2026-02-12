@@ -10,6 +10,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getInstance,
+  getInstances,
   getMission,
   getInstanceContributions,
   getInstanceCost,
@@ -17,7 +18,6 @@ import {
   getActivity,
   getFlags,
   type MissionData,
-  type ContributionResult,
   type Instance,
 } from '../../api/client.ts';
 import { Tooltip } from '../../components/common/Tooltip.tsx';
@@ -300,7 +300,7 @@ export function InstanceDetailPage() {
 
   const { data: allInstances } = useQuery({
     queryKey: ['instances'],
-    queryFn: () => import('../../api/client.ts').then(m => m.getInstances()),
+    queryFn: () => getInstances(),
     refetchInterval: 15_000,
   });
 

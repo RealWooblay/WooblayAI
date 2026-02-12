@@ -95,7 +95,10 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       riskTier?: string;
       decision?: string;
       matchArgs?: string | null;
+      matchCategory?: string | null;
       constraints?: string | null;
+      source?: string;
+      description?: string | null;
       enabled?: boolean;
     };
 
@@ -114,7 +117,10 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
           ...(body.riskTier !== undefined && { riskTier: body.riskTier }),
           ...(body.decision !== undefined && { decision: body.decision }),
           ...(body.matchArgs !== undefined && { matchArgs: body.matchArgs }),
+          ...(body.matchCategory !== undefined && { matchCategory: body.matchCategory }),
           ...(body.constraints !== undefined && { constraints: body.constraints }),
+          ...(body.source !== undefined && { source: body.source }),
+          ...(body.description !== undefined && { description: body.description }),
           ...(body.enabled !== undefined && { enabled: body.enabled }),
         },
       });

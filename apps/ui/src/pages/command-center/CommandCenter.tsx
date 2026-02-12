@@ -5,20 +5,18 @@
  * Click anywhere to navigate to /instances/:id for the deep-dive.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   getStats,
   getInstances,
   getApprovals,
   getMission,
-  approveApproval,
   type Instance,
   type MissionData,
 } from '../../api/client.ts';
 import { Button } from '../../components/common/Button.tsx';
 import { Tooltip } from '../../components/common/Tooltip.tsx';
-import { useToast } from '../../components/common/Toast.tsx';
 
 // ── Agent State ──────────────────────────────────────────────────────────────
 
@@ -185,16 +183,6 @@ export function CommandCenter() {
     queryKey: ['approvals', 'pending'],
     queryFn: getApprovals,
     refetchInterval: 5_000,
-  });
-
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const approveMut = useMutation({
-    mutationFn: (id: string) => approveApproval(id, { approver: 'dashboard' }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['approvals'] });
-      toast('Action approved', 'success');
-    },
   });
 
   const allInstances = instances ?? [];

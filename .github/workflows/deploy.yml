@@ -46,7 +46,7 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:mvp
             ${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:latest
           build-args: |
-            VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+            VITE_CLERK_PK=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -76,7 +76,15 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           },
         });
 
-        // 3b. Run flag detection async (non-blocking)
+        // 3b. Resolve instance for this agent (for role-aware flag detection)
+        // MVP: match by most recently active running instance
+        const agentInstance = await prisma.instance.findFirst({
+          where: { status: 'running' },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true },
+        });
+
+        // 3c. Run flag detection async (non-blocking)
         detectFlags(prisma, {
           toolCallId: toolCall.id,
           agentPubkey: body.agentPubkey,
@@ -84,6 +92,7 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           args: argsCanonical,
           riskTier,
           category,
+          instanceId: agentInstance?.id ?? null,
         }).catch((err) => request.log.warn(err, 'Flag detection failed'));
 
         // 4. Evaluate policy
