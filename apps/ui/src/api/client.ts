@@ -67,7 +67,7 @@ export async function fetchApi<T = unknown>(
   }
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetch(url, { ...init, headers, credentials: 'include' });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');

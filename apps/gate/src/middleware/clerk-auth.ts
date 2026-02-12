@@ -68,6 +68,20 @@ export async function clerkAuthPlugin(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // Debug: log what we received (remove after fixing)
+      if (!token) {
+        const cookieHeader = request.headers.cookie ?? '(none)';
+        const cookieNames = cookieHeader !== '(none)'
+          ? cookieHeader.split(';').map((c: string) => c.trim().split('=')[0]).join(', ')
+          : '(none)';
+        request.log.info({
+          url: request.url,
+          hasAuth: !!request.headers.authorization,
+          cookieNames,
+          parsedCookies: Object.keys(request.cookies ?? {}),
+        }, 'Auth debug: no token found');
+      }
+
       if (!token) {
         return reply.code(401).send({ error: 'Not authenticated' });
       }
