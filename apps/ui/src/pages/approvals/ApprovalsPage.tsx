@@ -194,11 +194,11 @@ export function ApprovalsPage() {
                 {action}
               </code>
 
-              {/* Why flagged */}
-              {(item as any).whyFlagged && (
+              {/* Why flagged — AI-powered explanation */}
+              {item.whyFlagged && (
                 <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg px-3 py-2 mb-3">
                   <p className="text-xs text-amber-300">
-                    <span className="font-medium">Why this needs approval:</span> {(item as any).whyFlagged}
+                    <span className="font-medium">Why this needs approval:</span> {item.whyFlagged}
                   </p>
                 </div>
               )}

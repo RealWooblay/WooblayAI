@@ -129,6 +129,7 @@ export interface ApprovalItem {
   };
   humanDescription?: string;
   riskExplanation?: string;
+  whyFlagged?: string;
 }
 
 export const getApprovals = () =>
@@ -355,7 +356,7 @@ export const deletePolicy = (id: string) =>
   fetchApi<void>(`/api/policies/${id}`, { method: 'DELETE' });
 
 export const applyPreset = (name: string) =>
-  fetchApi<{ preset: string; description: string; rules: PolicyRule[] }>(`/api/policies/presets/${name}`, { method: 'POST' });
+  fetchApi<{ preset: string; description: string; rules: PolicyRule[] }>(`/api/policies/presets/${name}`, { method: 'POST', body: '{}' });
 
 // ---------------------------------------------------------------------------
 // Flags

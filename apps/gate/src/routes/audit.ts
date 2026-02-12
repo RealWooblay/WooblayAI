@@ -24,7 +24,9 @@ export async function auditRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const from = query.from ? new Date(query.from) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const to = query.to ? new Date(query.to) : new Date();
+    // Fix: set 'to' to end-of-day so same-day data isn't excluded
+    const toRaw = query.to ? new Date(query.to) : new Date();
+    const to = new Date(toRaw.getFullYear(), toRaw.getMonth(), toRaw.getDate(), 23, 59, 59, 999);
     const format = query.format ?? 'json';
 
     const where: Record<string, unknown> = {

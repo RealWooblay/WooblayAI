@@ -1,11 +1,11 @@
 /**
  * Instance Detail — Deep dive into a single agent.
  *
- * Contribution scoring prominent. ASCII character. Role management.
- * Category breakdown. Network board. Activity log.
+ * Contribution tracking hero. Alive character with weather.
+ * Pie chart for categories. Role management. Network board.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -26,10 +26,10 @@ import { Button } from '../../components/common/Button.tsx';
 // ── Colors ───────────────────────────────────────────────────────────────────
 
 const CAT_COLOR: Record<string, string> = {
-  code: 'bg-blue-500', git: 'bg-purple-500', packages: 'bg-pink-500',
-  shell: 'bg-zinc-400', files: 'bg-cyan-500', network: 'bg-indigo-500',
-  secrets: 'bg-red-500', infra: 'bg-orange-500', destructive: 'bg-red-600',
-  data: 'bg-teal-500', communication: 'bg-yellow-500', other: 'bg-zinc-600',
+  code: '#3b82f6', git: '#a855f7', packages: '#ec4899',
+  shell: '#71717a', files: '#06b6d4', network: '#6366f1',
+  secrets: '#ef4444', infra: '#f97316', destructive: '#dc2626',
+  data: '#14b8a6', communication: '#eab308', other: '#52525b',
 };
 const CAT_LABEL: Record<string, string> = {
   code: 'Code', git: 'Git', packages: 'Packages', shell: 'Shell',
@@ -37,43 +37,47 @@ const CAT_LABEL: Record<string, string> = {
   destructive: 'Destructive', data: 'Data', communication: 'Comms', other: 'Other',
 };
 
-// ── Sparkline ────────────────────────────────────────────────────────────────
+// ── SVG Pie Chart ─────────────────────────────────────────────────────────────
 
-function Sparkline({ data, color = 'bg-accent' }: { data: number[]; color?: string }) {
-  const max = Math.max(...data, 1);
-  return (
-    <div className="flex items-end gap-[2px] h-12">
-      {data.map((v, i) => (
-        <div key={i}
-          className={`flex-1 rounded-sm ${color} opacity-60 hover:opacity-100 transition-opacity min-w-[4px]`}
-          style={{ height: `${Math.max((v / max) * 100, 4)}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-// ── Category Bar ─────────────────────────────────────────────────────────────
-
-function CategoryBar({ breakdown }: { breakdown: Record<string, number> }) {
+function PieChart({ breakdown }: { breakdown: Record<string, number> }) {
   const total = Object.values(breakdown).reduce((a, b) => a + b, 0) || 1;
   const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
   if (sorted.length === 0) return <p className="text-xs text-text-tertiary font-mono">no data yet</p>;
 
+  // Build pie segments using stroke-dasharray
+  const radius = 40;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
   return (
-    <div>
-      <div className="flex h-3 rounded-full overflow-hidden bg-surface-3 gap-px">
-        {sorted.map(([cat, count]) => (
-          <Tooltip key={cat} content={`${CAT_LABEL[cat] ?? cat}: ${count} actions (${Math.round((count / total) * 100)}%)`}>
-            <div className={`${CAT_COLOR[cat] ?? 'bg-zinc-600'} transition-all`}
-              style={{ width: `${(count / total) * 100}%` }} />
-          </Tooltip>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-3 mt-2">
+    <div className="flex items-center gap-4">
+      <svg width="100" height="100" viewBox="0 0 100 100" className="shrink-0">
+        {sorted.map(([cat, count]) => {
+          const pct = count / total;
+          const dashLength = pct * circumference;
+          const dashOffset = -offset * circumference;
+          offset += pct;
+          return (
+            <circle
+              key={cat}
+              cx="50" cy="50" r={radius}
+              fill="none"
+              stroke={CAT_COLOR[cat] ?? '#52525b'}
+              strokeWidth="16"
+              strokeDasharray={`${dashLength} ${circumference - dashLength}`}
+              strokeDashoffset={dashOffset}
+              style={{ transition: 'all 0.5s ease' }}
+            />
+          );
+        })}
+        {/* Center text */}
+        <text x="50" y="47" textAnchor="middle" className="fill-text-primary text-[14px] font-bold font-mono">{total}</text>
+        <text x="50" y="58" textAnchor="middle" className="fill-text-tertiary text-[7px] font-mono">actions</text>
+      </svg>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
         {sorted.map(([cat, count]) => (
           <span key={cat} className="text-[10px] text-text-secondary flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${CAT_COLOR[cat] ?? 'bg-zinc-600'}`} />
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CAT_COLOR[cat] ?? '#52525b' }} />
             {CAT_LABEL[cat] ?? cat} <span className="text-text-tertiary tabular-nums">{Math.round((count / total) * 100)}%</span>
           </span>
         ))}
@@ -82,13 +86,56 @@ function CategoryBar({ breakdown }: { breakdown: Record<string, number> }) {
   );
 }
 
-// ── ASCII Agent ──────────────────────────────────────────────────────────────
+// ── Sparkline with Y-axis ────────────────────────────────────────────────────
+
+function Sparkline({ data, color = 'bg-accent' }: { data: number[]; color?: string }) {
+  const max = Math.max(...data, 1);
+  return (
+    <div className="flex items-end gap-1">
+      {/* Y-axis labels */}
+      <div className="flex flex-col justify-between h-12 mr-1 text-[8px] text-text-tertiary font-mono tabular-nums shrink-0 w-5 text-right">
+        <span>{max}</span>
+        <span>{Math.round(max / 2)}</span>
+        <span>0</span>
+      </div>
+      {/* Bars */}
+      <div className="flex items-end gap-[2px] h-12 flex-1">
+        {data.map((v, i) => (
+          <Tooltip key={i} content={`${v} actions`}>
+            <div
+              className={`flex-1 rounded-sm ${color} opacity-60 hover:opacity-100 transition-opacity min-w-[4px]`}
+              style={{ height: `${Math.max((v / max) * 100, 4)}%` }}
+            />
+          </Tooltip>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Alive Agent Character ─────────────────────────────────────────────────────
 
 function AgentCharacter({ mission, instance }: { mission?: MissionData; instance: Instance }) {
+  const [blink, setBlink] = useState(false);
+
+  useEffect(() => {
+    const schedule = () => {
+      const wait = 2000 + Math.random() * 3000;
+      const timeout = setTimeout(() => {
+        setBlink(true);
+        setTimeout(() => setBlink(false), 150);
+        schedule();
+      }, wait);
+      return timeout;
+    };
+    const t = schedule();
+    return () => clearTimeout(t);
+  }, []);
+
   if (instance.status !== 'running') {
     return (
-      <div className="font-mono text-center">
-        <div className="text-zinc-600 text-lg">( -_- ) zzz</div>
+      <div className="font-mono text-center" style={{ animation: 'breathe 6s ease-in-out infinite' }}>
+        <div className="text-zinc-600 text-xl">( -_- ) zzz</div>
         <div className="text-[10px] text-zinc-600 mt-1">offline</div>
       </div>
     );
@@ -96,37 +143,39 @@ function AgentCharacter({ mission, instance }: { mission?: MissionData; instance
   if (!mission) {
     return (
       <div className="font-mono text-center animate-pulse">
-        <div className="text-zinc-500 text-lg">( ... )</div>
+        <div className="text-zinc-500 text-xl">( . . )</div>
         <div className="text-[10px] text-zinc-500 mt-1">connecting</div>
       </div>
     );
   }
 
+  const eye = blink ? '-' : 'o';
+  const eyeW = blink ? '-' : '•';
   const hasDenied = mission.progress.denied > 2;
   const hasPending = mission.blockedActions > 0;
   const isWorking = mission.currentStep !== 'Idle' && mission.currentStep !== 'No activity yet';
 
   if (hasDenied) return (
     <div className="font-mono text-center">
-      <div className="text-red-400 text-lg">( x_x )</div>
+      <div className="text-red-400 text-xl" style={{ animation: 'breathe 1.5s ease-in-out infinite' }}>( x_x )</div>
       <div className="text-[10px] text-red-400 mt-1">{mission.progress.denied} denied</div>
     </div>
   );
   if (hasPending) return (
     <div className="font-mono text-center">
-      <div className="text-amber-400 text-lg animate-pulse">( ._. )</div>
+      <div className="text-amber-400 text-xl animate-breathe">( {blink ? '-' : '.'}_. )</div>
       <div className="text-[10px] text-amber-400 mt-1">needs your input</div>
     </div>
   );
   if (isWorking) return (
-    <div className="font-mono text-center">
-      <div className="text-emerald-400 text-lg">( •_•)&gt;</div>
+    <div className="font-mono text-center" style={{ animation: 'breathe 2s ease-in-out infinite' }}>
+      <div className="text-emerald-400 text-xl">( {eyeW}_{eyeW})&gt;</div>
       <div className="text-[10px] text-emerald-400 mt-1 truncate max-w-[180px]">{mission.currentStep}</div>
     </div>
   );
   return (
-    <div className="font-mono text-center">
-      <div className="text-text-secondary text-lg">( o_o )</div>
+    <div className="font-mono text-center" style={{ animation: 'breathe 4s ease-in-out infinite' }}>
+      <div className="text-text-secondary text-xl">( {eye}_{eye} )</div>
       <div className="text-[10px] text-text-tertiary mt-1">standing by <span className="animate-blink">_</span></div>
     </div>
   );
@@ -151,7 +200,7 @@ function RoleModal({ instance, onClose }: { instance: Instance; onClose: () => v
       <div className="bg-surface-1 border border-border rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-text-primary mb-1 font-mono">Update Agent Role</h3>
         <p className="text-[10px] text-text-secondary mb-4">
-          This tells the AI supervisor what this agent is supposed to do. Actions outside this role get flagged.
+          Tell the AI supervisor what this agent should be doing. Actions outside this role get flagged.
         </p>
         <input type="text" value={roleText} onChange={e => setRoleText(e.target.value)}
           placeholder="e.g. Frontend developer building React dashboard"
@@ -274,7 +323,7 @@ export function InstanceDetailPage() {
     <div className="max-w-5xl mx-auto space-y-5">
       <Link to="/" className="text-[10px] text-text-tertiary hover:text-text-secondary transition-colors font-mono">← dashboard</Link>
 
-      {/* ── Header with Character ──────────────────────────────────────────── */}
+      {/* ── Header with Character ─────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-5">
         <div className="flex items-start gap-6">
           <AgentCharacter mission={mission} instance={instance} />
@@ -301,22 +350,26 @@ export function InstanceDetailPage() {
         </div>
       </div>
 
-      {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
+      {/* ── Anomaly Alerts ────────────────────────────────────────────────── */}
       {criticalFlags.length > 0 && (
         <div className="space-y-1.5">
           {criticalFlags.slice(0, 3).map(flag => (
-            <div key={flag.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-3 flex items-start gap-3">
-              <span className="font-mono text-red-400 text-[10px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
-              <div className="min-w-0">
-                <p className="text-xs text-red-300 font-medium">{flag.title}</p>
-                <p className="text-[10px] text-red-400/70 mt-0.5 truncate">{flag.description.split('\n')[0]}</p>
+            <Link key={flag.id} to="/activity"
+              className="block bg-red-500/5 border border-red-500/20 rounded-xl p-3 hover:border-red-500/30 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="font-mono text-red-400 text-[10px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
+                <div className="min-w-0">
+                  <p className="text-xs text-red-300 font-medium">{flag.title}</p>
+                  <p className="text-[10px] text-red-400/70 mt-0.5 truncate">{flag.description.split('\n')[0]}</p>
+                </div>
+                <span className="text-[9px] text-red-400/50 font-mono ml-auto shrink-0">review →</span>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}
 
-      {/* ── Contribution Score (PROMINENT) ─────────────────────────────────── */}
+      {/* ── Contribution Score (HERO) ─────────────────────────────────────── */}
       <div className="bg-surface-1 border border-accent/15 rounded-xl p-5">
         <h2 className="text-xs text-accent uppercase tracking-wider font-mono font-medium mb-4">Contribution Tracking</h2>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
@@ -341,11 +394,11 @@ export function InstanceDetailPage() {
             <div className="text-2xl font-bold text-amber-400 tabular-nums">{contributions?.summary.commandsExecuted ?? 0}</div>
           </div>
         </div>
-        {/* 7-day chart */}
+        {/* 7-day chart with Y-axis */}
         {dailyCounts.length > 0 ? (
           <div>
             <Sparkline data={dailyCounts} color="bg-accent" />
-            <div className="flex justify-between mt-1 text-[9px] text-text-tertiary font-mono">
+            <div className="flex justify-between mt-1 text-[9px] text-text-tertiary font-mono ml-7">
               <span>{byDay[0]?.date.slice(5)}</span>
               <span>last 7 days</span>
               <span>{byDay[byDay.length - 1]?.date.slice(5)}</span>
@@ -367,7 +420,7 @@ export function InstanceDetailPage() {
         )}
       </div>
 
-      {/* ── Trust + Cost + Categories Row ──────────────────────────────────── */}
+      {/* ── Trust + Cost + Categories Row ─────────────────────────────────── */}
       <div className="grid md:grid-cols-3 gap-3">
         {/* Trust */}
         <Tooltip content="Based on approval history, denied actions, and AI anomaly detection. 0 = untrusted, 100 = fully autonomous.">
@@ -401,21 +454,21 @@ export function InstanceDetailPage() {
           </div>
         </Tooltip>
 
-        {/* Categories */}
+        {/* Categories — PIE CHART */}
         <div className="bg-surface-1 border border-border rounded-xl p-4">
           <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">Action Categories</div>
           {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
-            <CategoryBar breakdown={mission.categoryBreakdown} />
+            <PieChart breakdown={mission.categoryBreakdown} />
           ) : (
             <p className="text-[10px] text-text-tertiary font-mono mt-2">no category data yet</p>
           )}
         </div>
       </div>
 
-      {/* ── Network Board ──────────────────────────────────────────────────── */}
+      {/* ── Network Board ─────────────────────────────────────────────────── */}
       <NetworkBoard mission={mission} instances={allInstances ?? []} />
 
-      {/* ── Recent Activity ────────────────────────────────────────────────── */}
+      {/* ── Recent Activity ───────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <h3 className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Recent Activity</h3>
@@ -423,7 +476,7 @@ export function InstanceDetailPage() {
         </div>
         {!activity?.data.length ? (
           <div className="p-8 text-center font-mono">
-            <div className="text-text-tertiary text-xs">( o_o ) no actions yet</div>
+            <div className="text-text-tertiary text-xs" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o ) no actions yet</div>
           </div>
         ) : (
           <div className="divide-y divide-border">

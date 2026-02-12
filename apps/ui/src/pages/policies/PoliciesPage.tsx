@@ -100,7 +100,14 @@ export function PoliciesPage() {
       setAiSummary(data.summary);
       setAiRole(data.agentRole);
     } catch (err: any) {
-      toast(err.message ?? 'AI analysis failed', 'error');
+      const msg = err.message ?? '';
+      if (msg.includes('OPENAI_API_KEY') || msg.includes('not configured')) {
+        toast('AI requires OpenAI API key — configure OPENAI_API_KEY in your environment', 'error');
+        setAiSummary('AI not configured — set OPENAI_API_KEY to enable smart policy analysis');
+      } else {
+        toast(msg || 'AI analysis failed', 'error');
+      }
+      setAiEnabled(false);
     } finally {
       setAiLoading(false);
     }

@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getActivity,
@@ -132,14 +133,14 @@ export function ActivityPage() {
         )}
       </div>
 
-      {/* ── Flag Severity Cards ─────────────────────────────────────────────── */}
+      {/* ── Flag Severity Cards — with CTAs ────────────────────────────────── */}
       {totalFlags > 0 && (
         <div className="space-y-2">
           <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Detected Anomalies</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {flags.slice(0, 6).map((flag: AuditFlag) => (
               <div key={flag.id} className={`rounded-xl border p-3 ${severityColor[flag.severity] ?? ''}`}>
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between mb-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[9px] font-bold uppercase">{flag.severity}</span>
@@ -148,9 +149,21 @@ export function ActivityPage() {
                     <p className="text-xs font-medium">{flag.title}</p>
                     <p className="text-[10px] opacity-70 mt-0.5 line-clamp-2">{flag.description}</p>
                   </div>
+                </div>
+                {/* CTAs */}
+                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">
+                  {flag.severity === 'CRITICAL' || flag.severity === 'HIGH' ? (
+                    <Link to="/policies" className="text-[10px] font-medium hover:underline">
+                      Update policies →
+                    </Link>
+                  ) : (
+                    <Link to="/approvals" className="text-[10px] font-medium hover:underline">
+                      Review approvals →
+                    </Link>
+                  )}
                   <button
                     onClick={() => dismissMutation.mutate(flag.id)}
-                    className="text-[10px] opacity-40 hover:opacity-100 shrink-0 ml-2"
+                    className="text-[10px] opacity-40 hover:opacity-100 ml-auto"
                   >
                     Dismiss
                   </button>
