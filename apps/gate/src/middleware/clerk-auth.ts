@@ -1,8 +1,8 @@
 /**
  * Clerk authentication middleware for platform mode.
  *
- * When PLATFORM_MODE=true, uses @clerk/fastify's clerkPlugin and getAuth
- * to verify JWTs and attach the Clerk userId to the request.
+ * Verifies Clerk JWTs from the Authorization header (Bearer token)
+ * and attaches the Clerk userId to the request.
  *
  * When PLATFORM_MODE=false (instance mode), this middleware is a no-op.
  */
@@ -32,12 +32,14 @@ function isPublic(url: string): boolean {
 
 export async function clerkAuthPlugin(app: FastifyInstance): Promise<void> {
   if (!config.PLATFORM_MODE) return;
+  if (!config.CLERK_SECRET_KEY) {
+    app.log.warn('PLATFORM_MODE=true but no CLERK_SECRET_KEY — auth disabled');
+    return;
+  }
 
-  // Register the official Clerk Fastify plugin (decorates request with auth)
-  const { clerkPlugin, getAuth } = await import('@clerk/fastify');
-  await app.register(clerkPlugin);
+  // Use @clerk/backend's standalone verifyToken (more reliable than the Fastify plugin)
+  const { verifyToken } = await import('@clerk/backend');
 
-  // After Clerk plugin runs, extract userId and enforce auth
   app.addHook(
     'preHandler',
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -45,15 +47,27 @@ export async function clerkAuthPlugin(app: FastifyInstance): Promise<void> {
       if (isPublic(request.url)) return;
       // Allow agent-auth'd requests (from instance Gates)
       if (request.headers['x-agent-pubkey']) return;
+      // Allow static file requests
+      if (!request.url.startsWith('/api/')) return;
+
+      const authHeader = request.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return reply.code(401).send({ error: 'Missing authorization token' });
+      }
+
+      const token = authHeader.slice(7);
 
       try {
-        const auth = getAuth(request);
-        if (!auth.userId) {
-          return reply.code(401).send({ error: 'Not authenticated' });
+        const payload = await verifyToken(token, {
+          secretKey: config.CLERK_SECRET_KEY,
+        });
+        if (!payload.sub) {
+          return reply.code(401).send({ error: 'Invalid token — no subject' });
         }
-        request.clerkUserId = auth.userId;
-      } catch {
-        return reply.code(401).send({ error: 'Authentication failed' });
+        request.clerkUserId = payload.sub;
+      } catch (err) {
+        request.log.warn({ err }, 'Clerk token verification failed');
+        return reply.code(401).send({ error: 'Invalid or expired token' });
       }
     },
   );
