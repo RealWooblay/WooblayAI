@@ -32,6 +32,16 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
       // Skip for GitHub webhook (uses its own HMAC-SHA256 verification)
       if (request.url === '/github/webhook' || request.url === '/github/webhook/') return;
 
+      // Skip agent auth for platform API routes (these use Clerk auth instead)
+      const platformPaths = [
+        '/api/users/', '/api/coupons/', '/api/instances',
+        '/api/webhooks/', '/api/sync/', '/api/approvals/',
+        '/api/policies', '/api/stats', '/api/activity',
+        '/api/receipts',
+      ];
+      const path = request.url.split('?')[0];
+      if (platformPaths.some((p) => path.startsWith(p))) return;
+
       const pubkey = request.headers['x-agent-pubkey'] as string | undefined;
       const signature = request.headers['x-request-signature'] as string | undefined;
 
