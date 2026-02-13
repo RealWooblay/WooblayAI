@@ -1,13 +1,13 @@
 /**
  * Dashboard — The Nerve Center
  *
- * Agents feel ALIVE. Weather reflects performance.
+ * Agents feel ALIVE. Weather reflects average trust.
  * Rain when struggling, sunshine when thriving.
  * Faces blink, breathe, react. Minimal but full of character.
  */
 
 import { useMemo, useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueries } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   getStats,
@@ -19,10 +19,9 @@ import {
   type MissionData,
 } from '../../api/client.ts';
 import { Button } from '../../components/common/Button.tsx';
-import { WeatherBackground, trustToWeather, type Weather } from '../../components/weather/WeatherBackground.tsx';
+import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
 
 // ── Alive Agent Face ──────────────────────────────────────────────────────────
-// Trust-score driven mood with blinking + breathing
 
 function AgentFace({ mission, instance }: { mission?: MissionData; instance: Instance }) {
   const [blink, setBlink] = useState(false);
@@ -97,65 +96,83 @@ function AgentFace({ mission, instance }: { mission?: MissionData; instance: Ins
   );
 }
 
-function AgentStatus({ mission, instance }: { mission?: MissionData; instance: Instance }) {
-  if (instance.status !== 'running') {
-    return <span className="text-[10px] text-zinc-500 font-mono">offline</span>;
-  }
-  if (!mission) return <span className="text-[10px] text-zinc-500 font-mono animate-pulse">connecting...</span>;
-
-  const hasDenied = mission.progress.denied > 2;
-  const hasPending = mission.blockedActions > 0 || mission.progress.pending > 0;
-  const isWorking = mission.currentStep !== 'Idle' && mission.currentStep !== 'No activity yet';
-
-  if (hasDenied) return <span className="text-[10px] text-red-400 font-mono">{mission.progress.denied} actions denied</span>;
-  if (hasPending) return <span className="text-[10px] text-amber-400 font-mono animate-pulse">waiting for you...</span>;
-  if (isWorking) return <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[250px]">{mission.currentStep}</span>;
-  return <span className="text-[10px] text-text-tertiary font-mono">standing by <span className="animate-blink">_</span></span>;
-}
-
 // ── Instance Card ────────────────────────────────────────────────────────────
 
-function InstanceCard({ instance }: { instance: Instance }) {
-  const isRunning = instance.status === 'running';
-
-  const { data: mission } = useQuery({
-    queryKey: ['mission', instance.id],
-    queryFn: () => getMission(instance.id),
-    refetchInterval: 5_000,
-    enabled: isRunning,
-  });
-
-  const effectiveRole = mission?.role ?? instance.role ?? instance.inferredRole ?? null;
+function InstanceCard({ instance, mission }: { instance: Instance; mission?: MissionData }) {
   const trust = mission?.trustScore ?? 0;
   const cost = Number(mission?.estimatedCost ?? 0) || 0;
   const actions = mission?.progress?.total ?? 0;
+
+  const effectiveRole = mission?.role ?? instance.role ?? instance.inferredRole ?? null;
+  const isWorking = mission?.currentStep && mission.currentStep !== 'Idle' && mission.currentStep !== 'No activity yet';
+  const hasPending = (mission?.blockedActions ?? 0) > 0 || (mission?.progress?.pending ?? 0) > 0;
+
+  // Current status label
+  let statusLabel: string;
+  let statusColor: string;
+  if (instance.status !== 'running') {
+    statusLabel = 'offline';
+    statusColor = 'text-zinc-500';
+  } else if (!mission) {
+    statusLabel = 'connecting...';
+    statusColor = 'text-zinc-500';
+  } else if (hasPending) {
+    statusLabel = 'waiting for you...';
+    statusColor = 'text-amber-400';
+  } else if ((mission.progress?.denied ?? 0) > 2) {
+    statusLabel = `${mission.progress?.denied} denied`;
+    statusColor = 'text-red-400';
+  } else if (isWorking) {
+    statusLabel = mission.currentStep;
+    statusColor = 'text-emerald-400';
+  } else {
+    statusLabel = 'standing by';
+    statusColor = 'text-text-tertiary';
+  }
 
   return (
     <Link
       to={`/instances/${instance.id}`}
       className={
         'block rounded-xl border p-5 transition-all hover:border-accent/30 group ' +
-        (mission?.blockedActions
+        (hasPending
           ? 'border-amber-500/25 bg-surface-1'
           : 'border-border bg-surface-1 hover:bg-surface-1/80')
       }
     >
-      <div className="flex items-start gap-4 mb-3">
+      <div className="flex items-start gap-4 mb-2">
         <div className="shrink-0 pt-0.5">
           <AgentFace mission={mission} instance={instance} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-text-primary truncate">{instance.name}</h3>
+            {(mission?.subAgents?.length ?? 0) > 0 && (
+              <span className="text-[9px] font-mono text-text-secondary bg-surface-3 px-1.5 py-0.5 rounded-full shrink-0">
+                +{mission!.subAgents.length}
+              </span>
+            )}
             <span className="text-[9px] text-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity">details →</span>
           </div>
+
+          {/* Role */}
           {effectiveRole && (
-            <p className="text-[10px] text-text-secondary truncate mt-0.5">{effectiveRole}</p>
+            <p className="text-[10px] text-accent/70 truncate mt-0.5 font-mono">role: {effectiveRole}</p>
           )}
-          <div className="mt-1.5">
-            <AgentStatus mission={mission} instance={instance} />
-          </div>
+
+          {/* Goal — what the agent is working on */}
+          {mission?.goal && mission.goal !== instance.name && (
+            <p className="text-[10px] text-text-secondary truncate mt-0.5 font-mono">goal: {mission.goal}</p>
+          )}
         </div>
+      </div>
+
+      {/* Current action */}
+      <div className="mb-3">
+        <span className={`text-[10px] font-mono ${statusColor} ${hasPending ? 'animate-pulse' : ''} truncate block`}>
+          {isWorking ? `> ${statusLabel}` : statusLabel}
+          {!hasPending && !isWorking && instance.status === 'running' && <span className="animate-blink"> _</span>}
+        </span>
       </div>
 
       {/* Metrics */}
@@ -201,23 +218,33 @@ export function CommandCenter() {
   const isEmpty = !loadingInstances && allInstances.length === 0;
   const hasData = (stats?.totalToolCalls ?? 0) > 0;
 
-  // Weather = average trust score of all running agents (derived without per-agent hooks)
-  // Falls back to 50 (cloudy) when no trust data available
-  const weather: Weather = useMemo(() => {
-    if (running.length === 0) return 'cloudy';
-    // Use stats to infer an approximate trust score:
-    // High denials = low trust, no denials = high trust
-    const denials = stats?.byDecision?.['DENY'] ?? 0;
-    const total = stats?.totalToolCalls ?? 1;
-    const denialRate = total > 0 ? denials / total : 0;
-    const hasFlags = criticalFlags.length > 0;
-    // Rough trust estimation from denial rate + flags
-    let avgTrust = 50;
-    if (hasData) {
-      avgTrust = Math.round(Math.max(0, Math.min(100, 80 - denialRate * 200 - (hasFlags ? 20 : 0))));
+  // Fetch mission data for each running instance (React Query deduplicates with InstanceCard)
+  const missionQueries = useQueries({
+    queries: running.map(inst => ({
+      queryKey: ['mission', inst.id],
+      queryFn: () => getMission(inst.id),
+      refetchInterval: 5_000,
+    })),
+  });
+
+  // Weather = average ACTUAL trust score of all running agents
+  const weather = useMemo(() => {
+    const scores = missionQueries
+      .map(q => q.data?.trustScore)
+      .filter((s): s is number => s != null);
+    if (scores.length === 0) return trustToWeather(50);
+    const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    return trustToWeather(avg);
+  }, [missionQueries]);
+
+  // Build mission map for passing to InstanceCard
+  const missionMap = useMemo(() => {
+    const map: Record<string, MissionData> = {};
+    for (const q of missionQueries) {
+      if (q.data) map[q.data.instanceId] = q.data;
     }
-    return trustToWeather(avgTrust);
-  }, [running.length, criticalFlags.length, stats, hasData]);
+    return map;
+  }, [missionQueries]);
 
   return (
     <div className="h-full overflow-y-auto p-6 canvas-bg relative">
@@ -288,7 +315,7 @@ export function CommandCenter() {
         {running.length > 0 && (
           <div className={`grid gap-3 ${running.length > 1 ? 'md:grid-cols-2' : 'grid-cols-1'}`}>
             {running.map(inst => (
-              <InstanceCard key={inst.id} instance={inst} />
+              <InstanceCard key={inst.id} instance={inst} mission={missionMap[inst.id]} />
             ))}
           </div>
         )}

@@ -36,6 +36,12 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
       });
 
       const effectiveRole = instance.role ?? instance.inferredRole ?? null;
+      // Extract goal from configJson if set
+      let instanceGoal = instance.name;
+      try {
+        const cfg = instance.configJson ? JSON.parse(instance.configJson) : {};
+        if (cfg.goal) instanceGoal = cfg.goal;
+      } catch { /* keep name */ }
 
       const agentPubkey = agents[0]?.pubkey;
       if (!agentPubkey) {
@@ -43,7 +49,7 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
           instanceId: id,
           instanceName: instance.name,
           status: instance.status,
-          goal: instance.name,
+          goal: instanceGoal,
           currentStep: 'No activity yet',
           progress: { total: 0, completed: 0, pending: 0, denied: 0 },
           pipeline: { PLANNING: 0, EXECUTING: 0, AWAITING_APPROVAL: 0, COMPLETED: 0 },
@@ -81,15 +87,19 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      // Last action description
+      // Last action description — but show "Idle" if last action was > 2 min ago
       let parsedArgs: Record<string, unknown> = {};
       try {
         if (recentCalls[0]) parsedArgs = JSON.parse(recentCalls[0].args);
       } catch {
         // keep empty
       }
+      const lastActionAge = recentCalls[0]
+        ? Date.now() - new Date(recentCalls[0].createdAt).getTime()
+        : Infinity;
+      const isRecentlyActive = lastActionAge < 2 * 60 * 1000; // 2 minutes
       const currentStep = recentCalls[0]
-        ? describeToolCall(recentCalls[0].toolName, parsedArgs)
+        ? (isRecentlyActive ? describeToolCall(recentCalls[0].toolName, parsedArgs) : 'Idle')
         : 'Idle';
 
       // Pending approvals
@@ -135,11 +145,46 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
       // Last action with category
       const lastActionCategory = recentCalls[0] ? ((recentCalls[0] as any).category ?? 'other') : null;
 
+      // ── Hybrid Identity: track agent's SOUL.md / IDENTITY.md evolution ──
+      // Scan recent tool calls for writes to SOUL.md or IDENTITY.md
+      let evolvedSoul: string | null = null;
+      let evolvedIdentity: string | null = null;
+      let identityLastUpdated: string | null = null;
+      for (const tc of recentCalls) {
+        const tool = tc.toolName.replace(/^(gated_|wooblay_)/, '');
+        if (tool !== 'write' && tool !== 'edit') continue;
+        try {
+          const args = JSON.parse(tc.args);
+          const path = String(args.path ?? args.file ?? '');
+          if (path.endsWith('SOUL.md') && !evolvedSoul) {
+            evolvedSoul = String(args.content ?? '').slice(0, 2000);
+            identityLastUpdated = tc.createdAt.toISOString();
+          }
+          if (path.endsWith('IDENTITY.md') && !evolvedIdentity) {
+            evolvedIdentity = String(args.content ?? '').slice(0, 2000);
+            if (!identityLastUpdated) identityLastUpdated = tc.createdAt.toISOString();
+          }
+        } catch { /* skip parse errors */ }
+      }
+      // If agent evolved its SOUL, persist to configJson for next restart
+      if (evolvedSoul) {
+        try {
+          const cfg = instance.configJson ? JSON.parse(instance.configJson) : {};
+          if (cfg.evolvedSoul !== evolvedSoul) {
+            cfg.evolvedSoul = evolvedSoul;
+            await prisma.instance.update({
+              where: { id },
+              data: { configJson: JSON.stringify(cfg) },
+            });
+          }
+        } catch { /* non-critical */ }
+      }
+
       return reply.send({
         instanceId: id,
         instanceName: instance.name,
         status: instance.status,
-        goal: instance.name,
+        goal: instanceGoal,
         currentStep,
         progress: {
           total: recentCalls.length,
@@ -162,6 +207,15 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
         role: effectiveRole,
         inferredRole: instance.inferredRole,
         roleOverridden: !!instance.role,
+        // Hybrid identity tracking
+        identity: {
+          baseRole: instance.role ?? null,
+          inferredRole: instance.inferredRole ?? null,
+          evolvedSoul,
+          evolvedIdentity,
+          identityLastUpdated,
+          source: evolvedSoul ? 'agent-evolved' : instance.role ? 'user-set' : instance.inferredRole ? 'ai-inferred' : 'none',
+        },
         categoryBreakdown,
         lastActionCategory,
       });

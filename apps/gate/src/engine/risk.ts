@@ -252,7 +252,7 @@ export function classifyRisk(
   toolName: string,
   args: Record<string, unknown>,
 ): RiskTier {
-  const normalized = toolName.replace(/^wooblay_/, '');
+  const normalized = toolName.replace(/^(wooblay_|gated_)/, '');
 
   switch (normalized) {
     case 'exec':
@@ -300,10 +300,16 @@ export function classifyRisk(
       return RiskTier.WRITE;
     }
 
+    // Sub-agent session management — READ level because the actual risky
+    // operations by sub-agents go through gated_exec/gated_write/etc. and
+    // get their own policy evaluation. Blocking spawn blocks ALL sub-agents.
     case 'sessions_spawn':
     case 'sessions_send':
+    case 'session_status':
+    case 'sessions_list':
+    case 'sessions_history':
     case 'message':
-      return RiskTier.WRITE;
+      return RiskTier.READ;
 
     case 'cron':
     case 'gateway':

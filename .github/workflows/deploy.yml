@@ -62,6 +62,7 @@ jobs:
               \"sed -i 's|GATE_IMAGE=.*|GATE_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:mvp|' .env\",
               \"grep -q '^OPENAI_API_KEY=' .env || echo 'OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}' >> .env\",
               \"sed -i 's|OPENAI_API_KEY=.*|OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}|' .env\",
+              \"grep -q '^OPENAI_MODEL=' .env || echo 'OPENAI_MODEL=gpt-4.1-mini' >> .env\",
               \"docker compose pull gate\",
               \"docker compose up -d --force-recreate\",
               \"sleep 15\",

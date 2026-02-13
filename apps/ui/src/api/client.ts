@@ -252,6 +252,8 @@ export interface CreateInstanceRequest {
   githubToken?: string;
   policyPreset?: string;
   configOverrides?: Record<string, string>;
+  role?: string;
+  goal?: string;
 }
 
 export interface InstanceActionResponse {
@@ -446,6 +448,15 @@ export const getChainIntegrity = (from?: string, to?: string) =>
 // Mission / Observability
 // ---------------------------------------------------------------------------
 
+export interface AgentIdentity {
+  baseRole: string | null;
+  inferredRole: string | null;
+  evolvedSoul: string | null;
+  evolvedIdentity: string | null;
+  identityLastUpdated: string | null;
+  source: 'user-set' | 'ai-inferred' | 'agent-evolved' | 'none';
+}
+
 export interface MissionData {
   instanceId: string;
   instanceName: string;
@@ -465,6 +476,7 @@ export interface MissionData {
   roleOverridden: boolean;
   categoryBreakdown: Record<string, number>;
   lastActionCategory: string | null;
+  identity?: AgentIdentity;
 }
 
 export const getMission = (instanceId: string) =>

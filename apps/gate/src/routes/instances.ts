@@ -183,6 +183,8 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       githubToken?: string;
       policyPreset?: string;
       configOverrides?: Record<string, string>;
+      role?: string;
+      goal?: string;
     };
 
     if (!body.name || typeof body.name !== 'string') {
@@ -212,6 +214,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           status: 'provisioning',
           agentRuntime: body.agentRuntime ?? 'openclaw',
           model: body.model ?? 'claude-sonnet-4-20250514',
+          role: body.role ?? null,
           configJson: JSON.stringify({
             port,
             gatewayToken,
@@ -221,6 +224,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
             telegramEnabled: body.telegramEnabled ?? false,
             telegramAllowedUsers: body.telegramAllowedUsers ?? '',
             policyPreset: body.policyPreset ?? 'balanced',
+            goal: body.goal ?? '',
             ...body.configOverrides,
           }),
           telegramBot: body.telegramEnabled ? 'configured' : null,
@@ -233,12 +237,19 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const dir = getInstanceDir(instance.id);
       mkdirSync(dir, { recursive: true });
 
+      // Parse config for goal/soul
+      const goalFromConfig = body.configOverrides?.goal ?? '';
+
       const envConfig: Record<string, string> = {
         OPENCLAW_GATEWAY_TOKEN: gatewayToken,
         GATE_URL: GATE_INTERNAL_URL,
         WOOBLAY_TOOL_FILTER: 'risky',
         OPENCLAW_MODEL: body.model ?? 'claude-sonnet-4-20250514',
         TELEGRAM_ENABLED: String(body.telegramEnabled ?? false),
+        INSTANCE_NAME: name,
+        // Hybrid identity: seed role into agent's SOUL.md via entrypoint
+        ...(body.role ? { OPENCLAW_AGENT_ROLE: body.role } : {}),
+        ...(goalFromConfig ? { OPENCLAW_AGENT_GOAL: goalFromConfig } : {}),
         ...(body.anthropicApiKey ? { ANTHROPIC_API_KEY: body.anthropicApiKey } : {}),
         ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
         ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),
@@ -332,6 +343,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       githubToken: string;
       configOverrides: Record<string, string>;
       role: string;
+      goal: string;
     }>;
 
     try {
@@ -354,6 +366,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         ...(body.model ? { model: body.model } : {}),
         ...(body.telegramEnabled !== undefined ? { telegramEnabled: body.telegramEnabled } : {}),
         ...(body.telegramAllowedUsers ? { telegramAllowedUsers: body.telegramAllowedUsers } : {}),
+        ...(body.goal !== undefined ? { goal: body.goal } : {}),
         ...(body.configOverrides ?? {}),
       };
       updateData.configJson = JSON.stringify(newConfig);
@@ -380,6 +393,11 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         }
 
         // Merge: existing values as base, overlay with new values
+        const effectiveRole = body.role !== undefined ? (body.role || '') : (instance.role ?? '');
+        const effectiveGoal = body.goal ?? newConfig.goal ?? '';
+        // Check for evolved SOUL content stored from previous sessions
+        const evolvedSoul = newConfig.evolvedSoul ?? '';
+
         const envConfig: Record<string, string> = {
           ...existingEnv,
           OPENCLAW_GATEWAY_TOKEN: existingEnv['OPENCLAW_GATEWAY_TOKEN'] ?? existingConfig.gatewayToken ?? generateToken(),
@@ -387,6 +405,11 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           WOOBLAY_TOOL_FILTER: 'risky',
           OPENCLAW_MODEL: body.model ?? instance.model,
           TELEGRAM_ENABLED: String(body.telegramEnabled ?? existingConfig.telegramEnabled ?? false),
+          INSTANCE_NAME: instance.name,
+          // Hybrid identity: role seeds SOUL.md, evolved soul restores previous session
+          ...(effectiveRole ? { OPENCLAW_AGENT_ROLE: effectiveRole } : {}),
+          ...(effectiveGoal ? { OPENCLAW_AGENT_GOAL: effectiveGoal } : {}),
+          ...(evolvedSoul ? { OPENCLAW_AGENT_SOUL: evolvedSoul } : {}),
           ...(body.anthropicApiKey ? { ANTHROPIC_API_KEY: body.anthropicApiKey } : {}),
           ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
           ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),

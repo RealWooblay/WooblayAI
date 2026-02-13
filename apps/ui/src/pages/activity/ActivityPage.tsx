@@ -193,11 +193,11 @@ export function ActivityPage() {
           {chain ? (chain.chainValid ? '✓' : '✗') : '?'}
         </div>
         <div className="min-w-0">
-          <Tooltip content="Cryptographic hash chain ensures no audit records have been tampered with">
-            <p className={`text-xs font-medium ${
+          <Tooltip content="Cryptographic hash chain ensures no audit records have been tampered with. Every action receipt is cryptographically linked to the previous one — any tampering breaks the chain.">
+            <p className={`text-xs font-medium cursor-help ${
               chain ? (chain.chainValid ? 'text-emerald-400' : 'text-red-400') : 'text-text-muted'
             }`}>
-              {chain ? (chain.chainValid ? 'Chain Verified — No Tampering' : 'Chain Integrity Issues') : 'Verifying chain...'}
+              {chain ? (chain.chainValid ? 'Chain Verified — No Tampering ⓘ' : 'Chain Integrity Issues ⓘ') : 'Verifying chain...'}
             </p>
           </Tooltip>
           <p className="text-[10px] text-text-muted">

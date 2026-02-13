@@ -1,14 +1,15 @@
 /**
  * WeatherBackground — Trust-score driven ambient weather.
  *
+ * Uses position:fixed so it covers the FULL main viewport (no margin gaps).
+ * The sidebar (220px, z-above) renders on top naturally.
+ *
  * Scale (trust score → weather):
- *   0-20:   storm   — red drops, lightning flashes, ⚡ bolts
+ *   0-20:   storm   — red drops, ⚡ lightning flashes
  *   20-40:  rain    — blue ASCII drops falling
  *   40-60:  cloudy  — grey drifting ~ wisps
  *   60-80:  sunny   — warm ✦ and * sparkles
  *   80-100: rainbow — multi-color ★ ✦ ◇ particles
- *
- * ALL states are clearly visible. No invisible 2% opacity.
  */
 
 import { useMemo, useState, useEffect } from 'react';
@@ -91,7 +92,7 @@ export function WeatherBackground({ weather }: { weather: Weather }) {
   }, [weather]);
 
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+    <div className="fixed inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 0 }}>
       {/* ── Ambient gradient ─────────────────────────────────────────────── */}
       {weather === 'storm' && (
         <div
@@ -149,7 +150,7 @@ export function WeatherBackground({ weather }: { weather: Weather }) {
             left: `${p.left}%`,
             top: `${p.top}%`,
             fontSize: p.size,
-            animation: `breathe ${p.duration}s ease-in-out ${p.delay}s infinite`,
+            animation: `breathe ${p.duration}s ease-in-out infinite`,
           }}
         >
           {p.char}
