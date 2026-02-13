@@ -91,6 +91,35 @@ function PieChart({ breakdown }: { breakdown: Record<string, number> }) {
   );
 }
 
+// ── Sparkline — tiny inline chart ─────────────────────────────────────────────
+
+function Sparkline({ data, color = '#6366f1', height = 32, width = 120 }: { data: number[]; color?: string; height?: number; width?: number }) {
+  if (data.length < 2) return null;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const pad = 2;
+  const w = width;
+  const h = height;
+
+  const points = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+    const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+    return { x, y };
+  });
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaPath = linePath + ` L${points[points.length - 1].x.toFixed(1)},${h - pad} L${points[0].x.toFixed(1)},${h - pad} Z`;
+
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="block">
+      <path d={areaPath} fill={color} opacity="0.08" />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r="2" fill={color} />
+    </svg>
+  );
+}
+
 // ── Activity Chart (SVG line + bars) ──────────────────────────────────────────
 
 function ActivityChart({ data, labels }: { data: number[]; labels: string[] }) {
@@ -191,16 +220,16 @@ function AgentCharacter({ mission, instance }: { mission?: MissionData; instance
   if (instance.status !== 'running') {
     return (
       <div className="font-mono text-center" style={{ animation: 'breathe 6s ease-in-out infinite' }}>
-        <div className="text-zinc-600 text-2xl">( -_- ) zzz</div>
-        <div className="text-[10px] text-zinc-600 mt-1">offline</div>
+        <div className="text-zinc-600 text-lg leading-none">( -_- )</div>
+        <div className="text-[9px] text-zinc-600 mt-1">offline</div>
       </div>
     );
   }
   if (!mission) {
     return (
       <div className="font-mono text-center animate-pulse">
-        <div className="text-zinc-500 text-2xl">( . . )</div>
-        <div className="text-[10px] text-zinc-500 mt-1">connecting</div>
+        <div className="text-zinc-500 text-lg leading-none">( . . )</div>
+        <div className="text-[9px] text-zinc-500 mt-1">connecting</div>
       </div>
     );
   }
@@ -220,8 +249,8 @@ function AgentCharacter({ mission, instance }: { mission?: MissionData; instance
 
   return (
     <div className="font-mono text-center" style={{ animation: `breathe ${speed} ease-in-out infinite` }}>
-      <div className={`${color} text-2xl`}>{face}</div>
-      <div className={`text-[10px] ${color} mt-1 truncate max-w-[200px]`}>
+      <div className={`${color} text-lg leading-none`}>{face}</div>
+      <div className={`text-[9px] ${color} mt-1.5 truncate max-w-[72px]`}>
         {label}{!hasPending && !isWorking && <span className="animate-blink"> _</span>}
       </div>
     </div>
@@ -965,34 +994,14 @@ export function InstanceDetailPage() {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-6">
-        <div className="flex items-start gap-6">
-          {/* Face + Trust ring */}
-          <div className="shrink-0 flex flex-col items-center gap-2">
-            <div className="relative">
-              {/* Trust ring behind face */}
-              <svg width="80" height="80" viewBox="0 0 80 80" className="absolute -inset-1">
-                <circle cx="40" cy="40" r="37" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="3" />
-                <circle cx="40" cy="40" r="37" fill="none"
-                  stroke={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'}
-                  strokeWidth="3" strokeLinecap="round"
-                  strokeDasharray={`${(trust / 100) * 232.5} 232.5`}
-                  transform="rotate(-90 40 40)"
-                  style={{ transition: 'all 0.6s ease' }} />
-              </svg>
-              <div className="w-[78px] h-[78px] flex items-center justify-center">
-                <AgentCharacter mission={mission} instance={instance} />
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`text-xs font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
-                {trust}
-              </span>
-              <span className="text-[10px] text-text-muted font-mono">trust</span>
-            </div>
+        <div className="flex items-center gap-6">
+          {/* Face — clean, well-padded */}
+          <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
+            <AgentCharacter mission={mission} instance={instance} />
           </div>
 
           {/* Info */}
-          <div className="flex-1 min-w-0 pt-1">
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium font-mono shrink-0 ${
@@ -1004,34 +1013,10 @@ export function InstanceDetailPage() {
                 </span>
               )}
             </div>
-            {mission?.role && <p className="text-sm text-text-secondary font-mono mt-1">{mission.role}</p>}
+            {mission?.role && <p className="text-sm text-text-secondary font-mono">{mission.role}</p>}
             {mission?.goal && mission.goal !== instance.name && (
-              <p className="text-xs text-text-tertiary font-mono mt-1">goal: {mission.goal}</p>
+              <p className="text-xs text-text-tertiary font-mono mt-0.5">goal: {mission.goal}</p>
             )}
-
-            {/* Inline metrics */}
-            <div className="flex items-center gap-5 mt-3 pt-3 border-t border-border/30">
-              <div>
-                <div className="text-[10px] text-text-muted font-mono">cost today</div>
-                <div className="text-sm font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-text-muted font-mono">this week</div>
-                <div className="text-sm font-bold text-text-primary font-mono tabular-nums">${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-text-muted font-mono">actions</div>
-                <div className="text-sm font-bold text-text-primary font-mono tabular-nums">{totalActions}</div>
-              </div>
-              {contributionScore > 0 && (
-                <div>
-                  <div className="text-[10px] text-text-muted font-mono">score</div>
-                  <div className={`text-sm font-bold font-mono tabular-nums ${
-                    contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
-                  }`}>{contributionScore}</div>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -1061,9 +1046,61 @@ export function InstanceDetailPage() {
         <CloudAccessSection instance={instance} />
       ) : (
       <>
+      {/* ── At a Glance ───────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-4 gap-3">
+        {/* Trust */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Trust</span>
+            {dailyCounts.length > 1 && <Sparkline data={dailyCounts} color={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'} width={64} height={20} />}
+          </div>
+          <div className="flex items-end gap-2">
+            <span className={`text-2xl font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
+              {trust}
+            </span>
+            <div className="flex-1 mb-1.5">
+              <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                  style={{ width: `${trust}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Cost */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Cost</div>
+          <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
+          <div className="text-[10px] text-text-tertiary font-mono mt-1">week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
+        </div>
+
+        {/* Actions */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Actions</span>
+            {dailyCounts.length > 1 && <Sparkline data={dailyCounts} width={64} height={20} />}
+          </div>
+          <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">{totalActions}</div>
+          {(mission?.progress?.pending ?? 0) > 0 && (
+            <div className="text-[10px] text-amber-400 font-mono mt-1">{mission!.progress!.pending} pending</div>
+          )}
+        </div>
+
+        {/* Score */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Score</div>
+          <div className={`text-2xl font-bold font-mono tabular-nums ${
+            contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
+          }`}>{contributionScore}</div>
+          <div className="text-[10px] text-text-tertiary font-mono mt-1">
+            {summary?.approvalEfficiency ? `${summary.approvalEfficiency} eff.` : 'no data'}
+          </div>
+        </div>
+      </div>
+
       {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
       {criticalFlags.length > 0 && (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {criticalFlags.slice(0, 3).map(flag => (
             <div key={flag.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
               <div className="flex items-start gap-3">
@@ -1082,47 +1119,52 @@ export function InstanceDetailPage() {
         </div>
       )}
 
-      {/* ── Contributions + Categories ──────────────────────────────────── */}
+      {/* ── Activity Over Time ─────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-6">
-        <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-5">Contributions</h2>
-
-        {/* Stats row */}
-        <div className="grid grid-cols-5 gap-4 mb-5">
-          <div>
-            <div className="text-[10px] text-text-muted font-mono mb-1">Files Created</div>
-            <div className="text-lg font-bold text-blue-400 tabular-nums font-mono">{summary?.filesCreated ?? 0}</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-text-muted font-mono mb-1">Files Edited</div>
-            <div className="text-lg font-bold text-cyan-400 tabular-nums font-mono">{summary?.filesEdited ?? 0}</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-text-muted font-mono mb-1">Lines Written</div>
-            <div className="text-lg font-bold text-emerald-400 tabular-nums font-mono">{summary?.linesWritten ?? 0}</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-text-muted font-mono mb-1">Commands</div>
-            <div className="text-lg font-bold text-amber-400 tabular-nums font-mono">{summary?.commandsExecuted ?? 0}</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-text-muted font-mono mb-1">Efficiency</div>
-            <div className="text-lg font-bold text-text-secondary tabular-nums font-mono">{summary?.approvalEfficiency ?? '—'}</div>
-          </div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Activity · Last 7 Days</h2>
+          {summary && (
+            <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
+              <span>denial rate: {summary.denialRate ?? '—'}</span>
+              <span>PRs: {summary.prsAndCommits ?? 0}</span>
+            </div>
+          )}
         </div>
-
-        {/* Chart */}
         <ActivityChart
           data={dailyCounts.length > 0 ? dailyCounts : [contributionScore]}
           labels={byDay.length > 0 ? [byDay[0]?.date?.slice(5) ?? '', byDay[byDay.length - 1]?.date?.slice(5) ?? ''] : ['today', 'today']}
         />
+      </div>
 
-        {/* Categories — inline below chart */}
-        {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 && (
-          <div className="mt-5 pt-5 border-t border-border/30">
-            <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">by category</div>
-            <PieChart breakdown={mission.categoryBreakdown} />
+      {/* ── Output + Categories side by side ──────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Output stats */}
+        <div className="bg-surface-1 border border-border rounded-xl p-5">
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Output</h3>
+          <div className="space-y-3">
+            {[
+              { label: 'Files Created', value: summary?.filesCreated ?? 0, color: 'text-blue-400' },
+              { label: 'Files Edited', value: summary?.filesEdited ?? 0, color: 'text-cyan-400' },
+              { label: 'Lines Written', value: summary?.linesWritten ?? 0, color: 'text-emerald-400' },
+              { label: 'Commands Run', value: summary?.commandsExecuted ?? 0, color: 'text-amber-400' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex items-center justify-between">
+                <span className="text-xs text-text-secondary font-mono">{label}</span>
+                <span className={`text-sm font-bold tabular-nums font-mono ${color}`}>{value}</span>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
+
+        {/* Categories */}
+        <div className="bg-surface-1 border border-border rounded-xl p-5">
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Categories</h3>
+          {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
+            <PieChart breakdown={mission.categoryBreakdown} />
+          ) : (
+            <div className="text-xs text-text-tertiary font-mono py-4">no data yet</div>
+          )}
+        </div>
       </div>
 
       {/* ── Agent Network ─────────────────────────────────────────────────── */}
