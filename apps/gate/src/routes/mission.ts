@@ -10,6 +10,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { execSync } from 'child_process';
 import { prisma } from '../db/client.js';
 import { describeToolCall } from '../engine/analysis.js';
 import { computeTrustScore } from '../engine/trust.js';
@@ -112,20 +113,117 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
         (tc) => tc.receipt?.policyDecision === 'DENY' || tc.approval?.status === 'DENIED',
       ).length;
 
-      // Sub-agents (distinct sessionIds)
-      const sessionIds = [...new Set(recentCalls.map((tc) => tc.sessionId).filter(Boolean))];
-      const subAgents = sessionIds.slice(0, 5).map((sessionId) => {
-        const lastCall = recentCalls.find((tc) => tc.sessionId === sessionId);
+      // ── Sub-agent detection ─────────────────────────────────────────────
+      // Strategy:
+      //   1. Find sessions_spawn tool calls → those are explicit sub-agent creations
+      //   2. Group tool calls by sessionId → identify main vs spawned sessions
+      //   3. Also check the running container for live sessions via docker exec
+      //   4. Combine all sources for a complete picture
+
+      const spawnCalls = recentCalls.filter(tc => {
+        const tool = tc.toolName.replace(/^(gated_|wooblay_)/, '');
+        return tool === 'sessions_spawn';
+      });
+
+      // Extract spawned session IDs from spawn call results/args
+      const spawnedSessionIds = new Set<string>();
+      for (const sc of spawnCalls) {
+        try {
+          const args = JSON.parse(sc.args);
+          // The spawn call might reference a session ID in args or the result
+          if (args.sessionId) spawnedSessionIds.add(String(args.sessionId));
+          if (args.session_id) spawnedSessionIds.add(String(args.session_id));
+          if (args.id) spawnedSessionIds.add(String(args.id));
+          if (args.name) spawnedSessionIds.add(String(args.name));
+        } catch { /* skip */ }
+      }
+
+      // Group all tool calls by sessionId
+      const sessionMap = new Map<string, typeof recentCalls>();
+      for (const tc of recentCalls) {
+        if (!tc.sessionId) continue;
+        const existing = sessionMap.get(tc.sessionId) ?? [];
+        existing.push(tc);
+        sessionMap.set(tc.sessionId, existing);
+      }
+
+      // The main session is the one with the most tool calls (or the first one chronologically)
+      let mainSessionId: string | null = null;
+      let maxCalls = 0;
+      for (const [sid, calls] of sessionMap) {
+        if (calls.length > maxCalls) {
+          maxCalls = calls.length;
+          mainSessionId = sid;
+        }
+      }
+
+      // All sessions that aren't the main session are sub-agents
+      // Also include explicitly spawned sessions even if they have no tool calls yet
+      const subAgentSessionIds = new Set<string>();
+      for (const sid of sessionMap.keys()) {
+        if (sid !== mainSessionId) subAgentSessionIds.add(sid);
+      }
+      for (const sid of spawnedSessionIds) {
+        subAgentSessionIds.add(sid);
+      }
+
+      // Try to query live sessions from the running container
+      let liveSessionIds: string[] = [];
+      try {
+        const containerName = `wooblay-agent-${instance.name}`;
+        const running = execSync(
+          `docker ps -q --filter "name=${containerName}"`,
+          { timeout: 5000, stdio: 'pipe' },
+        ).toString().trim();
+
+        if (running) {
+          // Try to get OpenClaw's session list
+          const sessionsOutput = execSync(
+            `docker exec "${containerName}" sh -c 'ls /root/.openclaw/sessions/ 2>/dev/null || echo ""'`,
+            { timeout: 5000, stdio: 'pipe' },
+          ).toString().trim();
+          if (sessionsOutput) {
+            liveSessionIds = sessionsOutput.split('\n').filter(Boolean);
+            for (const sid of liveSessionIds) {
+              if (sid !== mainSessionId && sid !== 'main') {
+                subAgentSessionIds.add(sid);
+              }
+            }
+          }
+        }
+      } catch {
+        // Docker not available or container not running — skip
+      }
+
+      // Build sub-agents list
+      const subAgents = [...subAgentSessionIds].slice(0, 10).map((sessionId) => {
+        const calls = sessionMap.get(sessionId) ?? [];
+        const lastCall = calls[0]; // already sorted desc by createdAt
+        const wasSpawned = spawnedSessionIds.has(sessionId);
+        const isLive = liveSessionIds.includes(sessionId);
         let lastArgs: Record<string, unknown> = {};
         try {
           if (lastCall) lastArgs = JSON.parse(lastCall.args);
-        } catch {
-          // keep empty
+        } catch { /* keep empty */ }
+
+        // Determine status
+        let status: string;
+        if (lastCall?.approval?.status === 'PENDING') {
+          status = 'awaiting_approval';
+        } else if (isLive || (lastCall && (Date.now() - new Date(lastCall.createdAt).getTime()) < 5 * 60 * 1000)) {
+          status = 'active';
+        } else if (calls.length > 0) {
+          status = 'completed';
+        } else {
+          status = wasSpawned ? 'spawning' : 'unknown';
         }
+
         return {
           sessionId,
-          lastAction: lastCall ? describeToolCall(lastCall.toolName, lastArgs) : 'Unknown',
-          status: lastCall?.approval?.status === 'PENDING' ? 'awaiting_approval' : 'active',
+          lastAction: lastCall ? describeToolCall(lastCall.toolName, lastArgs) : (wasSpawned ? 'Spawned — awaiting first action' : 'Unknown'),
+          status,
+          toolCallCount: calls.length,
+          spawned: wasSpawned,
         };
       });
 

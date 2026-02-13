@@ -185,6 +185,11 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       configOverrides?: Record<string, string>;
       role?: string;
       goal?: string;
+      awsAccessKeyId?: string;
+      awsSecretAccessKey?: string;
+      awsRegion?: string;
+      gcpServiceAccountKey?: string;
+      gcpProjectId?: string;
     };
 
     if (!body.name || typeof body.name !== 'string') {
@@ -254,6 +259,12 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
         ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),
         ...(body.githubToken ? { GITHUB_TOKEN: body.githubToken } : {}),
+        // Cloud provider credentials
+        ...(body.awsAccessKeyId ? { AWS_ACCESS_KEY_ID: body.awsAccessKeyId } : {}),
+        ...(body.awsSecretAccessKey ? { AWS_SECRET_ACCESS_KEY: body.awsSecretAccessKey } : {}),
+        ...(body.awsRegion ? { AWS_DEFAULT_REGION: body.awsRegion } : {}),
+        ...(body.gcpServiceAccountKey ? { GCP_SERVICE_ACCOUNT_KEY: body.gcpServiceAccountKey } : {}),
+        ...(body.gcpProjectId ? { GCP_PROJECT_ID: body.gcpProjectId } : {}),
         ...(body.configOverrides ?? {}),
       };
 
@@ -344,6 +355,11 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       configOverrides: Record<string, string>;
       role: string;
       goal: string;
+      awsAccessKeyId: string;
+      awsSecretAccessKey: string;
+      awsRegion: string;
+      gcpServiceAccountKey: string;
+      gcpProjectId: string;
     }>;
 
     try {
@@ -414,6 +430,12 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
           ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),
           ...(body.githubToken ? { GITHUB_TOKEN: body.githubToken } : {}),
+          // Cloud provider credentials
+          ...(body.awsAccessKeyId ? { AWS_ACCESS_KEY_ID: body.awsAccessKeyId } : {}),
+          ...(body.awsSecretAccessKey ? { AWS_SECRET_ACCESS_KEY: body.awsSecretAccessKey } : {}),
+          ...(body.awsRegion ? { AWS_DEFAULT_REGION: body.awsRegion } : {}),
+          ...(body.gcpServiceAccountKey ? { GCP_SERVICE_ACCOUNT_KEY: body.gcpServiceAccountKey } : {}),
+          ...(body.gcpProjectId ? { GCP_PROJECT_ID: body.gcpProjectId } : {}),
           ...(body.configOverrides ?? {}),
         };
         writeInstanceEnv(dir, envConfig);
@@ -421,7 +443,8 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         // Only restart container if config that requires restart changed
         // (model, telegram, API keys, etc.) — NOT for role/goal-only updates
         const needsRestart = !!(body.model || body.anthropicApiKey || body.telegramBotToken ||
-          body.telegramEnabled !== undefined || body.githubToken || body.configOverrides);
+          body.telegramEnabled !== undefined || body.githubToken || body.configOverrides ||
+          body.awsAccessKeyId || body.awsSecretAccessKey || body.gcpServiceAccountKey);
 
         if (needsRestart && instance.status === 'running') {
           try {

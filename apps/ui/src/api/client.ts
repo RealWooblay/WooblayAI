@@ -578,3 +578,36 @@ export const getInstanceCost = (instanceId: string) =>
 // ---------------------------------------------------------------------------
 
 export const getHealth = () => fetchApi<{ status: string; version: string }>('/health');
+
+// ---------------------------------------------------------------------------
+// Workspace File Explorer
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  name: string;
+  type: 'file' | 'dir';
+  size: number;
+  modified: string | null;
+}
+
+export interface FileListResult {
+  path: string;
+  entries: FileEntry[];
+}
+
+export interface FileReadResult {
+  path: string;
+  content: string;
+  size: number;
+  truncated: boolean;
+  warning?: string;
+}
+
+export const listFiles = (instanceId: string, path?: string) =>
+  fetchApi<FileListResult>(`/api/instances/${instanceId}/files${path ? `?path=${encodeURIComponent(path)}` : ''}`);
+
+export const readFile = (instanceId: string, path: string) =>
+  fetchApi<FileReadResult>(`/api/instances/${instanceId}/files/read?path=${encodeURIComponent(path)}`);
+
+export const getFileDownloadUrl = (instanceId: string, path: string) =>
+  `/api/instances/${instanceId}/files/download?path=${encodeURIComponent(path)}`;
