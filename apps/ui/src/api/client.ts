@@ -254,8 +254,6 @@ export interface CreateInstanceRequest {
   role?: string;
   goal?: string;
   configOverrides?: Record<string, string>;
-  role?: string;
-  goal?: string;
 }
 
 export interface InstanceActionResponse {
