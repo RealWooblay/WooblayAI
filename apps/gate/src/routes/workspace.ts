@@ -4,12 +4,14 @@
  * Provides live filesystem access to running agent containers via docker exec.
  * All paths are sandboxed to /root/clawd (the agent workspace).
  *
- * GET /api/instances/:id/files            — List directory contents
- * GET /api/instances/:id/files/read       — Read file content
- * GET /api/instances/:id/files/download   — Download raw file
+ * GET  /api/instances/:id/files            — List directory contents
+ * GET  /api/instances/:id/files/read       — Read file content
+ * GET  /api/instances/:id/files/download   — Download raw file
+ * POST /api/instances/:id/files/write      — Write file content
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 import { prisma } from '../db/client.js';
 import { execSync } from 'child_process';
 
@@ -56,7 +58,30 @@ function dockerExec(container: string, cmd: string, timeout = 10_000): string {
   }
 }
 
-export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
+/** Check if a docker container is running. Returns container ID or null. */
+function getRunningContainer(name: string): string | null {
+  try {
+    // Use exact name filter with anchor
+    const id = execSync(
+      `docker ps -q --filter "name=^${name}$"`,
+      { timeout: 5000, stdio: 'pipe' },
+    ).toString().trim();
+    // Fallback: substring match if exact match returns nothing
+    if (!id) {
+      const subId = execSync(
+        `docker ps -q --filter "name=${name}"`,
+        { timeout: 5000, stdio: 'pipe' },
+      ).toString().trim();
+      return subId || null;
+    }
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
+// Use fp() so routes register in the parent scope (avoids encapsulation issues)
+async function workspaceRoutesInner(app: FastifyInstance): Promise<void> {
   /**
    * GET /api/instances/:id/files — List directory contents.
    */
@@ -64,32 +89,46 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const { path: dirPath } = request.query as { path?: string };
 
+    request.log.info({ id, dirPath }, 'Workspace: listing files');
+
     try {
       const instance = await prisma.instance.findUnique({ where: { id } });
-      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+      if (!instance) {
+        request.log.warn({ id }, 'Workspace: instance not found in DB');
+        return reply.code(404).send({ error: 'Instance not found', instanceId: id });
+      }
 
       const container = containerName(instance.name);
       const target = safePath(dirPath);
 
       // Check if container is running
-      const running = execSync(
-        `docker ps -q --filter "name=${container}"`,
-        { timeout: 5000, stdio: 'pipe' },
-      ).toString().trim();
-
-      if (!running) {
-        return reply.code(400).send({ error: 'Agent is not running' });
+      const containerId = getRunningContainer(container);
+      if (!containerId) {
+        request.log.warn({ container }, 'Workspace: container not running');
+        return reply.code(400).send({ error: 'Agent is not running', container });
       }
 
-      // List files with metadata using ls -la (works on Alpine/BusyBox)
-      // Also ensure the directory exists first
+      // Ensure workspace root exists inside container, then list
       const raw = dockerExec(
         container,
-        `if [ -d "${target}" ]; then ls -la "${target}" 2>/dev/null; else echo "NOTDIR"; fi`,
+        `mkdir -p "${WORKSPACE_ROOT}" && if [ -d "${target}" ]; then ls -la "${target}" 2>/dev/null; else echo "NOTDIR"; fi`,
       );
 
+      request.log.info({ container, target, rawLength: raw.length, rawPreview: raw.slice(0, 200) }, 'Workspace: docker exec result');
+
       if (raw.trim() === 'NOTDIR') {
-        return reply.code(404).send({ error: 'Directory not found' });
+        // If the requested path is the workspace root and it says NOTDIR,
+        // try creating it and list again
+        if (target === WORKSPACE_ROOT) {
+          dockerExec(container, `mkdir -p "${WORKSPACE_ROOT}"`);
+          return reply.send({ path: target, entries: [] });
+        }
+        return reply.code(404).send({ error: 'Directory not found', path: target, container });
+      }
+
+      if (!raw.trim()) {
+        // Empty result — directory exists but is empty, or docker exec failed silently
+        return reply.send({ path: target, entries: [] });
       }
 
       // Parse ls -la output: drwxr-xr-x  2 root root 4096 Jan 15 12:00 dirname
@@ -124,7 +163,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Invalid path' });
       }
       request.log.error(err, 'Failed to list files');
-      return reply.code(500).send({ error: 'Failed to list files' });
+      return reply.code(500).send({ error: 'Failed to list files', detail: err.message });
     }
   });
 
@@ -146,8 +185,13 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       const container = containerName(instance.name);
       const target = safePath(filePath);
 
-      // Check file size first
-      const sizeStr = dockerExec(container, `stat -c '%s' "${target}" 2>/dev/null || echo 0`).trim();
+      const containerId = getRunningContainer(container);
+      if (!containerId) {
+        return reply.code(400).send({ error: 'Agent is not running' });
+      }
+
+      // Check file size first (use wc -c as fallback for Alpine stat differences)
+      const sizeStr = dockerExec(container, `wc -c < "${target}" 2>/dev/null || echo 0`).trim();
       const size = parseInt(sizeStr, 10) || 0;
 
       if (size > MAX_FILE_SIZE) {
@@ -173,7 +217,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Invalid path' });
       }
       request.log.error(err, 'Failed to read file');
-      return reply.code(500).send({ error: 'Failed to read file' });
+      return reply.code(500).send({ error: 'Failed to read file', detail: err.message });
     }
   });
 
@@ -212,7 +256,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Invalid path' });
       }
       request.log.error(err, 'Failed to download file');
-      return reply.code(500).send({ error: 'Failed to download file' });
+      return reply.code(500).send({ error: 'Failed to download file', detail: err.message });
     }
   });
 
@@ -236,13 +280,15 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       const target = safePath(filePath);
 
       // Check container is running
-      const running = execSync(
-        `docker ps -q --filter "name=${container}"`,
-        { timeout: 5000, stdio: 'pipe' },
-      ).toString().trim();
-
-      if (!running) {
+      const containerId = getRunningContainer(container);
+      if (!containerId) {
         return reply.code(400).send({ error: 'Agent is not running' });
+      }
+
+      // Ensure parent directory exists
+      const parentDir = target.substring(0, target.lastIndexOf('/'));
+      if (parentDir) {
+        dockerExec(container, `mkdir -p "${parentDir}"`);
       }
 
       // Base64 encode content in Node, decode in container — no escaping issues
@@ -259,7 +305,11 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Invalid path' });
       }
       request.log.error(err, 'Failed to write file');
-      return reply.code(500).send({ error: 'Failed to write file' });
+      return reply.code(500).send({ error: 'Failed to write file', detail: err.message });
     }
   });
 }
+
+export const workspaceRoutes = fp(workspaceRoutesInner, {
+  name: 'workspace-routes',
+});

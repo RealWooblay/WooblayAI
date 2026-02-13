@@ -68,6 +68,8 @@ export async function buildApp() {
   await app.register(statsRoutes);
   await app.register(executionRoutes);
   await app.register(activityRoutes);
+  // Workspace routes BEFORE instance routes (more specific /files path first)
+  await app.register(workspaceRoutes);
   await app.register(instanceRoutes);
   await app.register(policyRoutes);
   await app.register(flagRoutes);
@@ -75,7 +77,6 @@ export async function buildApp() {
   await app.register(missionRoutes);
   await app.register(webhookRoutes);
   await app.register(aiAnalysisRoutes);
-  await app.register(workspaceRoutes);
 
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);

@@ -70,15 +70,15 @@ function AgentFace({ mission, instance }: { mission?: MissionData; instance: Ins
 
   if (instance.status !== 'running') {
     return (
-      <div className="font-mono text-center w-full px-4 py-3" style={{ animation: 'breathe 6s ease-in-out infinite' }}>
-        <span className="text-zinc-600 text-xl">( -_- ) zzz</span>
+      <div className="font-mono text-center" style={{ animation: 'breathe 6s ease-in-out infinite' }}>
+        <span className="text-zinc-600 text-base">( -_- )</span>
       </div>
     );
   }
   if (!mission) {
     return (
-      <div className="font-mono text-center w-full px-4 py-3">
-        <span className="text-zinc-500 text-xl animate-pulse">( . . )</span>
+      <div className="font-mono text-center">
+        <span className="text-zinc-500 text-base animate-pulse">( . . )</span>
       </div>
     );
   }
@@ -118,8 +118,8 @@ function AgentFace({ mission, instance }: { mission?: MissionData; instance: Ins
   }
 
   return (
-    <div className="font-mono text-center w-full px-4 py-3" style={{ animation: `breathe ${speed} ease-in-out infinite` }}>
-      <span className={`${color} text-xl`}>{face}</span>
+    <div className="font-mono text-center" style={{ animation: `breathe ${speed} ease-in-out infinite` }}>
+      <span className={`${color} text-base`}>{face}</span>
     </div>
   );
 }
@@ -380,67 +380,89 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
     } catch { setLogs('Failed to load logs'); }
   }, [instance.id]);
 
-  // Restart confirmation state
   const [restartConfirm, setRestartConfirm] = useState(false);
 
+  // Trust ring math
+  const ringR = 30;
+  const ringC = 2 * Math.PI * ringR;
+
   return (
-    <div className={`rounded-xl border p-5 transition-all ${
+    <div className={`rounded-xl border transition-all hover:border-border-strong ${
       hasPending ? 'border-amber-500/25 bg-surface-1' : 'border-border bg-surface-1'
     }`}>
-      {/* Face — full width */}
-      <AgentFace mission={mission} instance={instance} />
-
-      {/* Name + status */}
-      <div className="mt-2 mb-1">
-        <div className="flex items-center gap-2">
-          <Link to={`/instances/${instance.id}`} className="text-sm font-semibold text-text-primary font-mono hover:text-accent transition-colors truncate">
-            {instance.name}
-          </Link>
-          {(mission?.subAgents?.length ?? 0) > 0 && (
-            <span className="text-[9px] font-mono text-text-secondary bg-surface-3 px-1.5 py-0.5 rounded-full shrink-0">
-              +{mission!.subAgents.length}
-            </span>
-          )}
-        </div>
-        {effectiveRole && <p className="text-[10px] text-accent/70 truncate font-mono">role: {effectiveRole}</p>}
-        {mission?.goal && mission.goal !== instance.name && (
-          <p className="text-[10px] text-text-secondary truncate font-mono">goal: {mission.goal}</p>
-        )}
-      </div>
-
-      {/* Current action */}
-      <div className="mb-3">
-        <span className={`text-[10px] font-mono ${statusColor} ${hasPending ? 'animate-pulse' : ''} truncate block`}>
-          {isWorking ? `> ${statusLabel}` : statusLabel}
-          {!hasPending && !isWorking && isRunning && <span className="animate-blink"> _</span>}
-        </span>
-      </div>
-
-      {/* Metrics bar — trust + cost + actions inline */}
-      {mission && (
-        <div className="flex items-center gap-4 py-2 border-t border-border/40">
-          <div className="flex items-center gap-1.5">
-            <div className="w-12 h-1.5 rounded-full bg-surface-3 overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
-                style={{ width: `${trust}%` }} />
+      {/* Main content: horizontal layout */}
+      <div className="flex items-start gap-5 p-5">
+        {/* Left: Face with trust ring */}
+        <Link to={`/instances/${instance.id}`} className="shrink-0 group">
+          <div className="relative">
+            <svg width="72" height="72" viewBox="0 0 72 72" className="absolute -inset-0.5">
+              <circle cx="36" cy="36" r={ringR} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="2.5" />
+              {isRunning && (
+                <circle cx="36" cy="36" r={ringR} fill="none"
+                  stroke={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'}
+                  strokeWidth="2.5" strokeLinecap="round"
+                  strokeDasharray={`${(trust / 100) * ringC} ${ringC}`}
+                  transform="rotate(-90 36 36)"
+                  style={{ transition: 'all 0.6s ease' }} />
+              )}
+            </svg>
+            <div className="w-[72px] h-[72px] flex items-center justify-center">
+              <AgentFace mission={mission} instance={instance} />
             </div>
-            <span className={`text-[10px] font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
-              {trust}
+          </div>
+          {isRunning && (
+            <div className="text-center mt-1">
+              <span className={`text-[10px] font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                {trust}
+              </span>
+            </div>
+          )}
+        </Link>
+
+        {/* Right: Info */}
+        <div className="flex-1 min-w-0 pt-0.5">
+          {/* Name row */}
+          <div className="flex items-center gap-2 mb-1">
+            <Link to={`/instances/${instance.id}`}
+              className="text-sm font-semibold text-text-primary font-mono hover:text-accent transition-colors truncate">
+              {instance.name}
+            </Link>
+            {(mission?.subAgents?.length ?? 0) > 0 && (
+              <span className="text-[9px] font-mono text-text-secondary bg-surface-3 px-1.5 py-0.5 rounded-full shrink-0">
+                +{mission!.subAgents.length}
+              </span>
+            )}
+          </div>
+
+          {/* Role */}
+          {effectiveRole && <p className="text-[11px] text-text-secondary truncate font-mono mb-1">{effectiveRole}</p>}
+
+          {/* Status line */}
+          <div className="mb-2">
+            <span className={`text-[11px] font-mono ${statusColor} ${hasPending ? 'animate-pulse' : ''} truncate block`}>
+              {isWorking ? `> ${statusLabel}` : statusLabel}
+              {!hasPending && !isWorking && isRunning && <span className="animate-blink"> _</span>}
             </span>
           </div>
-          <span className="text-[10px] text-text-secondary font-mono tabular-nums">${cost.toFixed(2)}</span>
-          <span className="text-[10px] text-text-tertiary tabular-nums">{actions} actions</span>
-          {(mission.progress?.pending ?? 0) > 0 && (
-            <span className="ml-auto text-[10px] text-amber-400 font-medium animate-pulse">{mission.progress?.pending} pending</span>
+
+          {/* Metrics row */}
+          {mission && (
+            <div className="flex items-center gap-4">
+              <span className="text-[11px] text-text-secondary font-mono tabular-nums">${cost.toFixed(2)}</span>
+              <span className="text-[11px] text-text-tertiary font-mono tabular-nums">{actions} actions</span>
+              {(mission.progress?.pending ?? 0) > 0 && (
+                <span className="text-[10px] text-amber-400 font-medium animate-pulse font-mono">{mission.progress?.pending} pending</span>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/40">
+      {/* Action bar — clean separator */}
+      <div className="flex items-center gap-2 px-5 py-2.5 border-t border-border/40 bg-surface-0/30 rounded-b-xl">
         {!isRunning && (
           <button onClick={() => startMut.mutate()} disabled={anyLoading}
-            className="text-[10px] font-mono text-emerald-400 hover:text-emerald-300 disabled:opacity-40 px-2 py-1 rounded bg-emerald-500/8 hover:bg-emerald-500/15 transition-colors">
+            className="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 disabled:opacity-40 px-2.5 py-1 rounded-md bg-emerald-500/8 hover:bg-emerald-500/15 transition-colors">
             {startMut.isPending ? 'starting...' : 'start'}
           </button>
         )}
@@ -448,63 +470,64 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
           <>
             {!restartConfirm ? (
               <button onClick={() => setRestartConfirm(true)} disabled={anyLoading}
-                className="text-[10px] font-mono text-amber-400 hover:text-amber-300 disabled:opacity-40 px-2 py-1 rounded bg-amber-500/8 hover:bg-amber-500/15 transition-colors">
+                className="text-[11px] font-mono text-amber-400 hover:text-amber-300 disabled:opacity-40 px-2.5 py-1 rounded-md bg-amber-500/8 hover:bg-amber-500/15 transition-colors">
                 restart
               </button>
             ) : (
-              <div className="flex items-center gap-1 animate-fade-in">
-                <span className="text-[9px] text-red-400 font-mono">[!] memory lost —</span>
+              <div className="flex items-center gap-1.5 animate-fade-in">
+                <span className="text-[10px] text-red-400 font-mono">[!] memory lost —</span>
                 <button onClick={() => { restartMut.mutate(); setRestartConfirm(false); }}
-                  className="text-[10px] font-mono text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20">
+                  className="text-[11px] font-mono text-red-400 hover:text-red-300 px-2 py-0.5 rounded-md bg-red-500/10 hover:bg-red-500/20">
                   {restartMut.isPending ? '...' : 'confirm'}
                 </button>
-                <button onClick={() => setRestartConfirm(false)} className="text-[10px] font-mono text-text-tertiary hover:text-text-secondary px-1">cancel</button>
+                <button onClick={() => setRestartConfirm(false)} className="text-[11px] font-mono text-text-tertiary hover:text-text-secondary px-1">cancel</button>
               </div>
             )}
             <button onClick={() => stopMut.mutate()} disabled={anyLoading}
-              className="text-[10px] font-mono text-text-tertiary hover:text-text-secondary disabled:opacity-40 px-2 py-1 rounded hover:bg-surface-3/50 transition-colors">
+              className="text-[11px] font-mono text-text-tertiary hover:text-text-secondary disabled:opacity-40 px-2.5 py-1 rounded-md hover:bg-surface-3/50 transition-colors">
               {stopMut.isPending ? 'stopping...' : 'stop'}
             </button>
           </>
         )}
         <button onClick={() => setConfigOpen(!configOpen)}
-          className={`text-[10px] font-mono px-2 py-1 rounded transition-colors ${
+          className={`text-[11px] font-mono px-2.5 py-1 rounded-md transition-colors ${
             configOpen ? 'text-accent bg-accent/10' : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-3/50'
           }`}>
           config
         </button>
         <button onClick={() => { setShowLogs(!showLogs); if (!showLogs) loadLogs(); }}
-          className="text-[10px] font-mono text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-surface-3/50 transition-colors">
+          className="text-[11px] font-mono text-text-tertiary hover:text-text-secondary px-2.5 py-1 rounded-md hover:bg-surface-3/50 transition-colors">
           {showLogs ? 'hide logs' : 'logs'}
         </button>
         <Link to={`/instances/${instance.id}`}
-          className="text-[10px] font-mono text-text-tertiary hover:text-accent px-2 py-1 rounded hover:bg-surface-3/50 transition-colors">
+          className="text-[11px] font-mono text-text-tertiary hover:text-accent px-2.5 py-1 rounded-md hover:bg-surface-3/50 transition-colors ml-auto">
           details →
         </Link>
 
         {!confirmDelete ? (
           <button onClick={() => setConfirmDelete(true)} disabled={anyLoading}
-            className="text-[10px] font-mono text-red-400/40 hover:text-red-400 ml-auto transition-colors">
-            delete
+            className="text-[11px] font-mono text-red-400/30 hover:text-red-400 transition-colors px-1">
+            ×
           </button>
         ) : (
-          <div className="ml-auto flex items-center gap-1 animate-fade-in">
-            <span className="text-[9px] text-red-400 font-mono">permanent —</span>
+          <div className="flex items-center gap-1.5 animate-fade-in">
             <button onClick={() => { deleteMut.mutate(); setConfirmDelete(false); }}
-              className="text-[10px] font-mono text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded bg-red-500/10">
-              {deleteMut.isPending ? '...' : 'yes, delete'}
+              className="text-[10px] font-mono text-red-400 hover:text-red-300 px-2 py-0.5 rounded-md bg-red-500/10">
+              {deleteMut.isPending ? '...' : 'delete'}
             </button>
             <button onClick={() => setConfirmDelete(false)} className="text-[10px] font-mono text-text-tertiary">cancel</button>
           </div>
         )}
       </div>
 
-      {/* Inline config */}
-      {configOpen && <InlineConfigForm instance={instance} onClose={() => setConfigOpen(false)} />}
-
-      {/* Inline logs */}
+      {/* Expandable panels */}
+      {configOpen && (
+        <div className="px-5 pb-4">
+          <InlineConfigForm instance={instance} onClose={() => setConfigOpen(false)} />
+        </div>
+      )}
       {showLogs && (
-        <div className="border-t border-border/50 pt-3 mt-3 animate-fade-in">
+        <div className="px-5 pb-4 animate-fade-in">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">logs</span>
             <button onClick={loadLogs} className="text-[10px] text-accent font-mono">refresh</button>
@@ -572,26 +595,23 @@ export function CommandCenter() {
               {isEmpty && !hasData ? '> wooblay' : running.length > 0 ? `> ${running.length} agent${running.length !== 1 ? 's' : ''} active` : '> dashboard'}
             </h1>
             {hasData && (
-              <p className="text-xs text-text-secondary mt-1 font-mono">
-                {stats!.totalToolCalls} actions tracked · {stats!.pendingApprovals} awaiting review
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {hasData && stats?.byDecision && (
-              <div className="flex gap-4 text-[10px] text-text-tertiary font-mono">
-                <span>allowed: {stats.byDecision['ALLOW'] ?? 0}</span>
-                <span>reviewed: {stats.byDecision['APPROVE'] ?? 0}</span>
-                <span className={`${(stats.byDecision['DENY'] ?? 0) > 0 ? 'text-red-400' : ''}`}>denied: {stats.byDecision['DENY'] ?? 0}</span>
+              <div className="flex items-center gap-4 mt-1.5">
+                <span className="text-xs text-text-secondary font-mono">{stats!.totalToolCalls} actions</span>
+                {stats!.pendingApprovals > 0 && (
+                  <span className="text-xs text-amber-400 font-mono">{stats!.pendingApprovals} pending</span>
+                )}
+                {hasData && stats?.byDecision && (stats.byDecision['DENY'] ?? 0) > 0 && (
+                  <span className="text-xs text-red-400/70 font-mono">{stats.byDecision['DENY']} denied</span>
+                )}
               </div>
             )}
-            <button onClick={() => setDeployOpen(!deployOpen)}
-              className={`text-[10px] font-mono px-3 py-1.5 rounded-lg transition-colors ${
-                deployOpen ? 'bg-accent/10 text-accent' : 'bg-accent text-white hover:bg-accent-bright'
-              }`}>
-              {deployOpen ? 'cancel' : '+ deploy'}
-            </button>
           </div>
+          <button onClick={() => setDeployOpen(!deployOpen)}
+            className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
+              deployOpen ? 'bg-accent/10 text-accent' : 'bg-accent text-white hover:bg-accent-bright'
+            }`}>
+            {deployOpen ? 'cancel' : '+ deploy agent'}
+          </button>
         </div>
 
         {/* Inline Deploy */}

@@ -229,147 +229,6 @@ function AgentCharacter({ mission, instance }: { mission?: MissionData; instance
   );
 }
 
-// ── Inline Identity Editor (no modals!) ──────────────────────────────────────
-
-function IdentitySection({ instance, mission }: { instance: Instance; mission?: MissionData }) {
-  const qc = useQueryClient();
-  const identity = mission?.identity;
-  const source = identity?.source ?? 'none';
-
-  // Inline edit states
-  const [editingRole, setEditingRole] = useState(false);
-  const [editingGoal, setEditingGoal] = useState(false);
-  const [roleVal, setRoleVal] = useState('');
-  const [goalVal, setGoalVal] = useState('');
-  const [showSoul, setShowSoul] = useState(false);
-
-  const roleMutation = useMutation({
-    mutationFn: (role: string) => updateInstance(instance.id, { role } as any),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['instance', instance.id] }); qc.invalidateQueries({ queryKey: ['mission', instance.id] }); setEditingRole(false); },
-  });
-  const goalMutation = useMutation({
-    mutationFn: (goal: string) => updateInstance(instance.id, { goal } as any),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['mission', instance.id] }); setEditingGoal(false); },
-  });
-
-  const currentRole = identity?.baseRole ?? mission?.role ?? instance.role ?? null;
-  const currentGoal = mission?.goal && mission.goal !== instance.name ? mission.goal : null;
-
-  const sourceColors: Record<string, string> = {
-    'user-set': 'text-accent',
-    'ai-inferred': 'text-violet-400',
-    'agent-evolved': 'text-emerald-400',
-    'none': 'text-text-tertiary',
-  };
-  const sourceLabels: Record<string, string> = {
-    'user-set': 'set by you',
-    'ai-inferred': 'AI inferred',
-    'agent-evolved': 'agent evolved',
-    'none': 'not configured',
-  };
-
-  return (
-    <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Agent Profile</h3>
-        <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-surface-3 ${sourceColors[source]}`}>
-          {sourceLabels[source]}
-        </span>
-      </div>
-
-      {/* ── Role (inline editable) ──────────────────────────────────────── */}
-      <div className="flex items-start gap-3">
-        <span className="text-[11px] text-text-tertiary font-mono w-14 shrink-0 pt-1">role</span>
-        {editingRole ? (
-          <div className="flex-1 flex gap-2">
-            <input
-              autoFocus
-              value={roleVal}
-              onChange={e => setRoleVal(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && roleVal.trim()) roleMutation.mutate(roleVal); if (e.key === 'Escape') setEditingRole(false); }}
-              placeholder="e.g. Frontend developer building React dashboard"
-              className="flex-1 bg-surface-0 border border-accent/40 rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-            />
-            <button onClick={() => roleMutation.mutate(roleVal)} disabled={!roleVal.trim() || roleMutation.isPending}
-              className="px-3 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 shrink-0">
-              {roleMutation.isPending ? '...' : 'save'}
-            </button>
-            <button onClick={() => setEditingRole(false)} className="text-[10px] text-text-tertiary hover:text-text-secondary px-1">✕</button>
-          </div>
-        ) : (
-          <button
-            onClick={() => { setRoleVal(currentRole ?? ''); setEditingRole(true); }}
-            className="flex-1 text-left text-xs font-mono text-text-primary hover:text-accent transition-colors group"
-          >
-            {currentRole ?? <span className="text-text-tertiary italic">click to set role...</span>}
-            <span className="text-[9px] text-text-tertiary opacity-0 group-hover:opacity-100 ml-2">edit</span>
-          </button>
-        )}
-      </div>
-
-      {/* ── AI Inferred (if different from base) ───────────────────────── */}
-      {identity?.inferredRole && identity.inferredRole !== currentRole && (
-        <div className="flex items-start gap-3">
-          <span className="text-[11px] text-text-tertiary font-mono w-14 shrink-0 pt-0.5">ai sees</span>
-          <span className="text-xs text-violet-400/80 font-mono">{identity.inferredRole}</span>
-        </div>
-      )}
-
-      {/* ── Goal (inline editable) ──────────────────────────────────────── */}
-      <div className="flex items-start gap-3">
-        <span className="text-[11px] text-text-tertiary font-mono w-14 shrink-0 pt-1">goal</span>
-        {editingGoal ? (
-          <div className="flex-1 flex gap-2">
-            <input
-              autoFocus
-              value={goalVal}
-              onChange={e => setGoalVal(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && goalVal.trim()) goalMutation.mutate(goalVal); if (e.key === 'Escape') setEditingGoal(false); }}
-              placeholder="e.g. Build the settings page with dark mode"
-              className="flex-1 bg-surface-0 border border-accent/40 rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-            />
-            <button onClick={() => goalMutation.mutate(goalVal)} disabled={!goalVal.trim() || goalMutation.isPending}
-              className="px-3 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 shrink-0">
-              {goalMutation.isPending ? '...' : 'save'}
-            </button>
-            <button onClick={() => setEditingGoal(false)} className="text-[10px] text-text-tertiary hover:text-text-secondary px-1">✕</button>
-          </div>
-        ) : (
-          <button
-            onClick={() => { setGoalVal(currentGoal ?? ''); setEditingGoal(true); }}
-            className="flex-1 text-left text-xs font-mono text-text-secondary hover:text-accent transition-colors group"
-          >
-            {currentGoal ?? <span className="text-text-tertiary italic">click to set goal...</span>}
-            <span className="text-[9px] text-text-tertiary opacity-0 group-hover:opacity-100 ml-2">edit</span>
-          </button>
-        )}
-      </div>
-
-      {/* ── Evolved SOUL.md (agent's self-description) ─────────────────── */}
-      {identity?.evolvedSoul && (
-        <div className="pt-3 border-t border-border/30">
-          <button
-            onClick={() => setShowSoul(!showSoul)}
-            className="text-[11px] text-emerald-400 hover:text-emerald-300 font-mono flex items-center gap-2 w-full"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            Agent evolved its SOUL.md
-            {identity.identityLastUpdated && (
-              <span className="text-text-tertiary">· {new Date(identity.identityLastUpdated).toLocaleDateString()}</span>
-            )}
-            <span className="ml-auto">{showSoul ? '▾' : '▸'}</span>
-          </button>
-          {showSoul && (
-            <pre className="mt-2 p-3 bg-surface-0 rounded-lg text-[10px] text-text-secondary font-mono whitespace-pre-wrap max-h-48 overflow-y-auto border border-border/30 animate-fade-in">
-              {identity.evolvedSoul}
-            </pre>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Agent Network (slick tree view) ──────────────────────────────────────────
 
 function AgentNetwork({ mission, instances }: { mission?: MissionData; instances: Instance[] }) {
@@ -1107,12 +966,35 @@ export function InstanceDetailPage() {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-6">
-        <div className="flex items-center gap-6">
-          <div className="shrink-0 w-24 flex items-center justify-center">
-            <AgentCharacter mission={mission} instance={instance} />
+        <div className="flex items-start gap-6">
+          {/* Face + Trust ring */}
+          <div className="shrink-0 flex flex-col items-center gap-2">
+            <div className="relative">
+              {/* Trust ring behind face */}
+              <svg width="80" height="80" viewBox="0 0 80 80" className="absolute -inset-1">
+                <circle cx="40" cy="40" r="37" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="3" />
+                <circle cx="40" cy="40" r="37" fill="none"
+                  stroke={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'}
+                  strokeWidth="3" strokeLinecap="round"
+                  strokeDasharray={`${(trust / 100) * 232.5} 232.5`}
+                  transform="rotate(-90 40 40)"
+                  style={{ transition: 'all 0.6s ease' }} />
+              </svg>
+              <div className="w-[78px] h-[78px] flex items-center justify-center">
+                <AgentCharacter mission={mission} instance={instance} />
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-xs font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                {trust}
+              </span>
+              <span className="text-[10px] text-text-muted font-mono">trust</span>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-1.5">
+
+          {/* Info */}
+          <div className="flex-1 min-w-0 pt-1">
+            <div className="flex items-center gap-3 mb-1">
               <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium font-mono shrink-0 ${
                 instance.status === 'running' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'
@@ -1123,10 +1005,34 @@ export function InstanceDetailPage() {
                 </span>
               )}
             </div>
-            {mission?.role && <p className="text-sm text-text-secondary font-mono mt-1">role: {mission.role}</p>}
+            {mission?.role && <p className="text-sm text-text-secondary font-mono mt-1">{mission.role}</p>}
             {mission?.goal && mission.goal !== instance.name && (
               <p className="text-xs text-text-tertiary font-mono mt-1">goal: {mission.goal}</p>
             )}
+
+            {/* Inline metrics */}
+            <div className="flex items-center gap-5 mt-3 pt-3 border-t border-border/30">
+              <div>
+                <div className="text-[10px] text-text-muted font-mono">cost today</div>
+                <div className="text-sm font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted font-mono">this week</div>
+                <div className="text-sm font-bold text-text-primary font-mono tabular-nums">${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted font-mono">actions</div>
+                <div className="text-sm font-bold text-text-primary font-mono tabular-nums">{totalActions}</div>
+              </div>
+              {contributionScore > 0 && (
+                <div>
+                  <div className="text-[10px] text-text-muted font-mono">score</div>
+                  <div className={`text-sm font-bold font-mono tabular-nums ${
+                    contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
+                  }`}>{contributionScore}</div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1156,9 +1062,6 @@ export function InstanceDetailPage() {
         <CloudAccessSection instance={instance} />
       ) : (
       <>
-      {/* ── Identity (inline editing, no modals) ──────────────────────────── */}
-      <IdentitySection instance={instance} mission={mission} />
-
       {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
       {criticalFlags.length > 0 && (
         <div className="space-y-1.5">
@@ -1180,91 +1083,46 @@ export function InstanceDetailPage() {
         </div>
       )}
 
-      {/* ── Contribution Hero ─────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-accent/15 rounded-xl p-6">
-        <div className="flex items-start justify-between mb-5">
-          <h2 className="text-[11px] text-accent uppercase tracking-wider font-mono font-medium">Contribution Tracking</h2>
-          <Tooltip content="Score = 30% approval efficiency + 20% (100 − denial rate) + 50% output volume">
-            <div className="text-right">
-              <div className="text-[11px] text-text-tertiary font-mono mb-0.5">Score</div>
-              <div className={`text-3xl font-bold tabular-nums font-mono ${
-                contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
-              }`}>{contributionScore}</div>
-            </div>
-          </Tooltip>
-        </div>
-        <div className="grid grid-cols-3 md:grid-cols-5 gap-5 mb-5">
-          <div className="space-y-1">
-            <div className="text-[11px] text-text-tertiary font-mono">Actions</div>
-            <div className="text-xl font-bold text-text-primary tabular-nums font-mono">{totalActions}</div>
+      {/* ── Contributions + Categories ──────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-6">
+        <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-5">Contributions</h2>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-5 gap-4 mb-5">
+          <div>
+            <div className="text-[10px] text-text-muted font-mono mb-1">Files Created</div>
+            <div className="text-lg font-bold text-blue-400 tabular-nums font-mono">{summary?.filesCreated ?? 0}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-[11px] text-text-tertiary font-mono">Files Created</div>
-            <div className="text-xl font-bold text-blue-400 tabular-nums font-mono">{summary?.filesCreated ?? 0}</div>
+          <div>
+            <div className="text-[10px] text-text-muted font-mono mb-1">Files Edited</div>
+            <div className="text-lg font-bold text-cyan-400 tabular-nums font-mono">{summary?.filesEdited ?? 0}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-[11px] text-text-tertiary font-mono">Files Edited</div>
-            <div className="text-xl font-bold text-cyan-400 tabular-nums font-mono">{summary?.filesEdited ?? 0}</div>
+          <div>
+            <div className="text-[10px] text-text-muted font-mono mb-1">Lines Written</div>
+            <div className="text-lg font-bold text-emerald-400 tabular-nums font-mono">{summary?.linesWritten ?? 0}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-[11px] text-text-tertiary font-mono">Lines Written</div>
-            <div className="text-xl font-bold text-emerald-400 tabular-nums font-mono">{summary?.linesWritten ?? 0}</div>
+          <div>
+            <div className="text-[10px] text-text-muted font-mono mb-1">Commands</div>
+            <div className="text-lg font-bold text-amber-400 tabular-nums font-mono">{summary?.commandsExecuted ?? 0}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-[11px] text-text-tertiary font-mono">Commands</div>
-            <div className="text-xl font-bold text-amber-400 tabular-nums font-mono">{summary?.commandsExecuted ?? 0}</div>
+          <div>
+            <div className="text-[10px] text-text-muted font-mono mb-1">Efficiency</div>
+            <div className="text-lg font-bold text-text-secondary tabular-nums font-mono">{summary?.approvalEfficiency ?? '—'}</div>
           </div>
         </div>
+
+        {/* Chart */}
         <ActivityChart
           data={dailyCounts.length > 0 ? dailyCounts : [contributionScore]}
           labels={byDay.length > 0 ? [byDay[0]?.date?.slice(5) ?? '', byDay[byDay.length - 1]?.date?.slice(5) ?? ''] : ['today', 'today']}
         />
-        {summary && (
-          <div className="flex gap-6 mt-4 pt-4 border-t border-border/30 text-[11px] text-text-secondary font-mono">
-            <Tooltip content="What % of approval requests were approved"><span>efficiency: {summary.approvalEfficiency ?? '—'}</span></Tooltip>
-            <Tooltip content="What % of agent actions were denied"><span>denial rate: {summary.denialRate ?? '—'}</span></Tooltip>
-            <span>PRs & commits: {summary.prsAndCommits ?? 0}</span>
-          </div>
-        )}
-      </div>
 
-      {/* ── Trust + Cost ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
-        <Tooltip content="Based on approval history, denied actions, and AI anomaly detection.">
-          <div className="bg-surface-1 border border-border rounded-xl p-5 h-full flex flex-col">
-            <div className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Trust Score</div>
-            <div className="flex items-center gap-4 flex-1">
-              <span className={`text-3xl font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>{trust}</span>
-              <div className="flex-1">
-                <div className="h-2.5 rounded-full bg-surface-3 overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-500 ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${trust}%` }} />
-                </div>
-                <div className="flex justify-between mt-1.5 text-[10px] text-text-tertiary font-mono">
-                  <span>0</span><span>50</span><span>100</span>
-                </div>
-              </div>
-            </div>
+        {/* Categories — inline below chart */}
+        {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 && (
+          <div className="mt-5 pt-5 border-t border-border/30">
+            <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">by category</div>
+            <PieChart breakdown={mission.categoryBreakdown} />
           </div>
-        </Tooltip>
-
-        <Tooltip content="Estimated cost from tool execution heuristics.">
-          <div className="bg-surface-1 border border-border rounded-xl p-5 h-full flex flex-col">
-            <div className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Cost</div>
-            <div className="flex-1 flex flex-col justify-center">
-              <div className="text-3xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
-              <div className="text-[11px] text-text-secondary mt-2 font-mono">this week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
-            </div>
-          </div>
-        </Tooltip>
-      </div>
-
-      {/* ── Action Categories ────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5">
-        <div className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Action Categories</div>
-        {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
-          <PieChart breakdown={mission.categoryBreakdown} />
-        ) : (
-          <p className="text-xs text-text-tertiary font-mono">no data yet</p>
         )}
       </div>
 
