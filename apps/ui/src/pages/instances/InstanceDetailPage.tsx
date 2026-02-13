@@ -656,8 +656,8 @@ function ProfileTab({ instanceId, instance, isRunning }: { instanceId: string; i
       // Pre-fill Role/Goal from live file so form reflects what's in the container
       const { role: r, goal: g } = parseRoleAndGoalFromSoul(soulData.content);
       if (r || g) {
-        setRole(prev => (r ? r : prev));
-        setGoal(prev => (g ? g : prev));
+        setRole((prev: string) => (r ? r : prev));
+        setGoal((prev: string) => (g ? g : prev));
       }
     }
   }, [soulData, soulDirty]);
