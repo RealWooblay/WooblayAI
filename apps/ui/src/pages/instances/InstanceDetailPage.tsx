@@ -27,7 +27,6 @@ import {
   type MissionData,
   type Instance,
 } from '../../api/client.ts';
-import { Tooltip } from '../../components/common/Tooltip.tsx';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
