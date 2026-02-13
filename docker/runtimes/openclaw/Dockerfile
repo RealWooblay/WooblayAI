@@ -1,11 +1,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# OpenClaw Runtime with Wooblay Supervision (v5 — Gated Tools)
+# OpenClaw Runtime with Wooblay Supervision (v7 — Unrestricted + Hook Monitor)
 #
 # Strategy:
-#   1. Plugin registers gated_exec, gated_write, gated_edit, gated_web_fetch
-#   2. OpenClaw config denies built-in risky tools (exec, write, etc.)
-#   3. Every gated tool call → Wooblay Gate API → policy decision → execute/block
-#   4. Plugin lives at ~/.openclaw/extensions/wooblay/
+#   1. OpenClaw runs UNRESTRICTED — full access to all tools incl. sub-agents
+#   2. Hook (handler.ts) monitors ALL tool events → audit log in Wooblay Gate
+#   3. Plugin also registers gated_* extras for optional blocking workflow
+#   4. No deny list, no allow list — OpenClaw is OpenClaw
 # ─────────────────────────────────────────────────────────────────────────────
 FROM alpine/openclaw:main
 

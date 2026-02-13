@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "=== Wooblay OpenClaw Runtime (v6 — Gated Tools + Hybrid Identity) ==="
+echo "=== Wooblay OpenClaw Runtime (v7 — Unrestricted + Hook Monitoring) ==="
 echo "  Gate URL:     ${GATE_URL}"
 echo "  Model:        ${OPENCLAW_MODEL:-claude-sonnet-4-20250514}"
-echo "  Strategy:     Gated tools via registerTool → Wooblay Gate policy"
+echo "  Strategy:     Full OpenClaw access — Hook monitors all actions via Gate"
 
 # ── Gateway token ─────────────────────────────────────────────────────────
 if [ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
@@ -136,17 +136,6 @@ cat > /root/.openclaw/openclaw.json << JSONEOF
       }
     }
   },
-  "tools": {
-    "deny": ["exec", "bash", "write", "edit", "apply_patch", "browser"],
-    "allow": [
-      "gated_exec", "gated_write", "gated_edit", "gated_web_fetch",
-      "read", "web_search", "web_fetch",
-      "sessions_spawn", "sessions_send",
-      "session_status", "sessions_list", "sessions_history",
-      "memory_search", "memory_get",
-      "image"
-    ]
-  },
   "agents": {
     "list": ${AGENTS_LIST}
   },
@@ -155,9 +144,9 @@ cat > /root/.openclaw/openclaw.json << JSONEOF
 JSONEOF
 
 echo "  OK: /root/.openclaw/openclaw.json"
-echo "      Built-in DENIED: exec, bash, write, edit, apply_patch, browser"
-echo "      Gated ALLOWED:   gated_exec, gated_write, gated_edit, gated_web_fetch"
-echo "      Safe ALLOWED:    read, web_search, session_status, memory_search, image"
+echo "      Tools:  UNRESTRICTED — OpenClaw has full access to all tools"
+echo "      Gate:   Hook monitors ALL tool events (audit + logging)"
+echo "      Extras: gated_exec, gated_write, gated_edit, gated_web_fetch (via plugin)"
 
 # ── Verify plugin is installed ────────────────────────────────────────────
 if [ -f /root/.openclaw/extensions/wooblay/index.ts ] && [ -f /root/.openclaw/extensions/wooblay/openclaw.plugin.json ]; then
@@ -190,9 +179,9 @@ echo "  OK: Doctor complete"
 # ── Start OpenClaw Gateway ────────────────────────────────────────────────
 echo ""
 echo "→ Starting OpenClaw gateway..."
-echo "  Agent will use gated_exec/gated_write/gated_edit instead of exec/write/edit."
-echo "  Every gated tool call → Wooblay Gate → policy → approve/deny."
-echo "  Approve/deny in the Wooblay UI at: ${GATE_URL}"
+echo "  OpenClaw runs UNRESTRICTED — full access to all tools including sub-agents."
+echo "  Wooblay Hook monitors ALL tool events → audit + timeline in Gate."
+echo "  Gate UI: ${GATE_URL}"
 if [ "${TELEGRAM_ENABLED}" = "true" ]; then
   echo "  Telegram bot active — message your bot to interact with the agent."
 fi

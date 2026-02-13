@@ -80,34 +80,57 @@ function PieChart({ breakdown }: { breakdown: Record<string, number> }) {
   );
 }
 
-// ── Sparkline ─────────────────────────────────────────────────────────────────
+// ── Activity Chart (SVG line + bars) ──────────────────────────────────────────
 
-function Sparkline({ data, color = 'bg-accent' }: { data: number[]; color?: string }) {
+function ActivityChart({ data, labels }: { data: number[]; labels: string[] }) {
   const max = Math.max(...data, 1);
-  const hasActivity = data.some(v => v > 0);
+  const w = 100;
+  const h = 48;
+  const padL = 24;
+  const padB = 12;
+  const chartW = w - padL;
+  const chartH = h - padB;
+
+  // Build SVG path
+  const points = data.map((v, i) => {
+    const x = padL + (data.length > 1 ? (i / (data.length - 1)) * chartW : chartW / 2);
+    const y = chartH - (v / max) * chartH;
+    return { x, y, v };
+  });
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  const areaPath = linePath + ` L${points[points.length - 1].x},${chartH} L${points[0].x},${chartH} Z`;
+
   return (
-    <div className="flex items-end gap-1">
-      <div className="flex flex-col justify-between h-16 mr-1 text-[8px] text-text-tertiary font-mono tabular-nums shrink-0 w-5 text-right">
-        <span>{max}</span>
-        <span>{Math.round(max / 2)}</span>
-        <span>0</span>
-      </div>
-      <div className="flex items-end gap-[3px] h-16 flex-1 border-b border-l border-border/30 pb-px pl-px relative">
-        {data.map((v, i) => (
-          <Tooltip key={i} content={`${v} actions`}>
-            <div
-              className={`flex-1 rounded-t-sm transition-all min-w-[6px] ${
-                v > 0 ? `${color} opacity-80 hover:opacity-100` : 'bg-surface-3 opacity-40'
-              }`}
-              style={{ height: `${v > 0 ? Math.max((v / max) * 100, 8) : 3}%` }}
-            />
-          </Tooltip>
+    <div className="relative">
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20" preserveAspectRatio="none">
+        {/* Grid lines */}
+        <line x1={padL} y1={0} x2={padL} y2={chartH} stroke="rgba(255,255,255,0.05)" strokeWidth="0.3" />
+        <line x1={padL} y1={chartH} x2={w} y2={chartH} stroke="rgba(255,255,255,0.05)" strokeWidth="0.3" />
+        <line x1={padL} y1={chartH / 2} x2={w} y2={chartH / 2} stroke="rgba(255,255,255,0.03)" strokeWidth="0.2" strokeDasharray="1,1" />
+
+        {/* Y labels */}
+        <text x={padL - 2} y={5} textAnchor="end" className="fill-text-tertiary" style={{ fontSize: '3.5px', fontFamily: 'monospace' }}>{max}</text>
+        <text x={padL - 2} y={chartH / 2 + 1.5} textAnchor="end" className="fill-text-tertiary" style={{ fontSize: '3.5px', fontFamily: 'monospace' }}>{Math.round(max / 2)}</text>
+        <text x={padL - 2} y={chartH} textAnchor="end" className="fill-text-tertiary" style={{ fontSize: '3.5px', fontFamily: 'monospace' }}>0</text>
+
+        {/* Area fill */}
+        <path d={areaPath} fill="rgba(99,102,241,0.1)" />
+
+        {/* Line */}
+        <path d={linePath} fill="none" stroke="rgba(99,102,241,0.7)" strokeWidth="0.8" strokeLinejoin="round" />
+
+        {/* Dots */}
+        {points.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={p.v > 0 ? 1.2 : 0.6}
+            fill={p.v > 0 ? '#6366f1' : 'rgba(99,102,241,0.3)'} />
         ))}
-        {!hasActivity && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-[10px] text-text-tertiary font-mono">no actions this week</span>
-          </div>
-        )}
+      </svg>
+
+      {/* X labels */}
+      <div className="flex justify-between text-[9px] text-text-tertiary font-mono" style={{ paddingLeft: padL + '%' }}>
+        {labels.length > 0 && <span>{labels[0]}</span>}
+        <span className="mx-auto">last 7 days</span>
+        {labels.length > 1 && <span>{labels[labels.length - 1]}</span>}
       </div>
     </div>
   );
@@ -213,7 +236,7 @@ function IdentitySection({ instance, mission }: { instance: Instance; mission?: 
   return (
     <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Agent Identity</h3>
+        <h3 className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Agent Profile</h3>
         <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full bg-surface-3 ${sourceColors[source]}`}>
           {sourceLabels[source]}
         </span>
@@ -534,16 +557,10 @@ export function InstanceDetailPage() {
           <div><div className="text-[10px] text-text-tertiary font-mono">Lines Written</div><div className="text-2xl font-bold text-emerald-400 tabular-nums">{summary?.linesWritten ?? 0}</div></div>
           <div><div className="text-[10px] text-text-tertiary font-mono">Commands</div><div className="text-2xl font-bold text-amber-400 tabular-nums">{summary?.commandsExecuted ?? 0}</div></div>
         </div>
-        {dailyCounts.length > 0 ? (
-          <div className="relative">
-            <Sparkline data={dailyCounts} color="bg-accent" />
-            <div className="flex justify-between mt-1 text-[9px] text-text-tertiary font-mono ml-7">
-              <span>{byDay[0]?.date?.slice(5)}</span><span>last 7 days</span><span>{byDay[byDay.length - 1]?.date?.slice(5)}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="h-16 flex items-center text-[10px] text-text-tertiary font-mono">activity chart appears after first day</div>
-        )}
+        <ActivityChart
+          data={dailyCounts.length > 0 ? dailyCounts : [contributionScore]}
+          labels={byDay.length > 0 ? [byDay[0]?.date?.slice(5) ?? '', byDay[byDay.length - 1]?.date?.slice(5) ?? ''] : ['today', 'today']}
+        />
         {summary && (
           <div className="flex gap-6 mt-3 pt-3 border-t border-border/30 text-[10px] text-text-secondary font-mono">
             <Tooltip content="What % of approval requests were approved"><span>efficiency: {summary.approvalEfficiency ?? '—'}</span></Tooltip>
@@ -554,15 +571,18 @@ export function InstanceDetailPage() {
       </div>
 
       {/* ── Trust + Cost + Categories ─────────────────────────────────────── */}
-      <div className="grid md:grid-cols-3 gap-3">
+      <div className="grid md:grid-cols-3 gap-3 items-stretch">
         <Tooltip content="Based on approval history, denied actions, and AI anomaly detection.">
-          <div className="bg-surface-1 border border-border rounded-xl p-4">
-            <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">Trust</div>
-            <div className="flex items-center gap-3">
+          <div className="bg-surface-1 border border-border rounded-xl p-4 h-full flex flex-col">
+            <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-3">Trust Score</div>
+            <div className="flex items-center gap-3 flex-1">
               <span className={`text-3xl font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>{trust}</span>
               <div className="flex-1">
                 <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
                   <div className={`h-full rounded-full transition-all ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${trust}%` }} />
+                </div>
+                <div className="flex justify-between mt-1 text-[8px] text-text-tertiary font-mono">
+                  <span>0</span><span>100</span>
                 </div>
               </div>
             </div>
@@ -570,20 +590,24 @@ export function InstanceDetailPage() {
         </Tooltip>
 
         <Tooltip content="Estimated cost from tool execution heuristics.">
-          <div className="bg-surface-1 border border-border rounded-xl p-4">
-            <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">Cost</div>
-            <div className="text-3xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
-            <div className="text-[10px] text-text-secondary mt-1 font-mono">week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
+          <div className="bg-surface-1 border border-border rounded-xl p-4 h-full flex flex-col">
+            <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-3">Cost</div>
+            <div className="flex-1 flex flex-col justify-center">
+              <div className="text-3xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
+              <div className="text-[10px] text-text-secondary mt-1 font-mono">this week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
+            </div>
           </div>
         </Tooltip>
 
-        <div className="bg-surface-1 border border-border rounded-xl p-4">
-          <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">Categories</div>
-          {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
-            <PieChart breakdown={mission.categoryBreakdown} />
-          ) : (
-            <p className="text-[10px] text-text-tertiary font-mono mt-2">no data yet</p>
-          )}
+        <div className="bg-surface-1 border border-border rounded-xl p-4 h-full flex flex-col">
+          <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-3">Categories</div>
+          <div className="flex-1 flex items-center">
+            {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
+              <PieChart breakdown={mission.categoryBreakdown} />
+            ) : (
+              <p className="text-[10px] text-text-tertiary font-mono">no data yet</p>
+            )}
+          </div>
         </div>
       </div>
 

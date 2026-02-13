@@ -418,8 +418,12 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         };
         writeInstanceEnv(dir, envConfig);
 
-        // Auto-restart the instance container so config takes effect
-        if (instance.status === 'running') {
+        // Only restart container if config that requires restart changed
+        // (model, telegram, API keys, etc.) — NOT for role/goal-only updates
+        const needsRestart = !!(body.model || body.anthropicApiKey || body.telegramBotToken ||
+          body.telegramEnabled !== undefined || body.githubToken || body.configOverrides);
+
+        if (needsRestart && instance.status === 'running') {
           try {
             execSync(`cd "${dir}" && docker compose up -d --force-recreate`, {
               timeout: 60_000, stdio: 'pipe',
@@ -428,6 +432,8 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           } catch (restartErr: any) {
             request.log.error(restartErr, `Failed to restart instance ${instance.name} after config update`);
           }
+        } else if (instance.status === 'running') {
+          request.log.info(`Instance ${instance.name} updated (role/goal only — no restart needed)`);
         }
       }
 
