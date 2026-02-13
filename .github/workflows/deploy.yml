@@ -9,6 +9,7 @@ env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: 050752647977.dkr.ecr.us-east-1.amazonaws.com
   GATE_REPO: wooblay-gate
+  AGENT_REPO: openclaw-wooblay
   INSTANCE_ID: i-0aad96a2b04361357
 
 jobs:
@@ -50,6 +51,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push Agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/runtimes/openclaw/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
+
       - name: Deploy to EC2 via SSM
         run: |
           COMMAND_ID=$(aws ssm send-command \
@@ -60,9 +73,12 @@ jobs:
               \"cd /opt/wooblay\",
               \"aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}\",
               \"sed -i 's|GATE_IMAGE=.*|GATE_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:mvp|' .env\",
+              \"sed -i 's|AGENT_IMAGE=.*|AGENT_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest|' .env\",
               \"grep -q '^OPENAI_API_KEY=' .env || echo 'OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}' >> .env\",
               \"sed -i 's|OPENAI_API_KEY=.*|OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}|' .env\",
               \"grep -q '^OPENAI_MODEL=' .env || echo 'OPENAI_MODEL=gpt-4.1-mini' >> .env\",
+              \"sed -i 's|OPENAI_API_KEY:.*|OPENAI_API_KEY: \\\"${{ secrets.OPENAI_API_KEY }}\\\"|' docker-compose.yml\",
+              \"sed -i 's|OPENAI_MODEL:.*|OPENAI_MODEL: \\\"gpt-4.1-mini\\\"|' docker-compose.yml\",
               \"docker compose pull gate\",
               \"docker compose up -d --force-recreate\",
               \"sleep 15\",
