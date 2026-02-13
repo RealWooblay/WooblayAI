@@ -391,6 +391,20 @@ export const getFlags = (params?: { severity?: string; dismissed?: string; limit
 export const dismissFlag = (id: string) =>
   fetchApi<AuditFlag>(`/api/flags/${id}/dismiss`, { method: 'POST', body: '{}' });
 
+export const dismissAllFlags = () =>
+  fetchApi<{ dismissed: number }>('/api/flags/dismiss-all', { method: 'POST', body: '{}' });
+
+export interface DismissedFlagsResponse {
+  flags: AuditFlag[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export const getDismissedFlags = (page = 1, pageSize = 10) =>
+  fetchApi<DismissedFlagsResponse>(`/api/flags/dismissed?page=${page}&pageSize=${pageSize}`);
+
 // ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
@@ -611,3 +625,10 @@ export const readFile = (instanceId: string, path: string) =>
 
 export const getFileDownloadUrl = (instanceId: string, path: string) =>
   `/api/instances/${instanceId}/files/download?path=${encodeURIComponent(path)}`;
+
+export const writeFile = (instanceId: string, path: string, content: string) =>
+  fetchApi<{ ok: boolean; path: string; size: number }>(`/api/instances/${instanceId}/files/write`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  });

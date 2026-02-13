@@ -41,13 +41,19 @@ function containerName(instanceName: string): string {
   return `wooblay-agent-${instanceName}`;
 }
 
-/** Run a docker exec command and return stdout. */
+/** Run a docker exec command and return stdout. Returns empty string on failure. */
 function dockerExec(container: string, cmd: string, timeout = 10_000): string {
-  return execSync(`docker exec "${container}" sh -c '${cmd.replace(/'/g, "'\\''")}'`, {
-    timeout,
-    stdio: 'pipe',
-    maxBuffer: 2 * 1024 * 1024,
-  }).toString();
+  try {
+    return execSync(`docker exec "${container}" sh -c '${cmd.replace(/'/g, "'\\''")}'`, {
+      timeout,
+      stdio: 'pipe',
+      maxBuffer: 2 * 1024 * 1024,
+    }).toString();
+  } catch (err: any) {
+    // Return stderr/stdout from the failed command if available
+    if (err.stdout) return err.stdout.toString();
+    return '';
+  }
 }
 
 export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
@@ -75,29 +81,37 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Agent is not running' });
       }
 
-      // List files with metadata: timestamp size type path
+      // List files with metadata using ls -la (works on Alpine/BusyBox)
+      // Also ensure the directory exists first
       const raw = dockerExec(
         container,
-        `find "${target}" -maxdepth 1 -not -path "${target}" -printf "%T@ %s %y %f\\n" 2>/dev/null || ls -1 "${target}" 2>/dev/null`,
+        `if [ -d "${target}" ]; then ls -la "${target}" 2>/dev/null; else echo "NOTDIR"; fi`,
       );
 
+      if (raw.trim() === 'NOTDIR') {
+        return reply.code(404).send({ error: 'Directory not found' });
+      }
+
+      // Parse ls -la output: drwxr-xr-x  2 root root 4096 Jan 15 12:00 dirname
       const entries = raw
         .trim()
         .split('\n')
         .filter(Boolean)
+        .filter(line => !line.startsWith('total ')) // skip "total N" header
         .map((line) => {
-          const parts = line.split(' ');
-          if (parts.length >= 4) {
-            // find -printf format: timestamp size type name
-            const modified = new Date(parseFloat(parts[0]) * 1000).toISOString();
-            const size = parseInt(parts[1], 10);
-            const type = parts[2] === 'd' ? 'dir' : 'file';
-            const name = parts.slice(3).join(' ');
-            return { name, type, size, modified };
+          const parts = line.split(/\s+/);
+          if (parts.length >= 9) {
+            const perms = parts[0];
+            const size = parseInt(parts[4], 10) || 0;
+            const name = parts.slice(8).join(' ');
+            const type = perms.startsWith('d') ? 'dir' : 'file';
+            // Approximate modified from ls output (month day time/year)
+            const dateStr = `${parts[5]} ${parts[6]} ${parts[7]}`;
+            return { name, type, size, modified: dateStr };
           }
-          // Fallback: just the name from ls
-          return { name: line, type: 'file' as const, size: 0, modified: null };
+          return null;
         })
+        .filter((e): e is NonNullable<typeof e> => e !== null && e.name !== '.' && e.name !== '..')
         .sort((a, b) => {
           // Directories first, then alphabetical
           if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
@@ -199,6 +213,53 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       }
       request.log.error(err, 'Failed to download file');
       return reply.code(500).send({ error: 'Failed to download file' });
+    }
+  });
+
+  /**
+   * POST /api/instances/:id/files/write — Write file content into container.
+   * Body: { path: string, content: string }
+   */
+  app.post('/api/instances/:id/files/write', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const { path: filePath, content } = request.body as { path?: string; content?: string };
+
+    if (!filePath || content === undefined) {
+      return reply.code(400).send({ error: 'path and content are required' });
+    }
+
+    try {
+      const instance = await prisma.instance.findUnique({ where: { id } });
+      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+
+      const container = containerName(instance.name);
+      const target = safePath(filePath);
+
+      // Check container is running
+      const running = execSync(
+        `docker ps -q --filter "name=${container}"`,
+        { timeout: 5000, stdio: 'pipe' },
+      ).toString().trim();
+
+      if (!running) {
+        return reply.code(400).send({ error: 'Agent is not running' });
+      }
+
+      // Base64 encode content in Node, decode in container — no escaping issues
+      const encoded = Buffer.from(content, 'utf-8').toString('base64');
+
+      execSync(
+        `echo '${encoded}' | docker exec -i "${container}" sh -c 'base64 -d > "${target}"'`,
+        { timeout: 10_000, stdio: 'pipe' },
+      );
+
+      return reply.send({ ok: true, path: target, size: content.length });
+    } catch (err: any) {
+      if (err.message === 'Invalid path') {
+        return reply.code(400).send({ error: 'Invalid path' });
+      }
+      request.log.error(err, 'Failed to write file');
+      return reply.code(500).send({ error: 'Failed to write file' });
     }
   });
 }

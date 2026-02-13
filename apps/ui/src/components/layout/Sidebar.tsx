@@ -20,7 +20,6 @@ const NAV_ITEMS: ReadonlyArray<{
   badge?: boolean;
 }> = [
   { to: '/', label: 'Dashboard', icon: '◉', end: true },
-  { to: '/instances', label: 'Instances', icon: '◎' },
   { to: '/approvals', label: 'Approvals', icon: '⬡', badge: true },
   { to: '/policies', label: 'Policies', icon: '◇' },
   { to: '/activity', label: 'Activity', icon: '◈' },

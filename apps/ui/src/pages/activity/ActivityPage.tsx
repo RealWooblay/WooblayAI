@@ -15,6 +15,8 @@ import {
   getActivity,
   getFlags,
   dismissFlag,
+  dismissAllFlags,
+  getDismissedFlags,
   getInstances,
   getInstanceContributions,
   getAuditReport,
@@ -109,7 +111,29 @@ export function ActivityPage() {
 
   const dismissMutation = useMutation({
     mutationFn: dismissFlag,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['flags'] });
+      qc.invalidateQueries({ queryKey: ['dismissed-flags'] });
+    },
+  });
+
+  const dismissAllMutation = useMutation({
+    mutationFn: dismissAllFlags,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['flags'] });
+      qc.invalidateQueries({ queryKey: ['dismissed-flags'] });
+    },
+  });
+
+  // ── Dismissed flags (paginated history) ─────────────────────────────────
+  const [showDismissed, setShowDismissed] = useState(false);
+  const [dismissedPage, setDismissedPage] = useState(1);
+  const DISMISSED_PAGE_SIZE = 10;
+
+  const { data: dismissedData } = useQuery({
+    queryKey: ['dismissed-flags', dismissedPage],
+    queryFn: () => getDismissedFlags(dismissedPage, DISMISSED_PAGE_SIZE),
+    enabled: showDismissed,
   });
 
   // ── Derived ──────────────────────────────────────────────────────────────
@@ -257,7 +281,24 @@ export function ActivityPage() {
       {/* ── Anomaly Flags ─────────────────────────────────────────────────── */}
       {totalFlags > 0 && (
         <div className="space-y-2">
-          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Detected Anomalies</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Detected Anomalies</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowDismissed(!showDismissed)}
+                className="text-[10px] text-text-muted hover:text-text-primary font-mono transition-colors"
+              >
+                {showDismissed ? 'hide dismissed' : 'show dismissed'}
+              </button>
+              <button
+                onClick={() => dismissAllMutation.mutate()}
+                disabled={dismissAllMutation.isPending}
+                className="px-2.5 py-1 text-[10px] font-mono bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text-primary border border-border rounded-lg transition-colors disabled:opacity-40"
+              >
+                {dismissAllMutation.isPending ? 'dismissing...' : 'dismiss all'}
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {flags.slice(0, 6).map((flag: AuditFlag) => (
               <div key={flag.id} className={`rounded-xl border p-3 ${severityColor[flag.severity] ?? ''}`}>
@@ -289,6 +330,71 @@ export function ActivityPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Dismissed Flags (paginated history) ────────────────────────────── */}
+      {showDismissed && (
+        <div className="space-y-2">
+          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Dismissed</h2>
+          {!dismissedData?.flags.length ? (
+            <div className="bg-surface-1 border border-border rounded-xl p-6 text-center">
+              <p className="text-xs text-text-muted">No dismissed flags.</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {dismissedData.flags.map((flag: AuditFlag) => (
+                  <div key={flag.id} className="rounded-xl border border-border/40 bg-surface-1/50 p-3 opacity-60">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[9px] font-bold uppercase text-text-muted">{flag.severity}</span>
+                        <span className="text-[9px] text-text-muted">{flag.category.replace(/_/g, ' ')}</span>
+                        <span className="text-[9px] text-text-muted ml-auto">dismissed</span>
+                      </div>
+                      <p className="text-xs font-medium text-text-secondary">{flag.title}</p>
+                      <p className="text-[10px] text-text-muted mt-0.5 line-clamp-1">{flag.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Dismissed pagination */}
+              {dismissedData.totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={() => setDismissedPage(Math.max(1, dismissedPage - 1))}
+                    disabled={dismissedPage <= 1}
+                    className="px-2 py-1 text-[10px] font-mono bg-surface-2 text-text-muted rounded-lg border border-border disabled:opacity-20 hover:bg-surface-3 transition-colors"
+                  >
+                    ←
+                  </button>
+                  <span className="text-[10px] text-text-muted font-mono tabular-nums">
+                    {dismissedPage} / {dismissedData.totalPages}
+                  </span>
+                  <button
+                    onClick={() => setDismissedPage(Math.min(dismissedData.totalPages, dismissedPage + 1))}
+                    disabled={dismissedPage >= dismissedData.totalPages}
+                    className="px-2 py-1 text-[10px] font-mono bg-surface-2 text-text-muted rounded-lg border border-border disabled:opacity-20 hover:bg-surface-3 transition-colors"
+                  >
+                    →
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Show dismissed toggle even when there are no active flags */}
+      {totalFlags === 0 && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowDismissed(!showDismissed)}
+            className="text-[10px] text-text-muted hover:text-text-primary font-mono transition-colors"
+          >
+            {showDismissed ? 'hide dismissed flags' : 'show dismissed flags'}
+          </button>
         </div>
       )}
 

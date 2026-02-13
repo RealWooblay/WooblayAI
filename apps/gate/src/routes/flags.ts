@@ -61,6 +61,50 @@ export async function flagRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * POST /api/flags/dismiss-all — Dismiss all active flags at once.
+   */
+  app.post('/api/flags/dismiss-all', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await prisma.auditFlag.updateMany({
+        where: { dismissed: false },
+        data: { dismissed: true },
+      });
+      return reply.send({ dismissed: result.count });
+    } catch (err) {
+      request.log.error(err, 'Failed to dismiss all flags');
+      return reply.code(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/flags/dismissed — Paginated list of dismissed flags.
+   *
+   * Query: ?page=1&pageSize=10
+   */
+  app.get('/api/flags/dismissed', async (request: FastifyRequest, reply: FastifyReply) => {
+    const query = request.query as { page?: string; pageSize?: string };
+    const page = Math.max(1, parseInt(query.page ?? '1'));
+    const pageSize = Math.min(50, Math.max(1, parseInt(query.pageSize ?? '10')));
+
+    try {
+      const [flags, total] = await Promise.all([
+        prisma.auditFlag.findMany({
+          where: { dismissed: true },
+          orderBy: { createdAt: 'desc' },
+          take: pageSize,
+          skip: (page - 1) * pageSize,
+        }),
+        prisma.auditFlag.count({ where: { dismissed: true } }),
+      ]);
+
+      return reply.send({ flags, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
+    } catch (err) {
+      request.log.error(err, 'Failed to list dismissed flags');
+      return reply.code(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  /**
    * POST /api/flags/:id/dismiss — Dismiss a flag.
    */
   app.post('/api/flags/:id/dismiss', async (request: FastifyRequest, reply: FastifyReply) => {

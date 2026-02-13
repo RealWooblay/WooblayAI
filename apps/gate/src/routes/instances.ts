@@ -440,23 +440,101 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         };
         writeInstanceEnv(dir, envConfig);
 
-        // Only restart container if config that requires restart changed
-        // (model, telegram, API keys, etc.) — NOT for role/goal-only updates
-        const needsRestart = !!(body.model || body.anthropicApiKey || body.telegramBotToken ||
-          body.telegramEnabled !== undefined || body.githubToken || body.configOverrides ||
-          body.awsAccessKeyId || body.awsSecretAccessKey || body.gcpServiceAccountKey);
+        // ── Hot-inject vs restart ────────────────────────────────────────
+        // A running agent may have hours of deep context. Restarting kills
+        // all memory, sub-agents, and conversation state.
+        //
+        // What ACTUALLY works via docker exec:
+        //   - File writes (AWS creds, GCP key, git config) — SDKs re-read
+        //     these files on every request, so changes take effect immediately.
+        //
+        // What DOES NOT work via docker exec:
+        //   - `export VAR=X` — only sets the var in that exec shell session,
+        //     not in the running OpenClaw process (PID 1). Dies on exit.
+        //   - openclaw.json edits — OpenClaw reads config at startup and
+        //     caches it in memory. File changes are ignored until restart.
+        //
+        // Strategy:
+        //   1. File-based creds → hot-inject (works, no restart)
+        //   2. Env-var-only creds (Anthropic key) → requires restart
+        //   3. Model / Telegram → requires restart (openclaw.json is cached)
+        //   4. Role / Goal → DB + .env only; SOUL.md edited via Profile tab UI
+        //
+        // .env is ALWAYS updated so next cold start picks up everything.
 
-        if (needsRestart && instance.status === 'running') {
-          try {
-            execSync(`cd "${dir}" && docker compose up -d --force-recreate`, {
-              timeout: 60_000, stdio: 'pipe',
-            });
-            request.log.info(`Instance ${instance.name} restarted after config update`);
-          } catch (restartErr: any) {
-            request.log.error(restartErr, `Failed to restart instance ${instance.name} after config update`);
+        const containerName = `wooblay-agent-${instance.name}`;
+
+        // These require restart because they need env vars or openclaw.json reload
+        const needsRestart = !!(body.model || body.anthropicApiKey ||
+          body.telegramBotToken || body.telegramEnabled !== undefined);
+
+        if (instance.status === 'running') {
+          // ── File-based hot-inject (reliably works) ─────────────────────
+          const hotInjectCmds: string[] = [];
+
+          // AWS credentials → write ~/.aws/credentials + config
+          // AWS SDK reads these files on every API call — no restart needed
+          if (body.awsAccessKeyId || body.awsSecretAccessKey) {
+            const keyId = body.awsAccessKeyId ?? existingEnv['AWS_ACCESS_KEY_ID'] ?? '';
+            const secret = body.awsSecretAccessKey ?? existingEnv['AWS_SECRET_ACCESS_KEY'] ?? '';
+            const region = body.awsRegion ?? existingEnv['AWS_DEFAULT_REGION'] ?? 'us-east-1';
+            if (keyId && secret) {
+              hotInjectCmds.push(
+                `mkdir -p /root/.aws`,
+                `printf '[default]\\naws_access_key_id = ${keyId}\\naws_secret_access_key = ${secret}\\n' > /root/.aws/credentials`,
+                `printf '[default]\\nregion = ${region}\\noutput = json\\n' > /root/.aws/config`,
+              );
+            }
           }
-        } else if (instance.status === 'running') {
-          request.log.info(`Instance ${instance.name} updated (role/goal only — no restart needed)`);
+
+          // GCP credentials → write /root/gcp-key.json
+          // Google SDK reads GOOGLE_APPLICATION_CREDENTIALS file path on every call.
+          // The env var was set at container startup by entrypoint.sh, so as long
+          // as we overwrite the file at the same path, it works.
+          if (body.gcpServiceAccountKey) {
+            hotInjectCmds.push(
+              `echo '${body.gcpServiceAccountKey}' | base64 -d > /root/gcp-key.json 2>/dev/null || echo '${body.gcpServiceAccountKey}' > /root/gcp-key.json`,
+            );
+          }
+
+          // GitHub token → update git credential helper (writes to ~/.gitconfig)
+          // git reads this config file on every git operation — no restart needed
+          if (body.githubToken) {
+            hotInjectCmds.push(
+              `git config --global credential.helper "!f() { echo \\"username=token\\"; echo \\"password=${body.githubToken}\\"; }; f"`,
+            );
+          }
+
+          // Role / Goal → saved to DB + .env. The actual SOUL.md / IDENTITY.md
+          // files are edited directly via the Profile tab in the UI, which uses
+          // the /files/write API (base64 pipe into container). No shell escaping.
+
+          // Execute file-based hot-inject
+          if (hotInjectCmds.length > 0) {
+            try {
+              const script = hotInjectCmds.join(' && ');
+              execSync(`docker exec "${containerName}" sh -c '${script.replace(/'/g, "'\\''")}'`, {
+                timeout: 10_000, stdio: 'pipe',
+              });
+              request.log.info(`Instance ${instance.name} — hot-injected file-based credentials (no restart, memory preserved)`);
+            } catch (injectErr: any) {
+              request.log.error(injectErr, `Failed to hot-inject credentials into ${instance.name}`);
+            }
+          }
+
+          // ── Restart only if truly unavoidable ──────────────────────────
+          if (needsRestart) {
+            try {
+              execSync(`cd "${dir}" && docker compose up -d --force-recreate`, {
+                timeout: 60_000, stdio: 'pipe',
+              });
+              request.log.info(`Instance ${instance.name} restarted (model/anthropic-key/telegram change requires restart)`);
+            } catch (restartErr: any) {
+              request.log.error(restartErr, `Failed to restart instance ${instance.name}`);
+            }
+          } else {
+            request.log.info(`Instance ${instance.name} updated — no restart needed`);
+          }
         }
       }
 

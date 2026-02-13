@@ -21,6 +21,7 @@ import {
   dismissFlag,
   listFiles,
   readFile,
+  writeFile,
   getFileDownloadUrl,
   type FileEntry,
   type MissionData,
@@ -482,6 +483,8 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
   const qc = useQueryClient();
   const config = instance.configJson ? JSON.parse(instance.configJson) : {};
 
+  const [githubToken, setGithubToken] = useState('');
+  const [showGithub, setShowGithub] = useState(false);
   const [awsKey, setAwsKey] = useState('');
   const [awsSecret, setAwsSecret] = useState('');
   const [awsRegion, setAwsRegion] = useState(config.awsRegion ?? 'us-east-1');
@@ -490,8 +493,20 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
   const [showAws, setShowAws] = useState(false);
   const [showGcp, setShowGcp] = useState(false);
 
+  const hasGithub = !!(config.githubPat || instance.githubPat);
   const hasAws = !!(config.awsAccessKeyId || config.awsConfigured);
   const hasGcp = !!(config.gcpConfigured || config.gcpProjectId);
+
+  const githubMutation = useMutation({
+    mutationFn: () => updateInstance(instance.id, {
+      githubToken,
+    } as any),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance', instance.id] });
+      setShowGithub(false);
+      setGithubToken('');
+    },
+  });
 
   const awsMutation = useMutation({
     mutationFn: () => updateInstance(instance.id, {
@@ -537,10 +552,51 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
 
   return (
     <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-4">
-      <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Cloud Access</h3>
+      <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Access Keys</h3>
+
+      {/* ── GitHub ──────────────────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <button
+          onClick={() => setShowGithub(!showGithub)}
+          className="w-full flex items-center justify-between text-left group"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-text-primary font-medium">GitHub</span>
+            {hasGithub ? (
+              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">configured</span>
+            ) : (
+              <span className="text-[9px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded">not set</span>
+            )}
+          </div>
+          <span className="text-text-tertiary text-[10px] group-hover:text-text-secondary">{showGithub ? '▾' : '▸'}</span>
+        </button>
+
+        {showGithub && (
+          <div className="pl-4 space-y-2 animate-fade-in">
+            <div>
+              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Personal Access Token</label>
+              <input
+                type="password"
+                value={githubToken}
+                onChange={e => setGithubToken(e.target.value)}
+                placeholder={hasGithub ? 'set — enter to change' : 'ghp_... or github_pat_...'}
+                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
+              />
+              <p className="text-[9px] text-text-tertiary font-mono mt-1">Used for git operations — hot-injected, no restart needed</p>
+            </div>
+            <button
+              onClick={() => githubMutation.mutate()}
+              disabled={!githubToken || githubMutation.isPending}
+              className="px-4 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 font-mono"
+            >
+              {githubMutation.isPending ? 'saving...' : 'save GitHub token'}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* ── AWS ─────────────────────────────────────────────────────────── */}
-      <div className="space-y-2">
+      <div className="space-y-2 pt-2 border-t border-border/30">
         <button
           onClick={() => setShowAws(!showAws)}
           className="w-full flex items-center justify-between text-left group"
@@ -658,6 +714,146 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Profile Tab (SOUL.md + IDENTITY.md live editor) ──────────────────────────
+
+function ProfileTab({ instanceId, isRunning }: { instanceId: string; instanceName?: string; isRunning: boolean }) {
+  const qc = useQueryClient();
+
+  const { data: soulData, isLoading: soulLoading } = useQuery({
+    queryKey: ['file-content', instanceId, '/root/clawd/SOUL.md'],
+    queryFn: () => readFile(instanceId, '/root/clawd/SOUL.md'),
+    enabled: isRunning,
+  });
+
+  const { data: identityData, isLoading: identityLoading } = useQuery({
+    queryKey: ['file-content', instanceId, '/root/clawd/IDENTITY.md'],
+    queryFn: () => readFile(instanceId, '/root/clawd/IDENTITY.md'),
+    enabled: isRunning,
+  });
+
+  const [soulContent, setSoulContent] = useState('');
+  const [identityContent, setIdentityContent] = useState('');
+  const [soulDirty, setSoulDirty] = useState(false);
+  const [identityDirty, setIdentityDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
+  // Sync fetched data into editor state
+  useEffect(() => {
+    if (soulData?.content && !soulDirty) setSoulContent(soulData.content);
+  }, [soulData, soulDirty]);
+  useEffect(() => {
+    if (identityData?.content && !identityDirty) setIdentityContent(identityData.content);
+  }, [identityData, identityDirty]);
+
+  const saveSoul = useMutation({
+    mutationFn: () => writeFile(instanceId, '/root/clawd/SOUL.md', soulContent),
+    onSuccess: () => {
+      setSoulDirty(false);
+      setSaveStatus('SOUL.md saved');
+      qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/SOUL.md'] });
+      setTimeout(() => setSaveStatus(null), 2000);
+    },
+    onError: () => setSaveStatus('failed to save SOUL.md'),
+  });
+
+  const saveIdentity = useMutation({
+    mutationFn: () => writeFile(instanceId, '/root/clawd/IDENTITY.md', identityContent),
+    onSuccess: () => {
+      setIdentityDirty(false);
+      setSaveStatus('IDENTITY.md saved');
+      qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/IDENTITY.md'] });
+      setTimeout(() => setSaveStatus(null), 2000);
+    },
+    onError: () => setSaveStatus('failed to save IDENTITY.md'),
+  });
+
+  if (!isRunning) {
+    return (
+      <div className="bg-surface-1 border border-border rounded-xl p-12 text-center">
+        <pre className="text-text-tertiary font-mono text-lg mb-2">( -_- )</pre>
+        <p className="text-text-secondary font-mono text-sm">agent not running</p>
+        <p className="text-text-tertiary font-mono text-[10px] mt-1">start the agent to view and edit its profile</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Status bar */}
+      {saveStatus && (
+        <div className="text-[10px] font-mono text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 rounded-lg px-3 py-1.5 animate-fade-in">
+          {saveStatus}
+        </div>
+      )}
+
+      {/* SOUL.md */}
+      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-text-primary font-mono font-medium">SOUL.md</span>
+            <span className="text-[9px] text-text-tertiary font-mono">/root/clawd/SOUL.md</span>
+            {soulDirty && <span className="text-[9px] text-amber-400 font-mono">unsaved</span>}
+          </div>
+          <button
+            onClick={() => saveSoul.mutate()}
+            disabled={!soulDirty || saveSoul.isPending}
+            className="text-[10px] font-mono px-3 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-default transition-colors"
+          >
+            {saveSoul.isPending ? 'saving...' : 'save'}
+          </button>
+        </div>
+        {soulLoading ? (
+          <div className="p-4 text-text-tertiary font-mono text-[10px] animate-pulse">reading...</div>
+        ) : (
+          <textarea
+            value={soulContent}
+            onChange={e => { setSoulContent(e.target.value); setSoulDirty(true); }}
+            className="w-full bg-surface-0/30 p-4 text-[11px] text-text-secondary font-mono leading-relaxed resize-none focus:outline-none"
+            rows={14}
+            spellCheck={false}
+            placeholder="# Soul&#10;&#10;Define who this agent is, its role, principles, and goals..."
+          />
+        )}
+      </div>
+
+      {/* IDENTITY.md */}
+      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-text-primary font-mono font-medium">IDENTITY.md</span>
+            <span className="text-[9px] text-text-tertiary font-mono">/root/clawd/IDENTITY.md</span>
+            {identityDirty && <span className="text-[9px] text-amber-400 font-mono">unsaved</span>}
+          </div>
+          <button
+            onClick={() => saveIdentity.mutate()}
+            disabled={!identityDirty || saveIdentity.isPending}
+            className="text-[10px] font-mono px-3 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-default transition-colors"
+          >
+            {saveIdentity.isPending ? 'saving...' : 'save'}
+          </button>
+        </div>
+        {identityLoading ? (
+          <div className="p-4 text-text-tertiary font-mono text-[10px] animate-pulse">reading...</div>
+        ) : (
+          <textarea
+            value={identityContent}
+            onChange={e => { setIdentityContent(e.target.value); setIdentityDirty(true); }}
+            className="w-full bg-surface-0/30 p-4 text-[11px] text-text-secondary font-mono leading-relaxed resize-none focus:outline-none"
+            rows={8}
+            spellCheck={false}
+            placeholder="# Identity&#10;&#10;Quick reference card for the agent..."
+          />
+        )}
+      </div>
+
+      <p className="text-[9px] text-text-tertiary font-mono px-1">
+        These files live inside the agent container at /root/clawd/. The agent reads them as context.
+        Changes are saved directly to the running container — no restart needed. The agent may also evolve these files on its own.
+      </p>
     </div>
   );
 }
@@ -869,7 +1065,7 @@ export function InstanceDetailPage() {
     queryFn: () => getFlags({ dismissed: 'false', limit: '5' }),
     refetchInterval: 15_000,
   });
-  const [activeTab, setActiveTab] = useState<'overview' | 'workspace'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'access' | 'workspace'>('overview');
   const qc = useQueryClient();
   const dismissMutation = useMutation({
     mutationFn: dismissFlag,
@@ -937,7 +1133,7 @@ export function InstanceDetailPage() {
 
       {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
-        {(['overview', 'workspace'] as const).map(tab => (
+        {(['overview', 'profile', 'access', 'workspace'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -954,13 +1150,14 @@ export function InstanceDetailPage() {
 
       {activeTab === 'workspace' ? (
         <WorkspaceTab instanceId={instance.id} isRunning={instance.status === 'running'} />
+      ) : activeTab === 'profile' ? (
+        <ProfileTab instanceId={instance.id} instanceName={instance.name} isRunning={instance.status === 'running'} />
+      ) : activeTab === 'access' ? (
+        <CloudAccessSection instance={instance} />
       ) : (
       <>
       {/* ── Identity (inline editing, no modals) ──────────────────────────── */}
       <IdentitySection instance={instance} mission={mission} />
-
-      {/* ── Cloud Access ───────────────────────────────────────────────────── */}
-      <CloudAccessSection instance={instance} />
 
       {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
       {criticalFlags.length > 0 && (

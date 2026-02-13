@@ -18,7 +18,6 @@ import { getMe } from './api/client.ts';
 // Pages
 import { CommandCenter as DashboardPage } from './pages/command-center/CommandCenter.tsx';
 import { ApprovalsPage } from './pages/approvals/ApprovalsPage.tsx';
-import { InstancesPage } from './pages/instances/InstancesPage.tsx';
 import { InstanceDetailPage } from './pages/instances/InstanceDetailPage.tsx';
 import { OnboardingPage } from './pages/onboarding/OnboardingPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
@@ -122,7 +121,7 @@ function AuthenticatedApp() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
-          <Route path="/instances" element={<PageShell><InstancesPage /></PageShell>} />
+          <Route path="/instances" element={<Navigate to="/" replace />} />
           <Route path="/instances/:id" element={<PageShell><InstanceDetailPage /></PageShell>} />
           <Route path="/settings" element={<PageShell><SettingsPage /></PageShell>} />
           <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
