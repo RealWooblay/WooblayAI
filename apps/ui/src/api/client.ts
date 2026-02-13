@@ -251,6 +251,8 @@ export interface CreateInstanceRequest {
   telegramEnabled?: boolean;
   githubToken?: string;
   policyPreset?: string;
+  role?: string;
+  goal?: string;
   configOverrides?: Record<string, string>;
   role?: string;
   goal?: string;

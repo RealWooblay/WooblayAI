@@ -605,57 +605,112 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
   );
 }
 
-// ── Profile Tab (SOUL.md + IDENTITY.md live editor) ──────────────────────────
+// ── Profile Tab — Structured identity editor ─────────────────────────────────
+//
+// Top:    Role + Goal fields (structured, syncs to DB + SOUL.md)
+// Bottom: Raw SOUL.md editor (for power users / AI-evolved content)
+// The agent reads SOUL.md as its primary context. IDENTITY.md is auto-generated.
 
-function ProfileTab({ instanceId, isRunning }: { instanceId: string; instanceName?: string; isRunning: boolean }) {
+function ProfileTab({ instanceId, instance, isRunning }: { instanceId: string; instance: Instance; isRunning: boolean }) {
   const qc = useQueryClient();
+  const config = instance.configJson ? JSON.parse(instance.configJson) : {};
 
+  // ── Structured fields (synced to DB) ─────────────────────────────────
+  const [role, setRole] = useState(instance.role ?? '');
+  const [goal, setGoal] = useState(config.goal ?? '');
+  const [structDirty, setStructDirty] = useState(false);
+
+  // ── Raw SOUL.md from container ───────────────────────────────────────
   const { data: soulData, isLoading: soulLoading } = useQuery({
     queryKey: ['file-content', instanceId, '/root/clawd/SOUL.md'],
     queryFn: () => readFile(instanceId, '/root/clawd/SOUL.md'),
     enabled: isRunning,
   });
 
-  const { data: identityData, isLoading: identityLoading } = useQuery({
-    queryKey: ['file-content', instanceId, '/root/clawd/IDENTITY.md'],
-    queryFn: () => readFile(instanceId, '/root/clawd/IDENTITY.md'),
-    enabled: isRunning,
-  });
-
   const [soulContent, setSoulContent] = useState('');
-  const [identityContent, setIdentityContent] = useState('');
   const [soulDirty, setSoulDirty] = useState(false);
-  const [identityDirty, setIdentityDirty] = useState(false);
+  const [showRawEditor, setShowRawEditor] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
-  // Sync fetched data into editor state
+  // Sync fetched SOUL.md into editor state
   useEffect(() => {
     if (soulData?.content && !soulDirty) setSoulContent(soulData.content);
   }, [soulData, soulDirty]);
-  useEffect(() => {
-    if (identityData?.content && !identityDirty) setIdentityContent(identityData.content);
-  }, [identityData, identityDirty]);
 
-  const saveSoul = useMutation({
+  // Sync instance data into structured fields when instance changes
+  useEffect(() => {
+    if (!structDirty) {
+      setRole(instance.role ?? '');
+      const cfg = instance.configJson ? JSON.parse(instance.configJson) : {};
+      setGoal(cfg.goal ?? '');
+    }
+  }, [instance, structDirty]);
+
+  // ── Save structured fields → DB + generate SOUL.md + write to container
+  const saveProfile = useMutation({
+    mutationFn: async () => {
+      // 1. Update DB (role + goal)
+      await updateInstance(instanceId, { role, goal } as any);
+
+      // 2. Generate and write SOUL.md into the running container
+      if (isRunning) {
+        const soulMd = [
+          '# Soul',
+          '',
+          `You are **${instance.name}**, an AI agent supervised by Wooblay.`,
+          '',
+          '## Role',
+          role || 'No role assigned — awaiting instructions from your supervisor.',
+          '',
+          '## Principles',
+          '- Stay within your assigned role. Actions outside it may be flagged or denied.',
+          '- You operate under Wooblay\'s gated tool system — every risky action requires approval.',
+          '- Be transparent about what you\'re doing and why.',
+          '- You may evolve this file as you learn more about your task. Updates to SOUL.md',
+          '  are tracked by Wooblay so your supervisor can see how your identity develops.',
+          '',
+          '## Goal',
+          goal || 'Work according to your role. Await instructions from your supervisor.',
+        ].join('\n');
+
+        await writeFile(instanceId, '/root/clawd/SOUL.md', soulMd);
+
+        // Also update IDENTITY.md
+        const identityMd = [
+          `# Identity — ${instance.name}`,
+          '',
+          `- **Name:** ${instance.name}`,
+          `- **Role:** ${role || 'not set'}`,
+          `- **Goal:** ${goal || 'awaiting instructions'}`,
+          '- **Supervisor:** Wooblay Gate (all risky actions are gated)',
+          '- **Session:** This file was updated by your supervisor. You may update it as you work.',
+        ].join('\n');
+
+        await writeFile(instanceId, '/root/clawd/IDENTITY.md', identityMd);
+      }
+    },
+    onSuccess: () => {
+      setStructDirty(false);
+      setSoulDirty(false);
+      setSaveStatus('Profile saved — agent updated');
+      qc.invalidateQueries({ queryKey: ['instance', instanceId] });
+      qc.invalidateQueries({ queryKey: ['instances'] });
+      qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/SOUL.md'] });
+      setTimeout(() => setSaveStatus(null), 2500);
+    },
+    onError: () => setSaveStatus('Failed to save profile'),
+  });
+
+  // ── Save raw SOUL.md directly (power user)
+  const saveRawSoul = useMutation({
     mutationFn: () => writeFile(instanceId, '/root/clawd/SOUL.md', soulContent),
     onSuccess: () => {
       setSoulDirty(false);
-      setSaveStatus('SOUL.md saved');
+      setSaveStatus('SOUL.md saved to container');
       qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/SOUL.md'] });
       setTimeout(() => setSaveStatus(null), 2000);
     },
-    onError: () => setSaveStatus('failed to save SOUL.md'),
-  });
-
-  const saveIdentity = useMutation({
-    mutationFn: () => writeFile(instanceId, '/root/clawd/IDENTITY.md', identityContent),
-    onSuccess: () => {
-      setIdentityDirty(false);
-      setSaveStatus('IDENTITY.md saved');
-      qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/IDENTITY.md'] });
-      setTimeout(() => setSaveStatus(null), 2000);
-    },
-    onError: () => setSaveStatus('failed to save IDENTITY.md'),
+    onError: () => setSaveStatus('Failed to save SOUL.md'),
   });
 
   if (!isRunning) {
@@ -677,70 +732,96 @@ function ProfileTab({ instanceId, isRunning }: { instanceId: string; instanceNam
         </div>
       )}
 
-      {/* SOUL.md */}
+      {/* ── Structured Profile ─────────────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-mono text-text-primary font-medium">Agent Profile</h3>
+            <p className="text-[9px] text-text-tertiary font-mono mt-0.5">
+              Sets the agent's SOUL.md — what it reads as its core identity
+            </p>
+          </div>
+          {structDirty && <span className="text-[9px] text-amber-400 font-mono">unsaved changes</span>}
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-[9px] text-text-tertiary font-mono block mb-1">Role</label>
+            <input
+              value={role}
+              onChange={e => { setRole(e.target.value); setStructDirty(true); }}
+              placeholder="e.g. Full-stack developer focused on the payments microservice"
+              className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50 placeholder:text-text-tertiary"
+            />
+          </div>
+          <div>
+            <label className="text-[9px] text-text-tertiary font-mono block mb-1">Goal</label>
+            <textarea
+              value={goal}
+              onChange={e => { setGoal(e.target.value); setStructDirty(true); }}
+              placeholder="e.g. Implement Stripe webhook handlers and write tests for edge cases"
+              rows={3}
+              className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50 resize-none placeholder:text-text-tertiary"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-1">
+          <p className="text-[9px] text-text-tertiary font-mono">
+            Saves to database + writes SOUL.md and IDENTITY.md into the running agent. No restart.
+          </p>
+          <button
+            onClick={() => saveProfile.mutate()}
+            disabled={!structDirty || saveProfile.isPending}
+            className="px-4 py-1.5 text-[10px] font-mono bg-accent hover:bg-accent-bright text-white rounded-lg font-medium disabled:opacity-30 disabled:cursor-default transition-colors"
+          >
+            {saveProfile.isPending ? 'saving...' : 'save profile'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Raw SOUL.md (collapsible, for power users) ──────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
+        <button
+          onClick={() => setShowRawEditor(!showRawEditor)}
+          className="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-surface-2/30 transition-colors"
+        >
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-text-primary font-mono font-medium">SOUL.md</span>
-            <span className="text-[9px] text-text-tertiary font-mono">/root/clawd/SOUL.md</span>
+            <span className="text-[10px] text-text-secondary font-mono">raw SOUL.md</span>
             {soulDirty && <span className="text-[9px] text-amber-400 font-mono">unsaved</span>}
           </div>
-          <button
-            onClick={() => saveSoul.mutate()}
-            disabled={!soulDirty || saveSoul.isPending}
-            className="text-[10px] font-mono px-3 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-default transition-colors"
-          >
-            {saveSoul.isPending ? 'saving...' : 'save'}
-          </button>
-        </div>
-        {soulLoading ? (
-          <div className="p-4 text-text-tertiary font-mono text-[10px] animate-pulse">reading...</div>
-        ) : (
-          <textarea
-            value={soulContent}
-            onChange={e => { setSoulContent(e.target.value); setSoulDirty(true); }}
-            className="w-full bg-surface-0/30 p-4 text-[11px] text-text-secondary font-mono leading-relaxed resize-none focus:outline-none"
-            rows={14}
-            spellCheck={false}
-            placeholder="# Soul&#10;&#10;Define who this agent is, its role, principles, and goals..."
-          />
-        )}
-      </div>
+          <span className="text-text-tertiary text-[10px] font-mono">{showRawEditor ? '[-]' : '[+]'}</span>
+        </button>
 
-      {/* IDENTITY.md */}
-      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-text-primary font-mono font-medium">IDENTITY.md</span>
-            <span className="text-[9px] text-text-tertiary font-mono">/root/clawd/IDENTITY.md</span>
-            {identityDirty && <span className="text-[9px] text-amber-400 font-mono">unsaved</span>}
+        {showRawEditor && (
+          <div className="border-t border-border">
+            <div className="px-4 py-2 border-b border-border/50 flex items-center justify-between bg-surface-0/30">
+              <p className="text-[9px] text-text-tertiary font-mono">
+                Live content from /root/clawd/SOUL.md — edit directly for fine-grained control. The agent may also evolve this file.
+              </p>
+              <button
+                onClick={() => saveRawSoul.mutate()}
+                disabled={!soulDirty || saveRawSoul.isPending}
+                className="text-[10px] font-mono px-3 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-default transition-colors shrink-0"
+              >
+                {saveRawSoul.isPending ? 'saving...' : 'save to container'}
+              </button>
+            </div>
+            {soulLoading ? (
+              <div className="p-4 text-text-tertiary font-mono text-[10px] animate-pulse">reading from container...</div>
+            ) : (
+              <textarea
+                value={soulContent}
+                onChange={e => { setSoulContent(e.target.value); setSoulDirty(true); }}
+                className="w-full bg-surface-0/30 p-4 text-[11px] text-text-secondary font-mono leading-relaxed resize-none focus:outline-none"
+                rows={16}
+                spellCheck={false}
+                placeholder="# Soul&#10;&#10;Agent identity content will appear here once the agent starts..."
+              />
+            )}
           </div>
-          <button
-            onClick={() => saveIdentity.mutate()}
-            disabled={!identityDirty || saveIdentity.isPending}
-            className="text-[10px] font-mono px-3 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-default transition-colors"
-          >
-            {saveIdentity.isPending ? 'saving...' : 'save'}
-          </button>
-        </div>
-        {identityLoading ? (
-          <div className="p-4 text-text-tertiary font-mono text-[10px] animate-pulse">reading...</div>
-        ) : (
-          <textarea
-            value={identityContent}
-            onChange={e => { setIdentityContent(e.target.value); setIdentityDirty(true); }}
-            className="w-full bg-surface-0/30 p-4 text-[11px] text-text-secondary font-mono leading-relaxed resize-none focus:outline-none"
-            rows={8}
-            spellCheck={false}
-            placeholder="# Identity&#10;&#10;Quick reference card for the agent..."
-          />
         )}
       </div>
-
-      <p className="text-[9px] text-text-tertiary font-mono px-1">
-        These files live inside the agent container at /root/clawd/. The agent reads them as context.
-        Changes are saved directly to the running container — no restart needed. The agent may also evolve these files on its own.
-      </p>
     </div>
   );
 }
@@ -748,7 +829,7 @@ function ProfileTab({ instanceId, isRunning }: { instanceId: string; instanceNam
 // ── Workspace File Explorer ───────────────────────────────────────────────────
 
 function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning: boolean }) {
-  const [currentPath, setCurrentPath] = useState('/root/clawd');
+  const [currentPath, setCurrentPath] = useState('/root');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
@@ -803,20 +884,20 @@ function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning
     return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
   }
 
-  const pathParts = currentPath.replace('/root/clawd', '').split('/').filter(Boolean);
+  const pathParts = currentPath.replace('/root', '').split('/').filter(Boolean);
 
   return (
     <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
       {/* Toolbar */}
       <div className="px-4 py-3 border-b border-border flex items-center gap-3">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <button onClick={() => { setCurrentPath('/root/clawd'); setSelectedFile(null); }}
+          <button onClick={() => { setCurrentPath('/root'); setSelectedFile(null); }}
             className="text-[11px] text-accent hover:text-accent-bright font-mono shrink-0">~</button>
           {pathParts.map((part, i) => (
             <span key={i} className="flex items-center gap-1">
               <span className="text-text-tertiary font-mono text-[11px]">/</span>
               <button
-                onClick={() => navigateDir('/root/clawd/' + pathParts.slice(0, i + 1).join('/'))}
+                onClick={() => navigateDir('/root/' + pathParts.slice(0, i + 1).join('/'))}
                 className="text-[11px] text-text-secondary hover:text-accent font-mono truncate"
               >{part}</button>
             </span>
@@ -1041,7 +1122,7 @@ export function InstanceDetailPage() {
       {activeTab === 'workspace' ? (
         <WorkspaceTab instanceId={instance.id} isRunning={instance.status === 'running'} />
       ) : activeTab === 'profile' ? (
-        <ProfileTab instanceId={instance.id} instanceName={instance.name} isRunning={instance.status === 'running'} />
+        <ProfileTab instanceId={instance.id} instance={instance} isRunning={instance.status === 'running'} />
       ) : activeTab === 'access' ? (
         <CloudAccessSection instance={instance} />
       ) : (

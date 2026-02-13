@@ -382,41 +382,17 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
 
   const [restartConfirm, setRestartConfirm] = useState(false);
 
-  // Trust ring math
-  const ringR = 30;
-  const ringC = 2 * Math.PI * ringR;
-
   return (
     <div className={`rounded-xl border transition-all hover:border-border-strong ${
       hasPending ? 'border-amber-500/25 bg-surface-1' : 'border-border bg-surface-1'
     }`}>
       {/* Main content: horizontal layout */}
       <div className="flex items-start gap-5 p-5">
-        {/* Left: Face with trust ring */}
+        {/* Left: Face (clean, no ring) */}
         <Link to={`/instances/${instance.id}`} className="shrink-0 group">
-          <div className="relative">
-            <svg width="72" height="72" viewBox="0 0 72 72" className="absolute -inset-0.5">
-              <circle cx="36" cy="36" r={ringR} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="2.5" />
-              {isRunning && (
-                <circle cx="36" cy="36" r={ringR} fill="none"
-                  stroke={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'}
-                  strokeWidth="2.5" strokeLinecap="round"
-                  strokeDasharray={`${(trust / 100) * ringC} ${ringC}`}
-                  transform="rotate(-90 36 36)"
-                  style={{ transition: 'all 0.6s ease' }} />
-              )}
-            </svg>
-            <div className="w-[72px] h-[72px] flex items-center justify-center">
-              <AgentFace mission={mission} instance={instance} />
-            </div>
+          <div className="w-[72px] h-[72px] flex items-center justify-center">
+            <AgentFace mission={mission} instance={instance} />
           </div>
-          {isRunning && (
-            <div className="text-center mt-1">
-              <span className={`text-[10px] font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
-                {trust}
-              </span>
-            </div>
-          )}
         </Link>
 
         {/* Right: Info */}
@@ -445,9 +421,22 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
             </span>
           </div>
 
-          {/* Metrics row */}
+          {/* Metrics row: trust bar + cost + actions */}
           {mission && (
             <div className="flex items-center gap-4">
+              {isRunning && (
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-[10px] font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                    {trust}
+                  </span>
+                  <div className="w-16 h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${trust > 70 ? 'bg-emerald-400' : trust > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
+                      style={{ width: `${trust}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <span className="text-[11px] text-text-secondary font-mono tabular-nums">${cost.toFixed(2)}</span>
               <span className="text-[11px] text-text-tertiary font-mono tabular-nums">{actions} actions</span>
               {(mission.progress?.pending ?? 0) > 0 && (

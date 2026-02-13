@@ -59,8 +59,27 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      // Auto-assign priority: max existing for same instanceId + 10
       const targetInstanceId = body.instanceId ?? null;
+
+      // Prevent exact duplicates (same tool + category + decision + riskTier for same instance)
+      const existing = await prisma.policyRule.findFirst({
+        where: {
+          instanceId: targetInstanceId,
+          matchTool: body.matchTool,
+          matchCategory: body.matchCategory ?? null,
+          decision: body.decision,
+          riskTier: body.riskTier,
+          enabled: true,
+        },
+      });
+      if (existing) {
+        return reply.code(409).send({
+          error: 'Duplicate rule — a matching rule already exists',
+          existingRuleId: existing.id,
+        });
+      }
+
+      // Auto-assign priority: max existing for same instanceId + 10
       const maxRule = await prisma.policyRule.findFirst({
         where: { instanceId: targetInstanceId },
         orderBy: { priority: 'desc' },

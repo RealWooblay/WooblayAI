@@ -205,6 +205,15 @@ export function PoliciesPage() {
     }
   };
 
+  /** Check if a suggestion already exists as a rule (same category + decision). */
+  const isDuplicate = (s: AIPolicySuggestion) =>
+    rules.some(r =>
+      r.matchCategory === s.matchCategory &&
+      r.decision === s.decision &&
+      (r.matchTool === (s.matchTool || '*')) &&
+      r.enabled
+    );
+
   const applySuggestion = useMutation({
     mutationFn: (s: AIPolicySuggestion) =>
       createPolicy({
@@ -216,9 +225,43 @@ export function PoliciesPage() {
         description: s.description,
         instanceId: selectedInstanceId,
       }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: policyKey }); toast('AI rule applied', 'success'); },
+    onSuccess: (_data, s) => {
+      // Remove the applied suggestion from the list
+      setAiSuggestions(prev => prev.filter(x => !(x.matchCategory === s.matchCategory && x.decision === s.decision)));
+      qc.invalidateQueries({ queryKey: policyKey });
+      toast('AI rule applied', 'success');
+    },
     onError: (err: Error) => toast(`Failed: ${err.message}`, 'error'),
   });
+
+  const [applyingAll, setApplyingAll] = useState(false);
+  const applyAllSuggestions = async () => {
+    setApplyingAll(true);
+    let applied = 0;
+    let skipped = 0;
+    for (const s of aiSuggestions) {
+      if (isDuplicate(s)) { skipped++; continue; }
+      try {
+        await createPolicy({
+          matchTool: s.matchTool || '*',
+          riskTier: s.riskTier || '*',
+          decision: s.decision,
+          matchCategory: s.matchCategory,
+          source: 'ai-learned',
+          description: s.description,
+          instanceId: selectedInstanceId,
+        });
+        applied++;
+      } catch { /* skip individual failures */ }
+    }
+    setAiSuggestions([]);
+    qc.invalidateQueries({ queryKey: policyKey });
+    const msg = skipped > 0
+      ? `Applied ${applied} rules, skipped ${skipped} duplicates`
+      : `Applied ${applied} rules`;
+    toast(msg, 'success');
+    setApplyingAll(false);
+  };
 
   const summary = summarizeRules(rules);
   const aiRulesCount = rules.filter(r => r.source === 'ai-learned').length;
@@ -264,7 +307,7 @@ export function PoliciesPage() {
             </span>
             <div>
               <h2 className="text-sm font-semibold text-text-primary">AI Security Supervisor</h2>
-              <p className="text-[10px] text-text-secondary">Analyzes agent behavior patterns to optimize your security rules</p>
+              <p className="text-[10px] text-text-secondary">Analyzes recent actions to suggest policy rules — runs on-demand, not continuously</p>
             </div>
           </div>
           <button
@@ -329,11 +372,29 @@ export function PoliciesPage() {
             {/* AI Suggestions */}
             {aiSuggestions.length > 0 && (
               <div className="space-y-2">
-                <h3 className="text-[10px] text-accent uppercase tracking-wider font-medium">AI Recommendations</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[10px] text-accent uppercase tracking-wider font-medium">AI Recommendations</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setAiSuggestions([])}
+                      className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono"
+                    >
+                      dismiss all
+                    </button>
+                    <button
+                      onClick={applyAllSuggestions}
+                      disabled={applyingAll}
+                      className="px-3 py-1 text-[10px] bg-accent/15 text-accent rounded-md hover:bg-accent/25 font-medium disabled:opacity-40"
+                    >
+                      {applyingAll ? 'applying...' : `apply all (${aiSuggestions.filter(s => !isDuplicate(s)).length})`}
+                    </button>
+                  </div>
+                </div>
                 {aiSuggestions.map((s, i) => {
                   const d = DECISION_STYLES[s.decision] ?? DECISION_STYLES.APPROVE;
+                  const dupe = isDuplicate(s);
                   return (
-                    <div key={i} className="rounded-lg border border-accent/15 bg-surface-0 p-3">
+                    <div key={i} className={`rounded-lg border bg-surface-0 p-3 ${dupe ? 'border-border/30 opacity-50' : 'border-accent/15'}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <p className="text-xs text-text-primary font-medium">{s.description}</p>
@@ -343,20 +404,24 @@ export function PoliciesPage() {
                             <span className="text-[10px] text-text-tertiary">{CATEGORY_LABELS[s.matchCategory] ?? s.matchCategory}</span>
                             <span className="text-[10px] text-text-tertiary">→</span>
                             <span className={`text-[10px] font-medium ${d.color}`}>{d.label}</span>
+                            {dupe && <span className="text-[9px] text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded font-mono">already exists</span>}
                           </div>
                         </div>
                         <div className="flex gap-1.5 shrink-0 mt-0.5">
-                          <button
-                            onClick={() => applySuggestion.mutate(s)}
-                            className="px-2.5 py-1 text-[10px] bg-accent/15 text-accent rounded-md hover:bg-accent/25 font-medium"
-                          >
-                            Apply
-                          </button>
+                          {!dupe && (
+                            <button
+                              onClick={() => applySuggestion.mutate(s)}
+                              disabled={applySuggestion.isPending}
+                              className="px-2.5 py-1 text-[10px] bg-accent/15 text-accent rounded-md hover:bg-accent/25 font-medium disabled:opacity-40"
+                            >
+                              Apply
+                            </button>
+                          )}
                           <button
                             onClick={() => setAiSuggestions(prev => prev.filter((_, j) => j !== i))}
                             className="px-2.5 py-1 text-[10px] bg-surface-3 text-text-tertiary rounded-md hover:bg-surface-2"
                           >
-                            Skip
+                            {dupe ? 'Dismiss' : 'Skip'}
                           </button>
                         </div>
                       </div>
@@ -375,7 +440,11 @@ export function PoliciesPage() {
         {summary.length === 0 ? (
           <div className="text-center py-6">
             <pre className="text-text-tertiary text-xs font-mono mb-3">{`  ( ?_? ) no rules set  `}</pre>
-            <p className="text-xs text-text-secondary">Apply a preset below to configure your security policy.</p>
+            <p className="text-xs text-text-secondary mb-2">No policy rules — the agent operates in <span className="text-text-primary font-medium">monitor-only mode</span>.</p>
+            <p className="text-[10px] text-text-tertiary leading-relaxed max-w-md mx-auto">
+              All actions are allowed and logged. AI anomaly detection still runs on every action.
+              To enforce approvals or blocks, apply a preset or use AI to generate rules.
+            </p>
           </div>
         ) : (
           <div className="space-y-1.5">

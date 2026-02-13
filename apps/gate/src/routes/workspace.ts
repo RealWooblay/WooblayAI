@@ -15,7 +15,9 @@ import fp from 'fastify-plugin';
 import { prisma } from '../db/client.js';
 import { execSync } from 'child_process';
 
-const WORKSPACE_ROOT = '/root/clawd';
+// Allow browsing the entire agent home dir — not just /root/clawd
+// Agent files can be anywhere: /root/.openclaw, /root/clawd, /root/project, etc.
+const WORKSPACE_ROOT = '/root';
 const MAX_FILE_SIZE = 1_048_576; // 1MB
 
 /** Validate and normalize a path to prevent traversal outside workspace root. */
