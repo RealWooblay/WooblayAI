@@ -131,6 +131,8 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 4. Then 7–8 (activity + policies) if they have time.
 5. Note anything broken, unclear, or slow — and which section.
 
+**OpenClaw updates:** By default deploys use the cached base image. To pull the latest `alpine/openclaw:main`, trigger the workflow manually from GitHub Actions and set **"Pull latest OpenClaw base image"** to `true`. Existing running agents are never affected — only newly created or force-recreated agents use the new image.
+
 ---
 
 *Last updated: Feb 2025*

@@ -3,7 +3,16 @@ name: Build & Deploy
 on:
   push:
     branches: [mvp, main]
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
+    inputs:
+      update_openclaw:
+        description: 'Pull latest OpenClaw base image (otherwise uses cached)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 env:
   AWS_REGION: us-east-1
@@ -58,6 +67,7 @@ jobs:
           file: docker/runtimes/openclaw/Dockerfile
           platforms: linux/amd64
           push: true
+          pull: ${{ github.event.inputs.update_openclaw == 'true' }}
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:${{ github.sha }}
             ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest
