@@ -56,6 +56,7 @@ jobs:
         with:
           context: .
           file: docker/runtimes/openclaw/Dockerfile
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:${{ github.sha }}
