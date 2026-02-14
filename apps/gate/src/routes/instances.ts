@@ -156,7 +156,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         }
       } catch { }
 
-      const enriched = instances.map((inst) => ({
+      const enriched = instances.map((inst: typeof instances[number]) => ({
         ...inst,
         liveStatus: containerStatuses[`wooblay-agent-${inst.name}`] ?? null,
       }));
