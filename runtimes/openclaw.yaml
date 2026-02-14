@@ -56,6 +56,6 @@ security:
 
 # EC2 instance sizing
 instance:
-  type: "t3.medium"
+  type: "t4g.medium"
   volume_size_gb: 30
   volume_type: "gp3"

@@ -11,7 +11,7 @@ Internet
 AWS ALB (HTTPS on wooblay.com)
    |
    v
-EC2 Instance (t3.medium)
+EC2 Instance (t4g.medium, ARM64)
 ├── wooblay-gate        (Platform API + UI, port 4800)
 ├── wooblay-postgres    (PostgreSQL 16, data volume)
 ├── agent-instance-1    (OpenClaw container, isolated network)
@@ -46,7 +46,7 @@ When you click "Deploy Instance" in the UI:
 
 | Resource | Purpose |
 |----------|---------|
-| **EC2** (t3.medium) | Hosts all containers. Docker socket mounted into Gate for container management. |
+| **EC2** (t4g.medium, ARM64) | Hosts all containers. Docker socket mounted into Gate for container management. |
 | **ALB** | HTTPS termination with ACM certificate. Routes 443 → Gate port 4800. |
 | **ECR** | Docker image registry. Repos: `wooblay-gate`, `wooblay-openclaw`. |
 | **Route53** | DNS for `wooblay.com` pointing to ALB. |
@@ -195,9 +195,9 @@ Beta coupon code: `WOOBLAY-BETA-2026` (auto-seeded on first boot)
 
 ## Scaling
 
-Current: Single EC2 handles ~5-10 concurrent agent instances on a t3.medium (2 vCPU, 4GB RAM).
+Current: Single EC2 handles ~5-10 concurrent agent instances on a t4g.medium (2 vCPU, 4GB RAM, ARM64).
 
 Future scaling path:
-- **Vertical**: Upgrade to t3.xlarge/2xlarge for more agents per host
+- **Vertical**: Upgrade to t4g.xlarge/2xlarge for more agents per host
 - **Horizontal**: Multiple EC2s with shared RDS, agent placement via the platform API
 - **Kubernetes**: EKS with per-agent pods

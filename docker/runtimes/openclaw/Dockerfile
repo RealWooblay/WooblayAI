@@ -6,7 +6,7 @@
 #   2. Hook (handler.ts) monitors ALL tool events → audit log in Wooblay Gate
 #   3. Plugin also registers gated_* extras for optional blocking workflow
 #   4. No deny list, no allow list — OpenClaw is OpenClaw
-# Platform is set by CI: .github/workflows/deploy.yml uses platforms: linux/amd64.
+# Platform: arm64 (alpine/openclaw:main is arm64-only). CI cross-builds via QEMU.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM alpine/openclaw:main
 

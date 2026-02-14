@@ -87,7 +87,7 @@ variable "server_public_key" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.medium"
+  default     = "t4g.medium"
 }
 
 variable "volume_size_gb" {
