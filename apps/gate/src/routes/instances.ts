@@ -547,6 +547,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * POST /api/instances/:id/start — Start instance container.
+   * If instance dir is missing (e.g. after host migration), re-provision from DB then start.
    */
   app.post('/api/instances/:id/start', async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
@@ -557,7 +558,35 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
       const dir = getInstanceDir(id);
       if (!existsSync(dir)) {
-        return reply.code(400).send({ error: 'Instance directory not found. Re-create the instance.' });
+        // Re-provision after host migration: instance exists in DB but dir was on old host
+        let config: { port?: number; gatewayToken?: string; goal?: string;[k: string]: unknown } = {};
+        try {
+          if (instance.configJson) config = JSON.parse(instance.configJson) as typeof config;
+        } catch { }
+        const port = config.port ?? nextPort++;
+        mkdirSync(dir, { recursive: true });
+        const envConfig: Record<string, string> = {
+          OPENCLAW_GATEWAY_TOKEN: (config.gatewayToken as string) ?? generateToken(),
+          GATE_URL: GATE_INTERNAL_URL,
+          WOOBLAY_TOOL_FILTER: 'risky',
+          OPENCLAW_MODEL: instance.model ?? 'claude-sonnet-4-20250514',
+          TELEGRAM_ENABLED: String((config.telegramEnabled as boolean) ?? false),
+          INSTANCE_NAME: instance.name,
+          ...(instance.role ? { OPENCLAW_AGENT_ROLE: instance.role } : {}),
+          ...(config.goal ? { OPENCLAW_AGENT_GOAL: String(config.goal) } : {}),
+          ...(typeof config.anthropicApiKey === 'string' && config.anthropicApiKey && config.anthropicApiKey !== '***SET***' ? { ANTHROPIC_API_KEY: config.anthropicApiKey } : {}),
+          ...(typeof config.githubToken === 'string' ? { GITHUB_TOKEN: config.githubToken } : {}),
+          ...(typeof config.telegramBotToken === 'string' ? { TELEGRAM_BOT_TOKEN: config.telegramBotToken } : {}),
+          ...(typeof config.telegramAllowedUsers === 'string' ? { TELEGRAM_ALLOWED_USERS: config.telegramAllowedUsers } : {}),
+          ...(typeof config.awsAccessKeyId === 'string' ? { AWS_ACCESS_KEY_ID: config.awsAccessKeyId } : {}),
+          ...(typeof config.awsSecretAccessKey === 'string' ? { AWS_SECRET_ACCESS_KEY: config.awsSecretAccessKey } : {}),
+          ...(typeof config.awsRegion === 'string' ? { AWS_DEFAULT_REGION: config.awsRegion } : {}),
+          ...(typeof config.gcpServiceAccountKey === 'string' ? { GCP_SERVICE_ACCOUNT_KEY: config.gcpServiceAccountKey } : {}),
+          ...(typeof config.gcpProjectId === 'string' ? { GCP_PROJECT_ID: config.gcpProjectId } : {}),
+        };
+        writeInstanceEnv(dir, envConfig);
+        writeInstanceCompose(dir, instance.name, port);
+        request.log.info({ instanceId: id, name: instance.name }, 'Re-provisioned instance dir (was missing after migration)');
       }
 
       execSync(`cd "${dir}" && docker compose up -d`, { timeout: 30_000, stdio: 'pipe' });
