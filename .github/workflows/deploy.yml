@@ -55,7 +55,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Check if agent files changed
+        id: agent-changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
+            docker/runtimes/openclaw/ \
+            packages/adapters/openclaw/ \
+            2>/dev/null || echo "first-run")
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Agent files changed — will rebuild agent image"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No agent file changes — skipping agent build"
+          fi
+
       - name: Build and push Agent image
+        if: steps.agent-changes.outputs.changed == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -85,6 +101,7 @@ jobs:
               \"sed -i 's|OPENAI_API_KEY:.*|OPENAI_API_KEY: \\\"${{ secrets.OPENAI_API_KEY }}\\\"|' docker-compose.yml\",
               \"sed -i 's|OPENAI_MODEL:.*|OPENAI_MODEL: \\\"gpt-4.1-mini\\\"|' docker-compose.yml\",
               \"docker compose pull gate\",
+              \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest\",
               \"docker compose up -d --force-recreate\",
               \"sleep 15\",
               \"curl -sf http://localhost:4800/health || exit 1\",

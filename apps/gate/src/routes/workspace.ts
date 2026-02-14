@@ -163,11 +163,9 @@ async function workspaceRoutesInner(app: FastifyInstance): Promise<void> {
       const raw = result.stdout;
 
       if (raw.trim() === 'NOTDIR') {
-        if (target === WORKSPACE_ROOT) {
-          dockerExec(cid, `mkdir -p "${WORKSPACE_ROOT}"`);
-          return reply.send({ path: target, entries: [] });
-        }
-        return reply.code(404).send({ error: 'Directory not found', path: target, container: cinfo.name });
+        // For fresh agents, workspace/session dirs may not exist yet — create and return empty
+        dockerExec(cid, `mkdir -p "${target}"`);
+        return reply.send({ path: target, entries: [] });
       }
 
       if (!raw.trim()) {
