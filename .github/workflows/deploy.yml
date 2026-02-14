@@ -56,7 +56,6 @@ jobs:
         with:
           context: .
           file: docker/runtimes/openclaw/Dockerfile
-          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:${{ github.sha }}
@@ -89,9 +88,9 @@ jobs:
             --query "Command.CommandId" \
             --output text \
             --region "${{ env.AWS_REGION }}")
-          
+
           echo "SSM Command ID: $COMMAND_ID"
-          
+
           # Wait for command to complete
           for i in $(seq 1 30); do
             STATUS=$(aws ssm get-command-invocation \
@@ -119,7 +118,7 @@ jobs:
             
             sleep 10
           done
-          
+
           echo "Deploy timed out waiting for SSM command"
           exit 1
 
