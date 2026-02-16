@@ -4,8 +4,6 @@ import { getIncident, createRun as apiCreateRun, updateIncident } from '../../ap
 import { Spinner } from '../../components/common/Spinner.tsx';
 import { Button } from '../../components/common/Button.tsx';
 
-const STATUS_FLOW = ['open', 'triaging', 'in_progress', 'resolved', 'closed'];
-
 export function IncidentPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();

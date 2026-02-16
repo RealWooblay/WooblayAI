@@ -8,7 +8,7 @@ import {
 import { Spinner } from '../../components/common/Spinner.tsx';
 import { Button } from '../../components/common/Button.tsx';
 import { useState } from 'react';
-import { redactPayload, safeDisplayPayload } from '../../utils/redact.ts';
+import { redactPayload } from '../../utils/redact.ts';
 
 export function RunPage() {
   const { id } = useParams<{ id: string }>();

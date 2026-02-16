@@ -1,11 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { getIncidents } from '../../api/client.ts';
-import { Badge } from '../../components/common/Badge.tsx';
 import { Spinner } from '../../components/common/Spinner.tsx';
 import { EmptyState } from '../../components/common/EmptyState.tsx';
 
-const PRIORITY_ORDER = { P0: 0, P1: 1, P2: 2 };
 const PRIORITY_COLORS: Record<string, string> = {
   P0: 'bg-red-500/15 text-red-400 border-red-500/30',
   P1: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
@@ -47,7 +45,7 @@ export function InboxPage() {
       </div>
 
       {active.length === 0 && resolved.length === 0 && (
-        <EmptyState message="No incidents yet. Connect a GitHub repo and sensors will detect CI failures automatically." />
+        <EmptyState title="No incidents yet" description="Connect a GitHub repo and sensors will detect CI failures automatically." />
       )}
 
       {active.length > 0 && (
