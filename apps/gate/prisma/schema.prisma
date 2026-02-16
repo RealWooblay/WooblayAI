@@ -7,7 +7,18 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// ── Platform: Users & Billing ────────────────────────────────────────────────
+// ── Platform: Organizations & Users ──────────────────────────────────────────
+
+model Organization {
+  id        String   @id           // Clerk's org_xxx ID used directly
+  name      String
+  slug      String?  @unique
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+}
 
 model User {
   id        String   @id @default(cuid())
@@ -16,13 +27,18 @@ model User {
   name      String?
   avatarUrl String?
   activated Boolean  @default(false)  // true once a valid coupon is redeemed
+  role      String   @default("member") // org:admin | org:member (Clerk org roles)
+  orgId     String?  // Clerk organization ID this user belongs to
+  org       Organization? @relation(fields: [orgId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   instances  Instance[]
   coupons    UserCoupon[]
+  approvalDecisions ApprovalDecision[]
 
   @@index([clerkId])
+  @@index([orgId])
 }
 
 model Coupon {
@@ -123,22 +139,26 @@ model ToolCall {
 }
 
 model PolicyRule {
-  id            String    @id @default(cuid())
-  instanceId    String?   // null = global default; set = instance-specific (shared with sub-agents)
-  instance      Instance? @relation(fields: [instanceId], references: [id])
-  priority      Int
-  matchTool     String
-  matchArgs     String?
-  riskTier      String
-  matchCategory String?   // Business-context category filter: "code", "git", "secrets", etc. or "*"
-  decision      String
-  constraints   String?
-  source        String    @default("manual") // "manual" | "preset" | "ai-learned" | "from-approval"
-  description   String?   // Human-readable: "Allow code changes"
-  enabled       Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  orgId             String?   // Org isolation boundary
+  instanceId        String?   // null = global default; set = instance-specific (shared with sub-agents)
+  instance          Instance? @relation(fields: [instanceId], references: [id])
+  priority          Int
+  matchTool         String
+  matchArgs         String?
+  riskTier          String
+  matchCategory     String?   // Business-context category filter: "code", "git", "secrets", etc. or "*"
+  decision          String
+  constraints       String?
+  source            String    @default("manual") // "manual" | "preset" | "ai-learned" | "from-approval"
+  description       String?   // Human-readable: "Allow code changes"
+  enabled           Boolean   @default(true)
+  requiredApprovals Int       @default(1) // Number of approvals required for this rule
+  ownerOverride     Boolean   @default(false) // Owner can bypass multi-approval
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
+  @@index([orgId])
   @@index([instanceId, priority])
   @@index([priority])
 }
@@ -187,11 +207,17 @@ model Receipt {
   timestamp        String
   hash             String   @unique
   signature        String
+  // MVP additions: link receipts to runs/evidence/capabilities
+  runId            String?
+  proposalId       String?
+  evidenceHash     String?  // SHA-256 of linked evidence bundle
+  capabilityId     String?  // Capability token used for this action
   createdAt        DateTime @default(now())
 
   @@index([chainPrev])
   @@index([agentPubkey])
   @@index([createdAt])
+  @@index([runId])
 }
 
 model Score {
@@ -324,6 +350,386 @@ model Instance {
   @@index([userId])
   @@index([status])
   @@index([agentRuntime])
+}
+
+// ── Governance: Identity + Approvals ─────────────────────────────────────
+
+model ApprovalDecision {
+  id             String    @id @default(cuid())
+  proposalId     String
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  decision       String    // approved | denied
+  reason         String?
+  role           String    // Role at decision time (owner, admin, member)
+  policySnapshot String?   // JSON — snapshot of the PolicyRule that applied
+  sessionId      String?   // Clerk session ID for audit
+  ipAddress      String?
+  decidedAt      DateTime  @default(now())
+
+  @@index([proposalId])
+  @@index([userId])
+  @@index([decidedAt])
+}
+
+// ── Workspace + Artifact Storage ────────────────────────────────────────
+
+model Workspace {
+  id            String    @id @default(cuid())
+  orgId         String?   // Org isolation boundary
+  instanceId    String?   // Link to Instance (agent runtime)
+  repoFullName  String?   // e.g. "owner/repo"
+  status        String    @default("provisioning") // provisioning | ready | running | stopped | error
+  egressMode    String    @default("gateway_only") // gateway_only | unrestricted (for testing)
+  containerId   String?   // Docker container ID
+  containerImage String?  // Docker image hash
+  networkNs     String?   // Network namespace ID
+  volumeId      String?   // Volume/snapshot ID
+  workingDirHash String?  // SHA-256 of working directory at last checkpoint
+  commitSha     String?   // Git commit SHA at workspace creation
+  artifactBucket String?  // S3 bucket for this workspace's artifacts
+  metadata      String?   // JSON — runtime-specific metadata
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([orgId])
+  @@index([instanceId])
+  @@index([repoFullName])
+  @@index([status])
+}
+
+model Artifact {
+  id          String   @id @default(cuid())
+  orgId       String?  // Org isolation boundary
+  runId       String?
+  bundleId    String?  // EvidenceBundle ID
+  type        String   // log | test_result | diff | screenshot | binary
+  path        String   // S3 path: s3://bucket/runs/{runId}/artifacts/{id}
+  contentHash String   // SHA-256 of the artifact content
+  sizeBytes   Int
+  metadata    String?  // JSON — type-specific metadata
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([runId])
+  @@index([bundleId])
+  @@index([type])
+}
+
+// ── Verification (post-action proof) ────────────────────────────────────
+
+model Verification {
+  id                String    @id @default(cuid())
+  orgId             String?   // Org isolation boundary
+  proposalId        String
+  runId             String
+  capabilityId      String?
+  verifierVersion   String    @default("1.0.0")
+  expectedOutcome   String    // JSON — what we expected { type: "pr_created", pr_number: 123 }
+  observedOutcome   String?   // JSON — what actually happened { type: "pr_created", pr_number: 123, url: "..." }
+  observedHash      String?   // SHA-256 of observed outcome (for tamper evidence)
+  status            String    @default("pending") // pending | passed | failed | skipped
+  failureReason     String?
+  apiReads          String?   // JSON — list of API reads used to verify
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([orgId])
+  @@index([proposalId])
+  @@index([runId])
+  @@index([status])
+}
+
+// ── Repo QA Config ──────────────────────────────────────────────────────
+
+model RepoConfig {
+  id            String   @id @default(cuid())
+  orgId         String?  // Org isolation boundary
+  repoFullName  String   @unique // e.g. "owner/repo"
+  installCmd    String?  // e.g. "npm ci", "pip install -r requirements.txt"
+  testCmd       String?  // e.g. "npm test", "pytest"
+  buildCmd      String?  // e.g. "npm run build"
+  lintCmd       String?  // e.g. "npm run lint"
+  timeoutSeconds Int     @default(300) // Max time for test/build commands
+  envVars       String?  // JSON — environment variables for recipes
+  riskyPaths    String?  // JSON — paths considered risky: ["src/auth/", "migrations/"]
+  branch        String   @default("main") // Default branch to compare against
+  source        String   @default("manual") // manual | wooblay_yml | auto_detected
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([repoFullName])
+}
+
+// ── Credential Vault ────────────────────────────────────────────────────
+
+model SecretLease {
+  id            String    @id @default(cuid())
+  orgId         String?   // Org isolation boundary
+  connectionId  String
+  runId         String?
+  secretArn     String    // AWS Secrets Manager ARN or internal ref
+  leaseType     String    // installation_token | pat | oauth_token
+  scopes        String    // JSON — scopes granted for this lease
+  issuedAt      DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  lastAccessedAt DateTime?
+
+  @@index([orgId])
+  @@index([connectionId])
+  @@index([runId])
+  @@index([expiresAt])
+}
+
+// ── Execution Control Plane ──────────────────────────────────────────────
+
+model Incident {
+  id            String   @id @default(cuid())
+  orgId         String?  // Org isolation boundary
+  externalId    String?  // External reference (e.g. GitHub check_run id)
+  source        String   // github_ci | github_agent_pr | github_pr_opened | github_push | manual
+  sourcePayload String?  // JSON — raw webhook payload
+  title         String
+  summary       String?
+  priority      String   @default("P2") // P0 | P1 | P2
+  status        String   @default("open") // open | triaging | in_progress | resolved | closed
+  intent        String   @default("fix") // fix | qa | review | deploy | custom — what the sensor wants done
+  repoFullName  String?  // e.g. "owner/repo"
+  branch        String?
+  commitSha     String?
+  prNumber      Int?     // PR number for PR-based sensors
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  runs          Run[]
+
+  @@index([orgId])
+  @@index([status])
+  @@index([priority])
+  @@index([source])
+  @@index([intent])
+  @@index([repoFullName, branch, commitSha])
+  @@index([createdAt])
+}
+
+model Run {
+  id             String    @id // Deterministic: sha256(incidentId + attempt)
+  orgId          String?   // Org isolation boundary
+  incidentId     String
+  incident       Incident  @relation(fields: [incidentId], references: [id])
+  workspaceId    String?   // Workspace model ID (not Instance)
+  status         String    @default("pending") // pending | scheduled | running | paused | completed | failed | quarantined | cancelled
+  priority       String    @default("P2") // P0 | P1 | P2
+  attempt        Int       @default(1)
+  // State pointer: structured format for workspace resume
+  statePointer   String?   // JSON — { commitSha, containerImage, volumeSnapshot, workingDirHash }
+  parentRunId    String?   // For sub-runs / retries
+  recipe         String?   // Recipe type to run (e.g. "ci_replay", "qa", "review")
+  budgetCents    Int       @default(1000) // Max budget in cents
+  spentCents     Int       @default(0)
+  // Recovery: distributed lock semantics
+  lockedBy       String?   // Server instance ID holding the lock
+  lockedAt       DateTime? // When the lock was acquired
+  heartbeatAt    DateTime? // Last heartbeat — reaper reclaims after staleness
+  startedAt      DateTime?
+  completedAt    DateTime?
+  pausedAt       DateTime?
+  timeoutAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  proposals      Proposal[]
+  evidenceBundles EvidenceBundle[]
+  runEvents      RunEvent[]
+  capabilities   Capability[]
+  costs          RunCost[]
+
+  parentRun      Run?      @relation("RunHierarchy", fields: [parentRunId], references: [id])
+  childRuns      Run[]     @relation("RunHierarchy")
+
+  @@index([orgId])
+  @@index([incidentId])
+  @@index([status])
+  @@index([priority])
+  @@index([workspaceId])
+  @@index([createdAt])
+  @@index([lockedBy])
+  @@index([heartbeatAt])
+}
+
+model Proposal {
+  id                String    @id @default(cuid())
+  runId             String
+  run               Run       @relation(fields: [runId], references: [id])
+  actionClass       String    // e.g. "github:pr:create", "github:file:write", "shell:exec", "rollback:*"
+  toolName          String
+  argsHash          String    // SHA-256 of canonical args (don't store raw args for security)
+  rawArgs           String?   // JSON — only stored if policy allows, otherwise null
+  riskClass         String    @default("medium") // low | medium | high | critical
+  irreversible      Boolean   @default(false)
+  compensatingAction String?  // Human-readable description of how to undo
+  evidenceBundleId  String?
+  evidenceBundle    EvidenceBundle? @relation(fields: [evidenceBundleId], references: [id])
+  status            String    @default("pending") // pending | approved | denied | executed | verified | rolled_back
+  approver          String?   // Clerk user ID of the approver
+  approverEmail     String?   // Email at approval time (denormalized for audit)
+  approverRole      String?   // Role at approval time (denormalized for audit)
+  approvedAt        DateTime?
+  policyRuleId      String?
+  policySnapshot    String?   // JSON — frozen copy of PolicyRule at evaluation time
+  verificationId    String?   // Link to Verification record
+  toolCallId        String?   // Link to existing ToolCall if executed via legacy path
+  rollbackOf        String?   // If this is a rollback, link to the original proposal ID
+  createdAt         DateTime  @default(now())
+
+  @@index([runId])
+  @@index([status])
+  @@index([actionClass])
+  @@index([createdAt])
+  @@index([rollbackOf])
+}
+
+model EvidenceBundle {
+  id              String    @id @default(cuid())
+  orgId           String?   // Org isolation boundary
+  runId           String
+  run             Run       @relation(fields: [runId], references: [id])
+  recipeType      String    // ci_replay | manual
+  status          String    @default("pending") // pending | running | completed | failed
+  environmentHash String?   // SHA-256 of env config (Dockerfile, node version, etc.)
+  inputsHash      String?   // SHA-256 of all inputs (commit SHAs, test commands, etc.)
+  outputsHash     String?   // SHA-256 of all outputs (test results, logs)
+  structuredDiff  String?   // JSON — structured comparison result
+  failingTests    String?   // JSON — list of failing test names + details
+  logArtifacts    String?   // JSON — paths to stored log files
+  reproducible    Boolean   @default(false)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  proposals       Proposal[]
+
+  @@index([orgId])
+  @@index([runId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Capability {
+  id              String    @id @default(cuid()) // The token itself
+  runId           String
+  run             Run       @relation(fields: [runId], references: [id])
+  workspaceId     String?
+  actionClass     String    // Scoped action class: "github:pr:create", "github:file:read"
+  scope           String    // JSON — detailed scope (e.g. { "repo": "owner/repo", "branch": "main" })
+  policySnapshot  String?   // JSON — frozen copy of policy rule that authorized this
+  proposalId      String?   // Proposal that this capability was minted for
+  issuedAt        DateTime  @default(now())
+  expiresAt       DateTime  // Time-bounded: default 15 minutes from issuance
+  revokedAt       DateTime? // Null until revoked (kill switch)
+  usedCount       Int       @default(0)
+  maxUses         Int       @default(10)
+  createdAt       DateTime  @default(now())
+
+  @@index([runId])
+  @@index([expiresAt])
+  @@index([actionClass])
+  @@index([proposalId])
+}
+
+model RunEvent {
+  id          String   @id @default(cuid())
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id])
+  type        String   // state_change | tool_call | evidence | approval | error | budget
+  data        String   // JSON — event-specific payload
+  timestamp   DateTime @default(now())
+  sequenceNum Int      // Monotonic within a run
+
+  @@index([runId, sequenceNum])
+  @@index([runId, type])
+  @@index([timestamp])
+}
+
+model Connection {
+  id                    String    @id @default(cuid())
+  orgId                 String?   // Org isolation boundary
+  provider              String    // github (extensible later: aws, gcp, slack, custom)
+  name                  String    // Human-readable name: "My GitHub Org"
+  status                String    @default("active") // active | revoked | error
+  authMode              String    @default("pat") // pat | github_app — GitHub App preferred
+  credentialRef         String    // Encrypted credential reference (Secrets Manager ARN or encrypted blob)
+  githubInstallationId  Int?      // GitHub App installation ID (preferred over PAT)
+  githubAppId           Int?      // GitHub App ID
+  githubAppPrivateKey   String?   // GitHub App private key ref (Secrets Manager ARN)
+  repoAllowlist         String?   // JSON — ["owner/repo1", "owner/repo2"] or null for all
+  scopes                String    // JSON — granted scopes (e.g. ["repo", "workflow"])
+  metadata              String?   // JSON — provider-specific metadata
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([orgId])
+  @@index([provider])
+  @@index([status])
+  @@index([githubInstallationId])
+}
+
+// ── Cost Attribution ────────────────────────────────────────────────────────
+
+model RunCost {
+  id          String   @id @default(cuid())
+  orgId       String?  // Org isolation boundary
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id])
+  category    String   // llm_tokens | compute_minutes | api_calls | gateway_calls
+  description String?  // Human-readable: "OpenAI gpt-4o — 1200 tokens"
+  amountCents Int      // Cost in cents
+  quantity    Float?   // e.g. token count, minutes, call count
+  unit        String?  // tokens | minutes | calls
+  metadata    String?  // JSON — provider-specific (model, region, etc.)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([runId])
+  @@index([category])
+  @@index([createdAt])
+}
+
+// ── Auth Audit Log ──────────────────────────────────────────────────────────
+
+model AuthAuditLog {
+  id          String   @id @default(cuid())
+  userId      String?  // Clerk user ID (null for agent auth failures)
+  action      String   // login | logout | auth_failure | token_refresh | approval_auth
+  success     Boolean
+  ipAddress   String?
+  userAgent   String?
+  sessionId   String?  // Clerk session ID
+  detail      String?  // Error message or context
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([success])
+  @@index([createdAt])
+}
+
+// ── Evidence Environment Manifest ──────────────────────────────────────────
+
+model EvidenceEnvironment {
+  id              String   @id @default(cuid())
+  bundleId        String   @unique // Link to EvidenceBundle
+  baseImageDigest String?  // e.g. "node:20-slim@sha256:abc123..."
+  osVersion       String?  // e.g. "debian 12.4"
+  toolchainVersions String? // JSON — { "node": "20.11.0", "npm": "10.2.4", "git": "2.43.0" }
+  dependencyHash  String?  // SHA-256 of lockfile (package-lock.json, etc.)
+  envVarHash      String?  // SHA-256 of environment variable names (not values)
+  cacheStrategy   String?  // none | lockfile | full — dependency caching approach
+  createdAt       DateTime @default(now())
+
+  @@index([bundleId])
 }
 
 // ── Webhook Notifications ────────────────────────────────────────────────────
@@ -469,4 +875,34 @@ model GitHubTaskLink {
 
   @@unique([taskId, prId])
   @@index([taskId])
+}
+
+// ── Webhook Delivery Dedupe ───────────────────────────────────────────────────
+// GitHub sends X-GitHub-Delivery with each webhook. Store it to prevent replays.
+
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  deliveryId  String   @unique   // X-GitHub-Delivery header value
+  eventType   String              // X-GitHub-Event value
+  receivedAt  DateTime @default(now())
+
+  @@index([receivedAt])
+}
+
+// ── Idempotency Keys ──────────────────────────────────────────────────────────
+// Prevents double-execution of gateway actions on retry.
+// Key = hash(capabilityId + action + params). Result cached for 24h.
+
+model IdempotencyKey {
+  id            String   @id @default(cuid())
+  key           String   @unique   // SHA-256 of (capabilityId + actionHash)
+  capabilityId  String
+  actionHash    String              // SHA-256 of (action + canonicalized params)
+  statusCode    Int                 // HTTP status returned
+  responseBody  String              // JSON response body (stored for replay)
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime            // TTL for cleanup (24h default)
+
+  @@index([capabilityId])
+  @@index([expiresAt])
 }

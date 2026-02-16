@@ -24,6 +24,13 @@ import { SettingsPage } from './pages/settings/SettingsPage.tsx';
 import { PoliciesPage } from './pages/policies/PoliciesPage.tsx';
 import { ActivityPage } from './pages/activity/ActivityPage.tsx';
 
+// MVP Pages
+import { InboxPage } from './pages/inbox/InboxPage.tsx';
+import { IncidentPage } from './pages/incidents/IncidentPage.tsx';
+import { RunPage } from './pages/runs/RunPage.tsx';
+import { InsightsPage } from './pages/insights/InsightsPage.tsx';
+import { ConnectionsPage } from './pages/connections/ConnectionsPage.tsx';
+
 // Has Clerk key? If not, skip auth entirely (local dev / instance mode)
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -119,6 +126,14 @@ function AuthenticatedApp() {
 
       <main className="flex-1 overflow-hidden relative">
         <Routes>
+          {/* MVP — Inbox-first flow */}
+          <Route path="/inbox" element={<PageShell><InboxPage /></PageShell>} />
+          <Route path="/incidents/:id" element={<PageShell><IncidentPage /></PageShell>} />
+          <Route path="/runs/:id" element={<PageShell><RunPage /></PageShell>} />
+          <Route path="/insights" element={<PageShell><InsightsPage /></PageShell>} />
+          <Route path="/connections" element={<PageShell><ConnectionsPage /></PageShell>} />
+
+          {/* Existing */}
           <Route path="/" element={<DashboardPage />} />
           <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
           <Route path="/instances" element={<Navigate to="/" replace />} />
@@ -129,7 +144,7 @@ function AuthenticatedApp() {
           <Route path="/audit" element={<Navigate to="/activity" replace />} />
 
           {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/inbox" replace />} />
         </Routes>
       </main>
     </div>

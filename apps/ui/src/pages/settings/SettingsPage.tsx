@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import { useUser as useClerkUser, useClerk as useClerkInstance } from '@clerk/clerk-react';
+import { useUser as useClerkUser, useClerk as useClerkInstance, OrganizationProfile } from '@clerk/clerk-react';
 
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 function useUser() {
@@ -102,6 +102,28 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Organization — Clerk handles invites, roles, member management */}
+      {HAS_CLERK && (
+        <div className="bg-surface-1 border border-border rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-text-primary mb-1">Organization</h2>
+          <p className="text-xs text-text-muted mb-4">
+            Invite team members, manage roles, and configure your organization.
+          </p>
+          <div className="[&_.cl-organizationProfile-root]:w-full [&_.cl-card]:bg-transparent [&_.cl-card]:shadow-none [&_.cl-card]:border-0 [&_.cl-navbar]:hidden">
+            <OrganizationProfile
+              appearance={{
+                elements: {
+                  rootBox: 'w-full',
+                  card: 'bg-transparent shadow-none border-0 w-full',
+                  navbar: 'hidden',
+                  pageScrollBox: 'p-0',
+                },
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Webhook Notifications */}
       <div className="bg-surface-1 border border-border rounded-xl p-5">

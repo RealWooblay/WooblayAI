@@ -4,9 +4,9 @@ import { motion, useInView } from 'framer-motion'
 import { useRef } from 'react'
 
 const alerts = [
-  { time: '3:14 AM', text: 'Your agent changed your pricing to $47,000/mo.' },
-  { time: '3:17 AM', text: 'Your agent emailed 10,000 customers.' },
-  { time: '3:19 AM', text: 'Your agent dropped your production database.' },
+  { time: '3:14 AM', text: 'Agent merged a PR. Skipped review.' },
+  { time: '3:17 AM', text: 'Agent changed prod config. No rollback plan.' },
+  { time: '3:19 AM', text: 'Agent rotated a key. Mid-deploy.' },
 ]
 
 export function WhySection() {
@@ -69,21 +69,7 @@ export function WhySection() {
             <span className="text-white">This already happens.</span>
           </p>
           <p className="mt-4 text-white/40 text-[15px] leading-relaxed max-w-md mx-auto">
-            Agents write code, send emails, manage infrastructure, access business data.
-            Without governance, you&apos;re trusting an LLM with the keys to your company.
-          </p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={inView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.6, delay: 1.5, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-10 text-center"
-        >
-          <p className="font-display text-[clamp(1.4rem,3vw,2rem)] font-bold tracking-tight leading-[1.15]">
-            <span className="text-white/60">What if every action needed </span>
-            <span className="text-accent">your approval</span>
-            <span className="text-white/60"> first?</span>
+            Agents merge PRs, change config, rotate keys. Often there&apos;s no review, no evidence, and no record of who approved what.
           </p>
         </motion.div>
       </div>

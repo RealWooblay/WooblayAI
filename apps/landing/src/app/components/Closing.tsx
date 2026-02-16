@@ -11,15 +11,12 @@ export function Closing() {
         {/* The WHY */}
         <FadeIn>
           <div className="text-center mb-20">
-            <p className="text-white/30 text-[14px] leading-relaxed max-w-xl mx-auto mb-8">
-              Every enterprise wants AI agents. Nobody has an answer for
-              &ldquo;what did it do?&rdquo; and &ldquo;can I stop it?&rdquo;
+            <p className="text-white/35 text-[14px] leading-relaxed max-w-lg mx-auto mb-2">
+              Built for people running 24/7 agents.
             </p>
-            <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 text-[13px] font-mono">
-              <span className="text-white/20">78% of enterprises want AI agents</span>
-              <span className="text-white/10">|</span>
-              <span className="text-white/20">12% trust them to act alone</span>
-            </div>
+            <p className="text-white/25 text-[13px] leading-relaxed max-w-lg mx-auto">
+              Works with OpenClaw today; more runtimes later.
+            </p>
           </div>
         </FadeIn>
 
@@ -28,19 +25,16 @@ export function Closing() {
           <div className="text-center">
             <h2 className="font-display text-[clamp(2rem,5vw,3.5rem)] font-bold tracking-[-0.03em] leading-[0.95]">
               <span className="text-gradient">
-                Agents should be powerful.
+                Powerful agents.
               </span>
               <br />
               <span className="text-white/18">
-                Not unsupervised.
+                Accountable outcomes.
               </span>
             </h2>
-
             <p className="mt-6 text-white/40 text-[15px] max-w-lg mx-auto">
-              We&apos;re building the governance layer for the agentic era.
-              Follow along as we ship.
+              We&apos;re building the control plane. Follow along.
             </p>
-
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
               <a
                 href="https://x.com/RealWooblay"
@@ -53,14 +47,6 @@ export function Closing() {
                 </svg>
                 Follow @RealWooblay
               </a>
-              <a
-                href="https://wooblay.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-7 py-3.5 rounded-md bg-white/[0.06] border border-white/[0.1] text-white/70 font-medium text-[14px] hover:bg-white/[0.1] hover:text-white/90 transition-colors"
-              >
-                Try the dashboard
-              </a>
             </div>
           </div>
         </FadeIn>
@@ -69,13 +55,13 @@ export function Closing() {
         <FadeIn delay={0.15}>
           <div className="mt-28 pt-6 border-t border-white/[0.04]">
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-white/25 text-[11px] font-mono mb-6">
-              <span>Private isolated instances</span>
+              <span>Private workspace</span>
               <span className="text-white/10">&middot;</span>
-              <span>ed25519 signed receipts</span>
+              <span>Isolated execution env</span>
               <span className="text-white/10">&middot;</span>
-              <span>Works with OpenClaw</span>
+              <span>Key protection · gateway executes</span>
               <span className="text-white/10">&middot;</span>
-              <span>SOC 2 ready architecture</span>
+              <span>Signed receipt per run</span>
             </div>
 
             <div className="flex justify-center items-center gap-6">

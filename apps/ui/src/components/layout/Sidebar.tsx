@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useUser as useClerkUser } from '@clerk/clerk-react';
-import { getApprovals } from '../../api/client.ts';
+import { useUser as useClerkUser, OrganizationSwitcher } from '@clerk/clerk-react';
+import { getApprovals, getIncidents } from '../../api/client.ts';
 import clsx from 'clsx';
 
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -17,12 +17,16 @@ const NAV_ITEMS: ReadonlyArray<{
   label: string;
   icon: string;
   end?: boolean;
-  badge?: boolean;
+  badge?: 'approvals' | 'incidents';
+  section?: string;
 }> = [
-  { to: '/', label: 'Dashboard', icon: '◉', end: true },
-  { to: '/approvals', label: 'Approvals', icon: '⬡', badge: true },
-  { to: '/policies', label: 'Policies', icon: '◇' },
-  { to: '/activity', label: 'Activity', icon: '◈' },
+  { to: '/inbox', label: 'Inbox', icon: '◉', badge: 'incidents', section: 'operate' },
+  { to: '/approvals', label: 'Approvals', icon: '⬡', badge: 'approvals', section: 'operate' },
+  { to: '/policies', label: 'Policies', icon: '◇', section: 'configure' },
+  { to: '/connections', label: 'Connections', icon: '⬡', section: 'configure' },
+  { to: '/insights', label: 'Insights', icon: '◈', section: 'observe' },
+  { to: '/activity', label: 'Activity', icon: '◈', section: 'observe' },
+  { to: '/', label: 'Dashboard', icon: '◎', end: true, section: 'observe' },
 ];
 
 export function Sidebar() {
@@ -36,14 +40,41 @@ export function Sidebar() {
   });
   const pendingCount = approvals?.length ?? 0;
 
+  const { data: incidentsData } = useQuery({
+    queryKey: ['incidents', 'active'],
+    queryFn: () => getIncidents({ limit: 100 }),
+    refetchInterval: 10_000,
+  });
+  const activeIncidents = (incidentsData?.incidents ?? []).filter(
+    (i: any) => !['resolved', 'closed'].includes(i.status),
+  ).length;
+
   return (
     <aside className="w-[220px] h-full flex flex-col bg-surface-0 border-r border-border shrink-0 select-none">
-      {/* Brand */}
-      <div className="px-5 pt-5 pb-4">
-        <span className="text-sm font-bold tracking-tight text-text-primary">
-          wooblay
-        </span>
-        <span className="text-[9px] text-accent-bright ml-1.5 font-medium">beta</span>
+      {/* Brand + Org Switcher */}
+      <div className="px-4 pt-5 pb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-sm font-bold tracking-tight text-text-primary">
+            wooblay
+          </span>
+          <span className="text-[9px] text-accent-bright font-medium">beta</span>
+        </div>
+        {HAS_CLERK && (
+          <div className="mt-2 [&_.cl-organizationSwitcher-root]:w-full [&_.cl-organizationSwitcherTrigger]:w-full [&_.cl-organizationSwitcherTrigger]:justify-between">
+            <OrganizationSwitcher
+              hidePersonal={true}
+              afterCreateOrganizationUrl="/"
+              afterSelectOrganizationUrl="/"
+              appearance={{
+                elements: {
+                  rootBox: 'w-full',
+                  organizationSwitcherTrigger:
+                    'w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary hover:bg-surface-3 transition-colors',
+                },
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
@@ -52,6 +83,10 @@ export function Sidebar() {
           const isActive = item.end
             ? location.pathname === item.to
             : location.pathname.startsWith(item.to);
+
+          const badgeCount = item.badge === 'approvals' ? pendingCount
+            : item.badge === 'incidents' ? activeIncidents
+            : 0;
 
           return (
             <NavLink
@@ -74,9 +109,12 @@ export function Sidebar() {
                 {item.icon}
               </span>
               <span className="flex-1">{item.label}</span>
-              {item.badge && pendingCount > 0 && (
-                <span className="min-w-[18px] h-[18px] rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-bold flex items-center justify-center px-1 tabular-nums">
-                  {pendingCount}
+              {badgeCount > 0 && (
+                <span className={clsx(
+                  'min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center px-1 tabular-nums',
+                  item.badge === 'incidents' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400',
+                )}>
+                  {badgeCount}
                 </span>
               )}
             </NavLink>

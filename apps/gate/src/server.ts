@@ -17,6 +17,7 @@ import cors from '@fastify/cors';
 import { config } from './config.js';
 import { authPlugin } from './middleware/auth.js';
 import { clerkAuthPlugin } from './middleware/clerk-auth.js';
+import { rateLimitPlugin } from './middleware/rate-limit.js';
 import { registerStatic } from './static.js';
 
 // Route modules — shared (both modes)
@@ -35,6 +36,21 @@ import { missionRoutes } from './routes/mission.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { aiAnalysisRoutes } from './routes/ai-analysis.js';
 import { workspaceRoutes } from './routes/workspace.js';
+
+// MVP route modules
+import { incidentRoutes } from './routes/incidents.js';
+import { runRoutes } from './routes/runs.js';
+import { proposalRoutes } from './routes/proposals.js';
+import { capabilityRoutes } from './routes/capabilities.js';
+import { gatewayRoutes } from './routes/gateway.js';
+import { sensorRoutes } from './routes/sensors.js';
+import { insightsRoutes } from './routes/insights.js';
+import { caseFileRoutes } from './routes/case-file.js';
+import { connectionRoutes } from './routes/connections.js';
+import { repoConfigRoutes } from './routes/repo-config.js';
+import { verificationRoutes } from './routes/verifications.js';
+import { rollbackRoutes } from './routes/rollbacks.js';
+import { workspaceRunnerRoutes } from './routes/workspace-runner.js';
 
 // Route modules — platform mode only
 import { userRoutes } from './routes/users.js';
@@ -55,6 +71,8 @@ export async function buildApp() {
   await app.register(cors, { origin: true });
 
   // ── Middleware ───────────────────────────────────────────────────────
+  // Rate limiting (all API routes)
+  await app.register(rateLimitPlugin);
   // Agent signature auth (instance mode — agent-to-gate requests)
   await app.register(authPlugin);
   // Clerk JWT auth (platform mode — browser-to-API requests)
@@ -77,6 +95,21 @@ export async function buildApp() {
   await app.register(missionRoutes);
   await app.register(webhookRoutes);
   await app.register(aiAnalysisRoutes);
+
+  // ── MVP Routes ────────────────────────────────────────────────────────
+  await app.register(incidentRoutes);
+  await app.register(runRoutes);
+  await app.register(proposalRoutes);
+  await app.register(capabilityRoutes);
+  await app.register(gatewayRoutes);
+  await app.register(sensorRoutes);
+  await app.register(insightsRoutes);
+  await app.register(caseFileRoutes);
+  await app.register(connectionRoutes);
+  await app.register(repoConfigRoutes);
+  await app.register(verificationRoutes);
+  await app.register(rollbackRoutes);
+  await app.register(workspaceRunnerRoutes);
 
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);
@@ -117,6 +150,15 @@ async function start() {
     } catch (err) {
       console.error('[seed] Failed to seed default coupon:', err);
     }
+  }
+
+  // Start the run recovery reaper
+  try {
+    const { startReaper } = await import('./engine/run-recovery.js');
+    startReaper(prisma);
+    console.log('[reaper] Run recovery reaper started');
+  } catch (err) {
+    console.error('[reaper] Failed to start reaper:', err);
   }
 
   try {

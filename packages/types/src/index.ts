@@ -10,6 +10,15 @@ export * from './domain/checkpoint.js';
 export * from './domain/analysis.js';
 export * from './domain/github.js';
 
+// MVP Domain
+export * from './domain/incident.js';
+export * from './domain/run.js';
+export * from './domain/proposal.js';
+export * from './domain/evidence.js';
+export * from './domain/capability.js';
+export * from './domain/run-event.js';
+export * from './domain/connection.js';
+
 // API
 export * from './api/requests.js';
 export * from './api/responses.js';

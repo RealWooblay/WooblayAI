@@ -632,3 +632,153 @@ export const writeFile = (instanceId: string, path: string, content: string) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content }),
   });
+
+// ── MVP: Incidents ──────────────────────────────────────────────────────
+
+export const getIncidents = (params?: { status?: string; priority?: string; limit?: number }) =>
+  fetchApi<{ incidents: any[]; total: number }>(`/api/incidents${toQueryString(params ?? {})}`);
+
+export const getIncident = (id: string) => fetchApi<any>(`/api/incidents/${id}`);
+
+export const createIncident = (data: { title: string; summary?: string; priority?: string; source?: string }) =>
+  fetchApi<any>('/api/incidents', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateIncident = (id: string, data: { status?: string; priority?: string; summary?: string }) =>
+  fetchApi<any>(`/api/incidents/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+
+// ── MVP: Runs ───────────────────────────────────────────────────────────
+
+export const getRuns = (params?: { incidentId?: string; status?: string; limit?: number }) =>
+  fetchApi<{ runs: any[]; total: number }>(`/api/runs${toQueryString(params ?? {})}`);
+
+export const getRun = (id: string) => fetchApi<any>(`/api/runs/${id}`);
+
+export const createRun = (data: { incidentId: string; priority?: string; recipe?: string; budgetCents?: number }) =>
+  fetchApi<any>('/api/runs', { method: 'POST', body: JSON.stringify(data) });
+
+export const transitionRun = (id: string, status: string, reason?: string) =>
+  fetchApi<any>(`/api/runs/${id}/transition`, { method: 'POST', body: JSON.stringify({ status, reason }) });
+
+export const pauseRun = (id: string) =>
+  fetchApi<any>(`/api/runs/${id}/pause`, { method: 'POST', body: JSON.stringify({}) });
+
+export const resumeRun = (id: string) =>
+  fetchApi<any>(`/api/runs/${id}/resume`, { method: 'POST', body: JSON.stringify({}) });
+
+export const killRun = (id: string, reason?: string) =>
+  fetchApi<any>(`/api/runs/${id}/kill`, { method: 'POST', body: JSON.stringify({ reason }) });
+
+export const getRunEvents = (id: string) => fetchApi<any[]>(`/api/runs/${id}/events`);
+
+// ── MVP: Proposals ──────────────────────────────────────────────────────
+
+export const getProposals = (params?: { runId?: string; status?: string }) =>
+  fetchApi<any[]>(`/api/proposals${toQueryString(params ?? {})}`);
+
+export const getProposal = (id: string) => fetchApi<any>(`/api/proposals/${id}`);
+
+export const approveProposal = (id: string, approver?: string) =>
+  fetchApi<any>(`/api/proposals/${id}/approve`, { method: 'POST', body: JSON.stringify({ approver }) });
+
+export const denyProposal = (id: string) =>
+  fetchApi<any>(`/api/proposals/${id}/deny`, { method: 'POST', body: JSON.stringify({}) });
+
+// ── MVP: Evidence ───────────────────────────────────────────────────────
+
+export const getEvidence = (id: string) => fetchApi<any>(`/api/evidence/${id}`);
+
+// ── MVP: Case Files ─────────────────────────────────────────────────────
+
+export const getCaseFile = (runId: string) => fetchApi<any>(`/api/case-files/${runId}`);
+
+export const verifyCaseFile = (runId: string) => fetchApi<any>(`/api/case-files/${runId}/verify`);
+
+// ── MVP: Insights ───────────────────────────────────────────────────────
+
+export const getInsightsMetrics = (days?: number) =>
+  fetchApi<any>(`/api/insights/metrics${days ? `?days=${days}` : ''}`);
+
+export const getInsightsSummary = (days?: number) =>
+  fetchApi<any>(`/api/insights/summary${days ? `?days=${days}` : ''}`);
+
+// ── MVP: Connections ────────────────────────────────────────────────────
+
+export const getConnections = () => fetchApi<any[]>('/api/connections');
+
+export const createConnection = (data: { provider: string; name: string; credential: string; scopes?: string[] }) =>
+  fetchApi<any>('/api/connections', { method: 'POST', body: JSON.stringify(data) });
+
+export const revokeConnection = (id: string) =>
+  fetchApi<any>(`/api/connections/${id}/revoke`, { method: 'POST', body: JSON.stringify({}) });
+
+export const testConnection = (id: string) =>
+  fetchApi<any>(`/api/connections/${id}/test`, { method: 'POST', body: JSON.stringify({}) });
+
+// ── MVP: Sensors ────────────────────────────────────────────────────────
+
+export const getSensorsStatus = () => fetchApi<any>('/api/sensors/status');
+
+// ── MVP: Budget ─────────────────────────────────────────────────────────
+
+export const getBudget = () => fetchApi<any>('/api/budget');
+
+// ── MVP: Verifications ──────────────────────────────────────────────────
+
+export const getRunVerifications = (runId: string) =>
+  fetchApi<any[]>(`/api/runs/${runId}/verifications`);
+
+export const getVerification = (id: string) => fetchApi<any>(`/api/verifications/${id}`);
+
+export const getVerificationStats = (runId: string) =>
+  fetchApi<{ total: number; passed: number; failed: number; skipped: number; passRate: number | null }>(
+    `/api/runs/${runId}/verification-stats`,
+  );
+
+// ── MVP: Rollbacks ──────────────────────────────────────────────────────
+
+export const createRollback = (
+  runId: string,
+  data: { originalProposalId: string; type: string; reason: string },
+) =>
+  fetchApi<{ rollbackProposalId: string; status: string }>(`/api/runs/${runId}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const getRunRollbacks = (runId: string) =>
+  fetchApi<any[]>(`/api/runs/${runId}/rollbacks`);
+
+// ── MVP: Repo Config ────────────────────────────────────────────────────
+
+export const getRepoConfigs = () => fetchApi<any[]>('/api/repo-configs');
+
+export const getRepoConfig = (repoFullName: string) =>
+  fetchApi<any>(`/api/repo-configs/${encodeURIComponent(repoFullName)}`);
+
+export const updateRepoConfig = (
+  repoFullName: string,
+  data: { installCmd?: string; testCmd?: string; buildCmd?: string; lintCmd?: string; timeoutSeconds?: number; branch?: string },
+) =>
+  fetchApi<any>(`/api/repo-configs/${encodeURIComponent(repoFullName)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+
+// ── MVP: Workspaces ─────────────────────────────────────────────────────
+
+export const createRunWorkspace = (runId: string, data: { repoUrl?: string; commitSha?: string; egressMode?: string }) =>
+  fetchApi<any>(`/api/runs/${runId}/workspace`, { method: 'POST', body: JSON.stringify(data) });
+
+export const getWorkspaces = (status?: string) =>
+  fetchApi<any[]>(`/api/workspaces${status ? `?status=${status}` : ''}`);
+
+export const getWorkspaceLogs = (workspaceId: string, tail?: number) =>
+  fetchApi<{ logs: string }>(`/api/workspaces/${workspaceId}/logs${tail ? `?tail=${tail}` : ''}`);
+
+export const stopWorkspace = (workspaceId: string) =>
+  fetchApi<any>(`/api/workspaces/${workspaceId}/stop`, { method: 'POST', body: JSON.stringify({}) });
+
+// ── MVP: Evidence Rerun ─────────────────────────────────────────────────
+
+export const rerunEvidence = (bundleId: string) =>
+  fetchApi<any>(`/api/evidence/${bundleId}/rerun`, { method: 'POST', body: JSON.stringify({}) });
