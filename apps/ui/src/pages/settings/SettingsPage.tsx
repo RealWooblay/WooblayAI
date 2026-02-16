@@ -105,19 +105,38 @@ export function SettingsPage() {
 
       {/* Organization — Clerk handles invites, roles, member management */}
       {HAS_CLERK && (
-        <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <div className="bg-surface-1 border border-border rounded-xl p-5 overflow-hidden">
           <h2 className="text-sm font-semibold text-text-primary mb-1">Organization</h2>
           <p className="text-xs text-text-muted mb-4">
             Invite team members, manage roles, and configure your organization.
           </p>
-          <div className="[&_.cl-organizationProfile-root]:w-full [&_.cl-card]:bg-transparent [&_.cl-card]:shadow-none [&_.cl-card]:border-0 [&_.cl-navbar]:hidden">
+          <div className="clerk-org-embed [&_.cl-organizationProfile-root]:w-full [&_.cl-card]:bg-transparent [&_.cl-card]:shadow-none [&_.cl-card]:border-0 [&_.cl-card]:p-0 [&_.cl-navbar]:hidden [&_.cl-pageScrollBox]:p-0 [&_.cl-profilePage]:p-0 [&_.cl-headerTitle]:text-inherit [&_.cl-headerSubtitle]:text-inherit [&_.cl-profileSectionTitle]:text-inherit [&_.cl-profileSectionContent]:text-inherit [&_.cl-tableHead]:text-inherit [&_.cl-tableCell]:text-inherit [&_.cl-badge]:text-inherit [&_.cl-breadcrumbs]:text-inherit [&_.cl-breadcrumbsItem]:text-inherit">
             <OrganizationProfile
               appearance={{
                 elements: {
-                  rootBox: 'w-full',
-                  card: 'bg-transparent shadow-none border-0 w-full',
+                  rootBox: 'w-full max-w-full',
+                  card: 'bg-transparent shadow-none border-0 w-full p-0 m-0',
                   navbar: 'hidden',
                   pageScrollBox: 'p-0',
+                  page: 'gap-4',
+                  profilePage: 'p-0',
+                  profileSection: 'gap-2',
+                  headerTitle: 'text-[#e4e4e7]',
+                  headerSubtitle: 'text-[#a1a1aa]',
+                  profileSectionTitle: 'text-[#e4e4e7]',
+                  profileSectionTitleText: 'text-[#e4e4e7]',
+                  profileSectionContent: 'text-[#e4e4e7]',
+                  profileSectionPrimaryButton: 'text-[#e4e4e7]',
+                  tableHead: 'text-[#a1a1aa]',
+                  tableCell: 'text-[#e4e4e7]',
+                  badge: 'text-[#e4e4e7]',
+                  breadcrumbs: 'text-[#a1a1aa]',
+                  breadcrumbsItem: 'text-[#a1a1aa]',
+                  breadcrumbsItemDivider: 'text-[#52525b]',
+                  formFieldInput: 'bg-[#1a1a1e] border-white/10 text-[#e4e4e7]',
+                  formFieldLabel: 'text-[#a1a1aa]',
+                  tagInputContainer: 'bg-[#1a1a1e] border-white/10 text-[#e4e4e7]',
+                  membersPageInviteButton: 'bg-indigo-500 hover:bg-indigo-600',
                 },
               }}
             />

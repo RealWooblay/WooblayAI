@@ -380,6 +380,27 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
   const [showAws, setShowAws] = useState(false);
   const [showGcp, setShowGcp] = useState(false);
 
+  const riskWarning = (
+    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-6">
+      <div className="flex items-start gap-2">
+        <span className="text-amber-400 text-sm mt-0.5">⚠</span>
+        <div>
+          <p className="text-[12px] font-semibold text-amber-400 uppercase tracking-wider">
+            Direct Access — Bypasses Tool Gateway
+          </p>
+          <p className="text-[11px] text-text-secondary mt-1 leading-relaxed">
+            Credentials here are injected directly into the agent container.
+            They bypass scope restrictions, audit logging, capability tokens,
+            and automatic rotation.
+          </p>
+          <p className="text-[11px] text-accent mt-1">
+            Use the <a href="/sensors" className="underline hover:text-accent-bright">Sensors page</a> to configure gateway connections instead.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
   const hasGithub = !!(config.githubPat || instance.githubPat);
   const hasAws = !!(config.awsAccessKeyId || config.awsConfigured);
   const hasGcp = !!(config.gcpConfigured || config.gcpProjectId);
@@ -438,6 +459,8 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
   }, []);
 
   return (
+    <div className="space-y-4">
+      {riskWarning}
     <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-4">
       <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Access Keys</h3>
 
@@ -601,6 +624,7 @@ function CloudAccessSection({ instance }: { instance: Instance }) {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
@@ -1109,20 +1133,16 @@ export function InstanceDetailPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }),
   });
 
-  if (isLoading || !instance) {
-    return <div className="flex items-center justify-center h-64">
-      <span className="text-text-secondary text-sm font-mono animate-pulse">loading...</span>
-    </div>;
-  }
-
   const byDay = contributions?.byDay ?? [];
-  const dailyCounts = byDay.map(d => d.count);
+  const dailyCounts = byDay.map((d: any) => d.count);
   const flags = flagsData?.flags ?? [];
-  const criticalFlags = flags.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
+  const criticalFlags = flags.filter((f: any) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
   const trust = mission?.trustScore ?? 50;
   const totalCost = Number(cost?.costToday ?? mission?.estimatedCost ?? 0) || 0;
   const summary = contributions?.summary;
   const totalActions = summary?.totalActions ?? mission?.progress?.total ?? 0;
+
+  // These useMemo hooks MUST be before any early return to avoid React error #310
   const weather = useMemo(() => trustToWeather(trust), [trust]);
 
   const contributionScore = useMemo(() => {
@@ -1132,6 +1152,12 @@ export function InstanceDetailPage() {
     const outputScore = Math.min(100, ((summary.filesCreated ?? 0) * 5 + (summary.filesEdited ?? 0) * 3 + (summary.commandsExecuted ?? 0) * 2 + (summary.linesWritten ?? 0) * 0.1));
     return Math.round(Math.min(100, (efficiency * 0.3 + (100 - denialRate) * 0.2 + outputScore * 0.5)));
   }, [summary]);
+
+  if (isLoading || !instance) {
+    return <div className="flex items-center justify-center h-64">
+      <span className="text-text-secondary text-sm font-mono animate-pulse">loading...</span>
+    </div>;
+  }
 
   return (
     <div className="relative">

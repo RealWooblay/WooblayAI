@@ -21,7 +21,7 @@ export async function caseFileRoutes(app: FastifyInstance): Promise<void> {
     const run = await prisma.run.findUnique({
       where: { id: runId },
       include: {
-        incident: true,
+        operation: true,
         proposals: {
           include: { evidenceBundle: true },
           orderBy: { createdAt: 'asc' },
@@ -68,7 +68,8 @@ export async function caseFileRoutes(app: FastifyInstance): Promise<void> {
       exportedAt: new Date().toISOString(),
       run: {
         id: run.id,
-        incidentId: run.incidentId,
+        operationId: run.operationId,
+        incidentId: run.operationId,
         status: run.status,
         priority: run.priority,
         attempt: run.attempt,
@@ -79,7 +80,8 @@ export async function caseFileRoutes(app: FastifyInstance): Promise<void> {
         completedAt: run.completedAt,
         createdAt: run.createdAt,
       },
-      incident: run.incident,
+      operation: run.operation,
+      incident: run.operation,
       proposals: run.proposals.map((p) => ({
         id: p.id,
         actionClass: p.actionClass,

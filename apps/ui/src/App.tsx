@@ -24,19 +24,18 @@ import { SettingsPage } from './pages/settings/SettingsPage.tsx';
 import { PoliciesPage } from './pages/policies/PoliciesPage.tsx';
 import { ActivityPage } from './pages/activity/ActivityPage.tsx';
 
-// MVP Pages
-import { InboxPage } from './pages/inbox/InboxPage.tsx';
-import { IncidentPage } from './pages/incidents/IncidentPage.tsx';
+// Operation-first pages
+import { OperationsPage } from './pages/operations/OperationsPage.tsx';
+import { OperationPage } from './pages/operations/OperationPage.tsx';
+import { SensorsPage } from './pages/sensors/SensorsPage.tsx';
 import { RunPage } from './pages/runs/RunPage.tsx';
 import { InsightsPage } from './pages/insights/InsightsPage.tsx';
-import { ConnectionsPage } from './pages/connections/ConnectionsPage.tsx';
 
 // Has Clerk key? If not, skip auth entirely (local dev / instance mode)
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 export default function App() {
   if (!HAS_CLERK) {
-    // No Clerk configured — run without auth (backwards compatible, local dev)
     return <AuthenticatedApp />;
   }
 
@@ -115,23 +114,23 @@ function ActivationGate() {
 
 /** Main authenticated application shell. */
 function AuthenticatedApp() {
-  // Set up auth token forwarding (no-op if no Clerk)
-  if (HAS_CLERK) {
-    // Already called in ActivationGate, but safe to re-render
-  }
-
   return (
     <div className="h-screen flex bg-void overflow-hidden">
       <Sidebar />
 
       <main className="flex-1 overflow-hidden relative">
         <Routes>
-          {/* MVP — Inbox-first flow */}
-          <Route path="/inbox" element={<PageShell><InboxPage /></PageShell>} />
-          <Route path="/incidents/:id" element={<PageShell><IncidentPage /></PageShell>} />
+          {/* Primary routes — sensor-first */}
+          <Route path="/operations" element={<PageShell><OperationsPage /></PageShell>} />
+          <Route path="/operations/:id" element={<PageShell><OperationPage /></PageShell>} />
+          <Route path="/sensors" element={<PageShell><SensorsPage /></PageShell>} />
           <Route path="/runs/:id" element={<PageShell><RunPage /></PageShell>} />
           <Route path="/insights" element={<PageShell><InsightsPage /></PageShell>} />
-          <Route path="/connections" element={<PageShell><ConnectionsPage /></PageShell>} />
+
+          {/* Legacy redirects */}
+          <Route path="/inbox" element={<Navigate to="/operations" replace />} />
+          <Route path="/incidents/:id" element={<RedirectIncidentToOperation />} />
+          <Route path="/connections" element={<Navigate to="/sensors" replace />} />
 
           {/* Existing */}
           <Route path="/" element={<DashboardPage />} />
@@ -144,11 +143,18 @@ function AuthenticatedApp() {
           <Route path="/audit" element={<Navigate to="/activity" replace />} />
 
           {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/inbox" replace />} />
+          <Route path="*" element={<Navigate to="/operations" replace />} />
         </Routes>
       </main>
     </div>
   );
+}
+
+/** Redirect /incidents/:id → /operations/:id */
+function RedirectIncidentToOperation() {
+  const params = new URL(window.location.href);
+  const id = params.pathname.split('/incidents/')[1];
+  return <Navigate to={`/operations/${id}`} replace />;
 }
 
 function AuthPage({ children }: { children: React.ReactNode }) {

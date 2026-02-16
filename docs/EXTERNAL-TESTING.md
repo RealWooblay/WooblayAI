@@ -15,6 +15,7 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 ## 2. Dashboard (home)
 
 - [ ] See list of agent instances (or empty state)
+- [ ] Sidebar: **Operations** (was Inbox), **Sensors** (was Connections)
 - [ ] **Deploy new agent**: open deploy form, fill name + model + API key, deploy
 - [ ] New agent appears in list with correct name/status
 - [ ] **Start** a stopped agent → status goes running
@@ -49,6 +50,7 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 
 ## 5. Instance detail — Access
 
+- [ ] **Risk warning** visible: “Direct Access — Bypasses Tool Gateway” with link to Sensors page
 - [ ] **GitHub**: expand, paste token, Save → shows “configured”
 - [ ] **AWS**: expand, add key/secret/region, Save → shows “configured”
 - [ ] **GCP**: expand, upload JSON or paste key + project ID, Save → shows “configured”
@@ -98,14 +100,21 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 
 ---
 
-## 9. Approvals (if you use gated actions)
+## 9. Operations & Sensors (sensor-first)
+
+- [ ] **Operations** (`/operations`): list shows routing status (auto_routed / pending / unassigned); inline Approve / Assign / Dismiss
+- [ ] **Operation detail** (`/operations/:id`): routing section (assigned agent, confidence, AI reason), runs list, create run
+- [ ] **Sensors** (`/sensors`): connections listed as sensors; webhook URL and secret (copy); sensor config (events, branch filter, ignore drafts/bots)
+- [ ] Create manual operation from UI; optional: trigger GitHub webhook to `/api/webhooks/github/:connectionId` and see operation appear with correct org
+
+## 10. Approvals (if you use gated actions)
 
 - [ ] Pending actions appear (e.g. on dashboard or Approvals page)
 - [ ] Approve / deny works and updates activity
 
 ---
 
-## 10. Edge cases & errors
+## 11. Edge cases & errors
 
 - [ ] Open Workspace with agent **stopped** → clear message (e.g. “agent not running” or empty)
 - [ ] Open Profile with agent stopped → message that profile needs agent running
@@ -115,7 +124,7 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 
 ---
 
-## 11. Cross-browser / device (optional)
+## 12. Cross-browser / device (optional)
 
 - [ ] Chrome/Edge
 - [ ] Safari (if available)
@@ -128,9 +137,9 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 1. Share app URL (e.g. `https://wooblay.com`) and this doc.
 2. Sign up and go through sections 1–2 (auth + one deploy).
 3. Then 3–6 (instance detail: overview, profile, access, workspace).
-4. Then 7–8 (activity + policies) if they have time.
+4. Then 7–9 (activity, policies, operations & sensors) if they have time.
 5. Note anything broken, unclear, or slow — and which section.
 
 ---
 
-*Last updated: Feb 2025*
+*Last updated: Feb 2026*

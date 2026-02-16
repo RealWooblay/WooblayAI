@@ -12,7 +12,9 @@ export type RunPriority = 'P0' | 'P1' | 'P2';
 
 export interface Run {
   id: string;
-  incidentId: string;
+  operationId: string;
+  /** @deprecated Use operationId */
+  incidentId?: string;
   workspaceId: string | null;
   status: RunStatus;
   priority: RunPriority;

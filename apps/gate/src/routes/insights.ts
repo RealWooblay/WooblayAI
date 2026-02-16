@@ -98,7 +98,7 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
   /**
    * GET /api/insights/summary
    *
-   * High-level summary: total incidents, runs, success rate, intervention metrics.
+   * High-level summary: total operations, runs, success rate, intervention metrics.
    */
   app.get('/api/insights/summary', async (request: FastifyRequest, reply: FastifyReply) => {
     const query = request.query as { days?: string };
@@ -106,8 +106,8 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const [
-      totalIncidents,
-      resolvedIncidents,
+      totalOperations,
+      resolvedOperations,
       totalRuns,
       completedRuns,
       failedRuns,
@@ -118,8 +118,8 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
       totalApprovals,
       humanApprovals,
     ] = await Promise.all([
-      prisma.incident.count({ where: { createdAt: { gte: since } } }),
-      prisma.incident.count({ where: { createdAt: { gte: since }, status: 'resolved' } }),
+      prisma.operation.count({ where: { createdAt: { gte: since } } }),
+      prisma.operation.count({ where: { createdAt: { gte: since }, status: 'resolved' } }),
       prisma.run.count({ where: { createdAt: { gte: since } } }),
       prisma.run.count({ where: { createdAt: { gte: since }, status: 'completed' } }),
       prisma.run.count({ where: { createdAt: { gte: since }, status: 'failed' } }),
@@ -133,7 +133,8 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({
       periodDays: days,
-      incidents: { total: totalIncidents, resolved: resolvedIncidents },
+      operations: { total: totalOperations, resolved: resolvedOperations },
+      incidents: { total: totalOperations, resolved: resolvedOperations },
       runs: { total: totalRuns, completed: completedRuns, failed: failedRuns, quarantined: quarantinedRuns },
       proposals: { total: totalProposals, approved: approvedProposals, denied: deniedProposals },
       approvals: { total: totalApprovals, humanApproved: humanApprovals },

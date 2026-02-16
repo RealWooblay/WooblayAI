@@ -485,26 +485,33 @@ model SecretLease {
 
 // ── Execution Control Plane ──────────────────────────────────────────────
 
-model Incident {
-  id            String   @id @default(cuid())
-  orgId         String?  // Org isolation boundary
-  externalId    String?  // External reference (e.g. GitHub check_run id)
-  source        String   // github_ci | github_agent_pr | github_pr_opened | github_push | manual
-  sourcePayload String?  // JSON — raw webhook payload
-  title         String
-  summary       String?
-  priority      String   @default("P2") // P0 | P1 | P2
-  status        String   @default("open") // open | triaging | in_progress | resolved | closed
-  intent        String   @default("fix") // fix | qa | review | deploy | custom — what the sensor wants done
-  repoFullName  String?  // e.g. "owner/repo"
-  branch        String?
-  commitSha     String?
-  prNumber      Int?     // PR number for PR-based sensors
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model Operation {
+  id                String   @id @default(cuid())
+  orgId             String?  // Org isolation boundary
+  externalId        String?  // External reference (e.g. GitHub check_run id)
+  source            String   // github_ci | github_agent_pr | github_pr_opened | github_push | manual | api
+  sourcePayload     String?  // JSON — raw webhook payload
+  title             String
+  summary           String?
+  priority          String   @default("P2") // P0 | P1 | P2
+  status            String   @default("open") // open | triaging | in_progress | resolved | closed
+  intent            String   @default("custom") // fix | qa | review | deploy | custom
+  repoFullName      String?  // e.g. "owner/repo"
+  branch            String?
+  commitSha         String?
+  prNumber          Int?     // PR number for PR-based sensors
+  connectionId      String?  // Connection/Sensor that created this operation
+  // Agent routing
+  instanceId        String?  // Assigned agent instance (null = unassigned)
+  routingConfidence Float?   // 0.0-1.0 AI confidence in the routing match
+  routingStatus     String   @default("pending") // pending | auto_routed | approved | manual
+  routingReason     String?  // AI explanation for routing decision
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  runs          Run[]
+  runs              Run[]
 
+  @@map("Incident")
   @@index([orgId])
   @@index([status])
   @@index([priority])
@@ -512,13 +519,16 @@ model Incident {
   @@index([intent])
   @@index([repoFullName, branch, commitSha])
   @@index([createdAt])
+  @@index([connectionId])
+  @@index([instanceId])
+  @@index([routingStatus])
 }
 
 model Run {
-  id             String    @id // Deterministic: sha256(incidentId + attempt)
+  id             String    @id // Deterministic: sha256(operationId + attempt)
   orgId          String?   // Org isolation boundary
-  incidentId     String
-  incident       Incident  @relation(fields: [incidentId], references: [id])
+  operationId    String    @map("incidentId")
+  operation      Operation @relation(fields: [operationId], references: [id])
   workspaceId    String?   // Workspace model ID (not Instance)
   status         String    @default("pending") // pending | scheduled | running | paused | completed | failed | quarantined | cancelled
   priority       String    @default("P2") // P0 | P1 | P2
@@ -550,7 +560,7 @@ model Run {
   childRuns      Run[]     @relation("RunHierarchy")
 
   @@index([orgId])
-  @@index([incidentId])
+  @@index([operationId])
   @@index([status])
   @@index([priority])
   @@index([workspaceId])
@@ -667,6 +677,10 @@ model Connection {
   repoAllowlist         String?   // JSON — ["owner/repo1", "owner/repo2"] or null for all
   scopes                String    // JSON — granted scopes (e.g. ["repo", "workflow"])
   metadata              String?   // JSON — provider-specific metadata
+  // ── Sensor fields ──────────────────────────────────────────────────────
+  sensorEnabled         Boolean   @default(true)    // Is this connection acting as a sensor?
+  sensorConfig          String?   // JSON — typed per provider (GitHubSensorConfig, etc.)
+  webhookSecret         String?   // Per-connection webhook secret for signature verification
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -674,6 +688,7 @@ model Connection {
   @@index([provider])
   @@index([status])
   @@index([githubInstallationId])
+  @@index([sensorEnabled])
 }
 
 // ── Cost Attribution ────────────────────────────────────────────────────────

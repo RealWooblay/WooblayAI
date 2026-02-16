@@ -2,7 +2,7 @@
 
 **The gate between AI agents and the real world.**
 
-Wooblay is an enterprise supervision layer that intercepts every risky AI agent action — shell commands, file writes, API calls — and requires human approval before execution. Deploy agents, approve their actions from a dashboard, and get a cryptographic receipt for every decision.
+Wooblay is an enterprise supervision layer that intercepts every risky AI agent action — shell commands, file writes, API calls — and requires human approval before execution. **Sensor-first:** connect sensors (e.g. GitHub); they produce Operations that Wooblay routes to the right agent. Deploy agents, approve their actions from a dashboard, and get a cryptographic receipt for every decision.
 
 ## How It Works
 
@@ -35,6 +35,7 @@ Agent tries to run `rm -rf /tmp/data`
 
 ## MVP Features
 
+- **Sensor-first operations** — Connect GitHub (and more) as sensors; webhooks create Operations. AI router assigns work to the best agent; approve or assign manually.
 - **Deploy agent instances from the UI** — One-click OpenClaw deployment with model selection and API key configuration
 - **Telegram integration** — Connect a Telegram bot to interact with your agent via chat, configurable from the dashboard
 - **Approve/deny from dashboard** — Pending actions show human-readable descriptions of what the agent wants to do
@@ -111,9 +112,16 @@ wooblay/
   infra/           Terraform (VPC, EC2, ALB, ECR, Secrets Manager)
 ```
 
+## Docs
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Technical architecture (sensors, operations, router, gateway)
+- [ARCHITECTURE-DIAGRAMS.md](docs/ARCHITECTURE-DIAGRAMS.md) — Miro-ready Mermaid diagrams
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Deploy guide
+- [EXTERNAL-TESTING.md](docs/EXTERNAL-TESTING.md) — Testing checklist
+
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for partially built features and planned additions including:
+See [docs/ROADMAP.md](docs/ROADMAP.md) for partially built features and planned additions including:
 
 - Audit trail with AI-powered anomaly detection
 - GitHub PR attribution

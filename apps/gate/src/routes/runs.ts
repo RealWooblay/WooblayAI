@@ -25,6 +25,7 @@ export async function runRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/runs', async (request: FastifyRequest, reply: FastifyReply) => {
     const org = getOrgScope(request);
     const query = request.query as {
+      operationId?: string;
       incidentId?: string;
       status?: string;
       limit?: string;
@@ -32,7 +33,8 @@ export async function runRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const where: Record<string, unknown> = { ...org.filter };
-    if (query.incidentId) where.incidentId = query.incidentId;
+    if (query.operationId) where.operationId = query.operationId;
+    else if (query.incidentId) where.operationId = query.incidentId;
     if (query.status) where.status = query.status;
 
     const [runs, total] = await Promise.all([
@@ -42,7 +44,7 @@ export async function runRoutes(app: FastifyInstance): Promise<void> {
         take: Math.min(Number(query.limit) || 50, 100),
         skip: Number(query.offset) || 0,
         include: {
-          incident: true,
+          operation: true,
           proposals: { orderBy: { createdAt: 'desc' }, take: 5 },
           _count: { select: { proposals: true, evidenceBundles: true, runEvents: true } },
         },
@@ -61,7 +63,7 @@ export async function runRoutes(app: FastifyInstance): Promise<void> {
     const run = await prisma.run.findUnique({
       where: { id },
       include: {
-        incident: true,
+        operation: true,
         proposals: {
           orderBy: { createdAt: 'desc' },
           include: { evidenceBundle: true },
@@ -81,40 +83,42 @@ export async function runRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(run);
   });
 
-  // ── Create a run for an incident ──────────────────────────────────────
+  // ── Create a run for an operation ─────────────────────────────────────
   app.post('/api/runs', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as {
-      incidentId: string;
+      operationId?: string;
+      incidentId?: string;
       priority?: string;
       workspaceId?: string;
       recipe?: string;
       budgetCents?: number;
     };
 
-    if (!body.incidentId) {
-      return reply.code(400).send({ error: 'incidentId is required' });
+    const operationId = body.operationId || body.incidentId;
+    if (!operationId) {
+      return reply.code(400).send({ error: 'operationId is required' });
     }
 
-    // Verify incident exists
-    const incident = await prisma.incident.findUnique({
-      where: { id: body.incidentId },
+    // Verify operation exists
+    const operation = await prisma.operation.findUnique({
+      where: { id: operationId },
     });
-    if (!incident) {
-      return reply.code(404).send({ error: 'Incident not found' });
+    if (!operation) {
+      return reply.code(404).send({ error: 'Operation not found' });
     }
 
     // Loop detection
-    const isLoop = await detectLoop(prisma, body.incidentId);
+    const isLoop = await detectLoop(prisma, operationId);
     if (isLoop) {
       return reply.code(429).send({
-        error: 'Loop detected: too many runs for this incident in the last 5 minutes',
-        incidentId: body.incidentId,
+        error: 'Loop detected: too many runs for this operation in the last 5 minutes',
+        operationId,
       });
     }
 
     const run = await createRun(prisma, {
-      incidentId: body.incidentId,
-      priority: body.priority ?? incident.priority,
+      operationId,
+      priority: body.priority ?? operation.priority,
       workspaceId: body.workspaceId,
       recipe: body.recipe,
       budgetCents: body.budgetCents,
@@ -266,7 +270,7 @@ export async function runRoutes(app: FastifyInstance): Promise<void> {
 
     const bundle = await prisma.evidenceBundle.findUnique({
       where: { id: bundleId },
-      include: { run: { include: { incident: true } } },
+      include: { run: { include: { operation: true } } },
     });
 
     if (!bundle) {
@@ -295,10 +299,10 @@ export async function runRoutes(app: FastifyInstance): Promise<void> {
     const { createEvidenceBundle, runCIReplayRecipe } = await import('../engine/evidence.js');
     const newBundleId = await createEvidenceBundle(prisma, bundle.runId, `${bundle.recipeType}_rerun`);
 
-    // Get repo URL from incident
-    const repoFullName = bundle.run.incident.repoFullName;
+    // Get repo URL from operation
+    const repoFullName = bundle.run.operation.repoFullName;
     if (!repoFullName) {
-      return reply.code(400).send({ error: 'No repo linked to incident' });
+      return reply.code(400).send({ error: 'No repo linked to operation' });
     }
 
     // Load repo config for test command

@@ -11,7 +11,7 @@ export * from './domain/analysis.js';
 export * from './domain/github.js';
 
 // MVP Domain
-export * from './domain/incident.js';
+export * from './domain/operation.js';
 export * from './domain/run.js';
 export * from './domain/proposal.js';
 export * from './domain/evidence.js';

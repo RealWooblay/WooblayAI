@@ -1,21 +1,22 @@
 /**
- * GitHub Sensor Engine — context/action-based sensors.
+ * Sensor Engine — context/action-based sensors.
  *
- * Sensors are NOT just for failures. They detect context and declare intent:
+ * Sensors detect context and declare intent:
  * - New PR opened → "qa" intent (run QA/tests)
  * - Push to branch → "review" intent (code review)
  * - CI failure on default branch → "fix" intent
  * - CI failure on agent PR → "fix" intent
  *
- * Each sensor outputs an Incident with an `intent` field that tells the
+ * Each sensor outputs an Operation with an `intent` field that tells the
  * orchestrator what kind of run to create.
  *
+ * Hybrid evaluation: rule-based filtering first, then AI enrichment via router.
  * Deduplication: by (repoFullName, branch, commitSha, source) within window.
  */
 
 import type { PrismaClient } from '@prisma/client';
 import { persistEvent } from '../events/bus.js';
-import type { IncidentPriority } from '@wooblay/types';
+import type { OperationPriority, GitHubSensorConfig } from '@wooblay/types';
 
 const DEDUPE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -40,6 +41,7 @@ interface CheckRunPayload {
     full_name: string;
     default_branch: string;
   };
+  sender?: { login: string; type?: string };
 }
 
 interface PullRequestPayload {
@@ -51,7 +53,7 @@ interface PullRequestPayload {
     head: { ref: string; sha: string };
     base: { ref: string };
     labels: { name: string }[];
-    user: { login: string };
+    user: { login: string; type?: string };
     body: string | null;
     draft: boolean;
     changed_files?: number;
@@ -60,10 +62,11 @@ interface PullRequestPayload {
     full_name: string;
     default_branch: string;
   };
+  sender?: { login: string; type?: string };
 }
 
 interface PushPayload {
-  ref: string; // "refs/heads/main"
+  ref: string;
   before: string;
   after: string;
   commits: { id: string; message: string; author: { username: string } }[];
@@ -72,6 +75,7 @@ interface PushPayload {
     default_branch: string;
   };
   pusher: { name: string };
+  sender?: { login: string; type?: string };
 }
 
 // ── Sensor Results ──────────────────────────────────────────────────────
@@ -79,12 +83,12 @@ interface PushPayload {
 export interface SensorResult {
   matched: boolean;
   sensor: string;
-  incidentData?: {
+  operationData?: {
     title: string;
     summary: string;
-    priority: IncidentPriority;
+    priority: OperationPriority;
     source: string;
-    intent: string; // fix | qa | review | deploy
+    intent: string;
     repoFullName: string;
     branch: string;
     commitSha: string;
@@ -92,6 +96,54 @@ export interface SensorResult {
     externalId: string;
     sourcePayload: string;
   };
+}
+
+// ── Rule-Based Filtering ────────────────────────────────────────────────
+
+function passesRuleFilter(
+  eventType: string,
+  payload: unknown,
+  config: GitHubSensorConfig | null,
+): boolean {
+  if (!config) return true; // No config = accept all
+
+  // Event type filter
+  const eventMap: Record<string, string> = {
+    check_run: 'check_run',
+    pull_request: 'pull_request',
+    push: 'push',
+    issues: 'issues',
+  };
+  if (config.watchEvents && !config.watchEvents.includes(eventMap[eventType] as any)) {
+    return false;
+  }
+
+  // Draft filter
+  if (config.ignoreDrafts && eventType === 'pull_request') {
+    const pr = (payload as PullRequestPayload).pull_request;
+    if (pr.draft) return false;
+  }
+
+  // Bot filter
+  if (config.ignoreBot) {
+    const sender = (payload as any)?.sender;
+    if (sender?.type === 'Bot' || sender?.login?.endsWith('[bot]')) return false;
+  }
+
+  // Branch filter
+  if (config.branchFilter && config.branchFilter.length > 0) {
+    let branch: string | undefined;
+    if (eventType === 'push') {
+      branch = (payload as PushPayload).ref.replace('refs/heads/', '');
+    } else if (eventType === 'pull_request') {
+      branch = (payload as PullRequestPayload).pull_request.head.ref;
+    } else if (eventType === 'check_run') {
+      branch = (payload as CheckRunPayload).check_run.check_suite?.head_branch;
+    }
+    if (branch && !config.branchFilter.includes(branch)) return false;
+  }
+
+  return true;
 }
 
 // ── Sensor: CI Failure on Default Branch → fix ──────────────────────────
@@ -109,7 +161,7 @@ export function evaluateGitHubCISensor(payload: CheckRunPayload): SensorResult {
   return {
     matched: true,
     sensor: 'github_ci',
-    incidentData: {
+    operationData: {
       title: `CI failure on ${payload.repository.full_name}/${defaultBranch}`,
       summary: `Check "${checkRun.name}" failed on commit ${checkRun.head_sha.slice(0, 8)}`,
       priority: 'P1',
@@ -143,7 +195,7 @@ export function evaluateAgentPRCISensor(payload: CheckRunPayload): SensorResult 
   return {
     matched: true,
     sensor: 'github_agent_pr',
-    incidentData: {
+    operationData: {
       title: `Agent PR CI failure: ${payload.repository.full_name}#${pr.number}`,
       summary: `Check "${checkRun.name}" failed on agent branch "${branchName}" (${checkRun.head_sha.slice(0, 8)})`,
       priority: 'P1',
@@ -166,14 +218,13 @@ export function evaluateNewPRSensor(payload: PullRequestPayload): SensorResult {
     return { matched: false, sensor: 'github_pr_opened' };
   }
 
-  // Skip drafts
   if (payload.pull_request.draft) return { matched: false, sensor: 'github_pr_opened' };
 
   const pr = payload.pull_request;
   return {
     matched: true,
     sensor: 'github_pr_opened',
-    incidentData: {
+    operationData: {
       title: `QA: ${payload.repository.full_name}#${payload.number} — ${pr.title}`,
       summary: `PR opened by ${pr.user.login}: "${pr.title}" (${pr.head.sha.slice(0, 8)}, ${pr.changed_files ?? '?'} files)`,
       priority: 'P2',
@@ -195,7 +246,6 @@ export function evaluatePushSensor(payload: PushPayload): SensorResult {
   const branch = payload.ref.replace('refs/heads/', '');
   const isDefault = branch === payload.repository.default_branch;
 
-  // Only trigger on pushes to default branch that aren't empty
   if (!isDefault || payload.commits.length === 0) {
     return { matched: false, sensor: 'github_push' };
   }
@@ -205,7 +255,7 @@ export function evaluatePushSensor(payload: PushPayload): SensorResult {
   return {
     matched: true,
     sensor: 'github_push',
-    incidentData: {
+    operationData: {
       title: `Push to ${payload.repository.full_name}/${branch}`,
       summary: `${payload.commits.length} commit(s) by ${payload.pusher.name}: "${latestCommit.message.slice(0, 80)}"`,
       priority: 'P2',
@@ -231,7 +281,7 @@ export async function isDuplicate(
 ): Promise<boolean> {
   const windowStart = new Date(Date.now() - DEDUPE_WINDOW_MS);
 
-  const existing = await prisma.incident.findFirst({
+  const existing = await prisma.operation.findFirst({
     where: {
       repoFullName,
       branch,
@@ -250,10 +300,21 @@ export async function processGitHubWebhook(
   prisma: PrismaClient,
   eventType: string,
   payload: unknown,
-): Promise<{ incidentId: string | null; sensor: string | null; deduplicated: boolean }> {
+  opts?: {
+    connectionId?: string;
+    orgId?: string;
+    sensorConfig?: GitHubSensorConfig | null;
+  },
+): Promise<{ operationId: string | null; sensor: string | null; deduplicated: boolean }> {
+  const { connectionId, orgId, sensorConfig } = opts ?? {};
+
+  // Rule-based filtering from sensorConfig
+  if (sensorConfig && !passesRuleFilter(eventType, payload, sensorConfig)) {
+    return { operationId: null, sensor: null, deduplicated: false };
+  }
+
   let results: SensorResult[] = [];
 
-  // Evaluate sensors based on event type
   switch (eventType) {
     case 'check_run': {
       const p = payload as CheckRunPayload;
@@ -274,54 +335,56 @@ export async function processGitHubWebhook(
       break;
     }
     default:
-      return { incidentId: null, sensor: null, deduplicated: false };
+      return { operationId: null, sensor: null, deduplicated: false };
   }
 
-  // Pick the first match
   const result = results.find((r) => r.matched);
-  if (!result || !result.incidentData) {
-    return { incidentId: null, sensor: null, deduplicated: false };
+  if (!result || !result.operationData) {
+    return { operationId: null, sensor: null, deduplicated: false };
   }
 
   // Deduplicate
   const dup = await isDuplicate(
     prisma,
-    result.incidentData.repoFullName,
-    result.incidentData.branch,
-    result.incidentData.commitSha,
-    result.incidentData.source,
+    result.operationData.repoFullName,
+    result.operationData.branch,
+    result.operationData.commitSha,
+    result.operationData.source,
   );
 
   if (dup) {
-    return { incidentId: null, sensor: result.sensor, deduplicated: true };
+    return { operationId: null, sensor: result.sensor, deduplicated: true };
   }
 
-  // Create incident
-  const incident = await prisma.incident.create({
+  // Create operation (stamped with orgId + connectionId when from webhook)
+  const operation = await prisma.operation.create({
     data: {
-      title: result.incidentData.title,
-      summary: result.incidentData.summary,
-      priority: result.incidentData.priority,
-      source: result.incidentData.source,
-      intent: result.incidentData.intent,
-      repoFullName: result.incidentData.repoFullName,
-      branch: result.incidentData.branch,
-      commitSha: result.incidentData.commitSha,
-      prNumber: result.incidentData.prNumber ?? null,
-      externalId: result.incidentData.externalId,
-      sourcePayload: result.incidentData.sourcePayload,
+      title: result.operationData.title,
+      summary: result.operationData.summary,
+      priority: result.operationData.priority,
+      source: result.operationData.source,
+      intent: result.operationData.intent,
+      repoFullName: result.operationData.repoFullName,
+      branch: result.operationData.branch,
+      commitSha: result.operationData.commitSha,
+      prNumber: result.operationData.prNumber ?? null,
+      externalId: result.operationData.externalId,
+      sourcePayload: result.operationData.sourcePayload,
+      orgId: orgId ?? null,
+      connectionId: connectionId ?? null,
+      routingStatus: 'pending',
     },
   });
 
   await persistEvent(prisma, {
-    type: 'incident.created',
+    type: 'operation.created',
     data: {
-      incidentId: incident.id,
-      source: incident.source,
-      priority: incident.priority as IncidentPriority,
-      title: incident.title,
+      operationId: operation.id,
+      source: operation.source,
+      priority: operation.priority as OperationPriority,
+      title: operation.title,
     },
   });
 
-  return { incidentId: incident.id, sensor: result.sensor, deduplicated: false };
+  return { operationId: operation.id, sensor: result.sensor, deduplicated: false };
 }

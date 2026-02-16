@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useUser as useClerkUser, OrganizationSwitcher } from '@clerk/clerk-react';
-import { getApprovals, getIncidents } from '../../api/client.ts';
+import { getApprovals, getOperations } from '../../api/client.ts';
 import clsx from 'clsx';
 
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -17,13 +17,13 @@ const NAV_ITEMS: ReadonlyArray<{
   label: string;
   icon: string;
   end?: boolean;
-  badge?: 'approvals' | 'incidents';
+  badge?: 'approvals' | 'operations';
   section?: string;
 }> = [
-  { to: '/inbox', label: 'Inbox', icon: '◉', badge: 'incidents', section: 'operate' },
+  { to: '/operations', label: 'Operations', icon: '◉', badge: 'operations', section: 'operate' },
   { to: '/approvals', label: 'Approvals', icon: '⬡', badge: 'approvals', section: 'operate' },
+  { to: '/sensors', label: 'Sensors', icon: '◈', section: 'configure' },
   { to: '/policies', label: 'Policies', icon: '◇', section: 'configure' },
-  { to: '/connections', label: 'Connections', icon: '⬡', section: 'configure' },
   { to: '/insights', label: 'Insights', icon: '◈', section: 'observe' },
   { to: '/activity', label: 'Activity', icon: '◈', section: 'observe' },
   { to: '/', label: 'Dashboard', icon: '◎', end: true, section: 'observe' },
@@ -40,12 +40,12 @@ export function Sidebar() {
   });
   const pendingCount = approvals?.length ?? 0;
 
-  const { data: incidentsData } = useQuery({
-    queryKey: ['incidents', 'active'],
-    queryFn: () => getIncidents({ limit: 100 }),
+  const { data: operationsData } = useQuery({
+    queryKey: ['operations', 'active'],
+    queryFn: () => getOperations({ limit: 100 }),
     refetchInterval: 10_000,
   });
-  const activeIncidents = (incidentsData?.incidents ?? []).filter(
+  const activeOperations = (operationsData?.operations ?? []).filter(
     (i: any) => !['resolved', 'closed'].includes(i.status),
   ).length;
 
@@ -69,7 +69,17 @@ export function Sidebar() {
                 elements: {
                   rootBox: 'w-full',
                   organizationSwitcherTrigger:
-                    'w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary hover:bg-surface-3 transition-colors',
+                    'w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs hover:bg-surface-3 transition-colors',
+                  organizationPreview: 'text-[#e4e4e7]',
+                  organizationPreviewTextContainer: 'text-[#e4e4e7]',
+                  organizationSwitcherTriggerIcon: 'text-[#a1a1aa]',
+                  organizationPreviewSecondaryIdentifier: 'text-[#a1a1aa]',
+                  organizationSwitcherPopoverCard: 'bg-[#111113] border border-white/10',
+                  organizationSwitcherPopoverActions: 'text-[#e4e4e7]',
+                  organizationSwitcherPopoverActionButton: 'text-[#e4e4e7] hover:bg-white/5',
+                  organizationSwitcherPopoverActionButtonText: 'text-[#e4e4e7]',
+                  organizationSwitcherPopoverActionButtonIcon: 'text-[#a1a1aa]',
+                  organizationSwitcherPopoverFooter: 'border-white/10',
                 },
               }}
             />
@@ -85,7 +95,7 @@ export function Sidebar() {
             : location.pathname.startsWith(item.to);
 
           const badgeCount = item.badge === 'approvals' ? pendingCount
-            : item.badge === 'incidents' ? activeIncidents
+            : item.badge === 'operations' ? activeOperations
             : 0;
 
           return (
@@ -112,7 +122,7 @@ export function Sidebar() {
               {badgeCount > 0 && (
                 <span className={clsx(
                   'min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center px-1 tabular-nums',
-                  item.badge === 'incidents' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400',
+                  item.badge === 'operations' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400',
                 )}>
                   {badgeCount}
                 </span>

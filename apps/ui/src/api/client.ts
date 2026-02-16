@@ -633,27 +633,45 @@ export const writeFile = (instanceId: string, path: string, content: string) =>
     body: JSON.stringify({ path, content }),
   });
 
-// ── MVP: Incidents ──────────────────────────────────────────────────────
+// ── Operations (was Incidents) ───────────────────────────────────────────
 
-export const getIncidents = (params?: { status?: string; priority?: string; limit?: number }) =>
-  fetchApi<{ incidents: any[]; total: number }>(`/api/incidents${toQueryString(params ?? {})}`);
+export const getOperations = (params?: { status?: string; priority?: string; routingStatus?: string; limit?: number }) =>
+  fetchApi<{ operations: any[]; total: number }>(`/api/operations${toQueryString(params ?? {})}`);
 
-export const getIncident = (id: string) => fetchApi<any>(`/api/incidents/${id}`);
+export const getOperation = (id: string) => fetchApi<any>(`/api/operations/${id}`);
 
-export const createIncident = (data: { title: string; summary?: string; priority?: string; source?: string }) =>
-  fetchApi<any>('/api/incidents', { method: 'POST', body: JSON.stringify(data) });
+export const createOperation = (data: { title: string; summary?: string; priority?: string; source?: string; intent?: string; instanceId?: string }) =>
+  fetchApi<any>('/api/operations', { method: 'POST', body: JSON.stringify(data) });
 
-export const updateIncident = (id: string, data: { status?: string; priority?: string; summary?: string }) =>
-  fetchApi<any>(`/api/incidents/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+export const updateOperation = (id: string, data: { status?: string; priority?: string; summary?: string }) =>
+  fetchApi<any>(`/api/operations/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 
-// ── MVP: Runs ───────────────────────────────────────────────────────────
+export const routeOperation = (id: string, instanceId: string) =>
+  fetchApi<any>(`/api/operations/${id}/route`, { method: 'POST', body: JSON.stringify({ instanceId }) });
 
-export const getRuns = (params?: { incidentId?: string; status?: string; limit?: number }) =>
+export const approveOperationRouting = (id: string) =>
+  fetchApi<any>(`/api/operations/${id}/approve-routing`, { method: 'POST', body: JSON.stringify({}) });
+
+export const dismissOperation = (id: string) =>
+  fetchApi<any>(`/api/operations/${id}/dismiss`, { method: 'POST', body: JSON.stringify({}) });
+
+/** @deprecated Use getOperations */
+export const getIncidents = getOperations;
+/** @deprecated Use getOperation */
+export const getIncident = getOperation;
+/** @deprecated Use createOperation */
+export const createIncident = createOperation;
+/** @deprecated Use updateOperation */
+export const updateIncident = updateOperation;
+
+// ── Runs ────────────────────────────────────────────────────────────────
+
+export const getRuns = (params?: { operationId?: string; incidentId?: string; status?: string; limit?: number }) =>
   fetchApi<{ runs: any[]; total: number }>(`/api/runs${toQueryString(params ?? {})}`);
 
 export const getRun = (id: string) => fetchApi<any>(`/api/runs/${id}`);
 
-export const createRun = (data: { incidentId: string; priority?: string; recipe?: string; budgetCents?: number }) =>
+export const createRun = (data: { operationId: string; priority?: string; recipe?: string; budgetCents?: number }) =>
   fetchApi<any>('/api/runs', { method: 'POST', body: JSON.stringify(data) });
 
 export const transitionRun = (id: string, status: string, reason?: string) =>
@@ -714,9 +732,18 @@ export const revokeConnection = (id: string) =>
 export const testConnection = (id: string) =>
   fetchApi<any>(`/api/connections/${id}/test`, { method: 'POST', body: JSON.stringify({}) });
 
-// ── MVP: Sensors ────────────────────────────────────────────────────────
+// ── Sensors ─────────────────────────────────────────────────────────────
 
 export const getSensorsStatus = () => fetchApi<any>('/api/sensors/status');
+
+export const updateSensorConfig = (connectionId: string, data: { sensorEnabled?: boolean; sensorConfig?: any }) =>
+  fetchApi<any>(`/api/connections/${connectionId}/sensor`, { method: 'PATCH', body: JSON.stringify(data) });
+
+export const getWebhookUrl = (connectionId: string) =>
+  fetchApi<any>(`/api/connections/${connectionId}/webhook-url`);
+
+export const initSensor = (connectionId: string) =>
+  fetchApi<any>(`/api/connections/${connectionId}/sensor/init`, { method: 'POST', body: JSON.stringify({}) });
 
 // ── MVP: Budget ─────────────────────────────────────────────────────────
 

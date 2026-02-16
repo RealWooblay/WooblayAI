@@ -71,8 +71,8 @@ export function RunPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <Link to={`/incidents/${run.incidentId}`} className="text-xs text-text-tertiary hover:text-accent mb-4 inline-block">
-        ← Back to Incident
+      <Link to={`/operations/${run.operationId || run.incidentId}`} className="text-xs text-text-tertiary hover:text-accent mb-4 inline-block">
+        ← Back to Operation
       </Link>
 
       {/* Header */}
@@ -84,7 +84,7 @@ export function RunPage() {
             <span className="text-[10px] text-text-tertiary">{run.priority}</span>
           </div>
           <h1 className="text-lg font-semibold text-text-primary">
-            Run #{run.attempt} — {run.incident?.title ?? run.incidentId}
+            Run #{run.attempt} — {run.operation?.title ?? run.operationId ?? run.incidentId}
           </h1>
         </div>
 

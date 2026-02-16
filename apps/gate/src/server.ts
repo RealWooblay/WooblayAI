@@ -38,7 +38,7 @@ import { aiAnalysisRoutes } from './routes/ai-analysis.js';
 import { workspaceRoutes } from './routes/workspace.js';
 
 // MVP route modules
-import { incidentRoutes } from './routes/incidents.js';
+import { operationRoutes } from './routes/operations.js';
 import { runRoutes } from './routes/runs.js';
 import { proposalRoutes } from './routes/proposals.js';
 import { capabilityRoutes } from './routes/capabilities.js';
@@ -97,7 +97,7 @@ export async function buildApp() {
   await app.register(aiAnalysisRoutes);
 
   // ── MVP Routes ────────────────────────────────────────────────────────
-  await app.register(incidentRoutes);
+  await app.register(operationRoutes);
   await app.register(runRoutes);
   await app.register(proposalRoutes);
   await app.register(capabilityRoutes);

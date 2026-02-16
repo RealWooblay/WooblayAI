@@ -16,16 +16,16 @@ import { emitRunEvent } from './run-events.js';
 const MAX_CONCURRENT_RUNS_PER_WORKSPACE = 3;
 const MAX_GLOBAL_CONCURRENT_RUNS = 10;
 const LOOP_DETECTION_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-const LOOP_DETECTION_THRESHOLD = 5; // Same incident, 5 runs in 5 min = loop
+const LOOP_DETECTION_THRESHOLD = 5; // Same operation, 5 runs in 5 min = loop
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // ── Deterministic Run ID ────────────────────────────────────────────────
 
-export function computeRunId(incidentId: string, attempt: number): string {
+export function computeRunId(operationId: string, attempt: number): string {
   return createHash('sha256')
-    .update(`${incidentId}:${attempt}`)
+    .update(`${operationId}:${attempt}`)
     .digest('hex')
-    .slice(0, 24); // 24-char hex for readability
+    .slice(0, 24);
 }
 
 // ── State Machine ───────────────────────────────────────────────────────
@@ -59,7 +59,6 @@ export async function transitionRun(
     data: updateData,
   });
 
-  // Record run event via normalized emitter
   await emitRunEvent(prisma, runId, 'state_change', { from, to, reason });
 
   await persistEvent(prisma, {
@@ -73,7 +72,9 @@ export async function transitionRun(
 // ── Run Creation ────────────────────────────────────────────────────────
 
 export interface CreateRunInput {
-  incidentId: string;
+  operationId: string;
+  /** @deprecated Use operationId */
+  incidentId?: string;
   priority?: string;
   workspaceId?: string;
   recipe?: string;
@@ -85,19 +86,21 @@ export async function createRun(
   prisma: PrismaClient,
   input: CreateRunInput,
 ): Promise<PrismaRun> {
+  const operationId = input.operationId || input.incidentId!;
+
   // Determine attempt number
   const existingRuns = await prisma.run.count({
-    where: { incidentId: input.incidentId },
+    where: { operationId },
   });
   const attempt = existingRuns + 1;
 
-  const id = computeRunId(input.incidentId, attempt);
+  const id = computeRunId(operationId, attempt);
   const priority = input.priority ?? 'P2';
 
   const run = await prisma.run.create({
     data: {
       id,
-      incidentId: input.incidentId,
+      operationId,
       priority,
       attempt,
       workspaceId: input.workspaceId ?? null,
@@ -108,17 +111,16 @@ export async function createRun(
     },
   });
 
-  // Record creation event via normalized emitter
   await emitRunEvent(prisma, id, 'state_change', { from: null, to: 'pending', reason: 'created' });
 
   await persistEvent(prisma, {
     type: 'run.created',
-    data: { runId: id, incidentId: input.incidentId, priority },
+    data: { runId: id, operationId, priority },
   });
 
-  // Update incident status to in_progress
-  await prisma.incident.update({
-    where: { id: input.incidentId },
+  // Update operation status to in_progress
+  await prisma.operation.update({
+    where: { id: operationId },
     data: { status: 'in_progress' },
   });
 
@@ -127,11 +129,9 @@ export async function createRun(
 
 // ── Priority Scheduler ──────────────────────────────────────────────────
 
-/** Get the next runs to schedule, ordered by priority then creation time. */
 export async function getSchedulableRuns(
   prisma: PrismaClient,
 ): Promise<PrismaRun[]> {
-  // Check global concurrency
   const activeCount = await prisma.run.count({
     where: { status: { in: ['running', 'scheduled'] } },
   });
@@ -140,17 +140,15 @@ export async function getSchedulableRuns(
 
   const slotsAvailable = MAX_GLOBAL_CONCURRENT_RUNS - activeCount;
 
-  // Fetch pending runs ordered by priority (P0 first) then creation time
   const pendingRuns = await prisma.run.findMany({
     where: { status: 'pending' },
     orderBy: [
-      { priority: 'asc' }, // P0 < P1 < P2 alphabetically
+      { priority: 'asc' },
       { createdAt: 'asc' },
     ],
     take: slotsAvailable,
   });
 
-  // Filter by per-workspace concurrency
   const schedulable: PrismaRun[] = [];
   const workspaceCounts = new Map<string, number>();
 
@@ -158,7 +156,6 @@ export async function getSchedulableRuns(
     const wsId = run.workspaceId ?? '__global__';
     const current = workspaceCounts.get(wsId) ?? 0;
 
-    // Count already running runs for this workspace
     if (current === 0) {
       const wsActive = await prisma.run.count({
         where: {
@@ -181,13 +178,11 @@ export async function getSchedulableRuns(
 
 // ── Preemption ──────────────────────────────────────────────────────────
 
-/** Preempt lower-priority runs to make room for higher-priority ones. */
 export async function preemptForPriority(
   prisma: PrismaClient,
   incomingPriority: string,
   workspaceId?: string,
 ): Promise<PrismaRun[]> {
-  // Only preempt if incoming is P0
   if (incomingPriority !== 'P0') return [];
 
   const pausable = await prisma.run.findMany({
@@ -196,14 +191,14 @@ export async function preemptForPriority(
       priority: { in: ['P1', 'P2'] },
       ...(workspaceId ? { workspaceId } : {}),
     },
-    orderBy: { priority: 'desc' }, // Pause lowest priority first
+    orderBy: { priority: 'desc' },
   });
 
   const preempted: PrismaRun[] = [];
   for (const run of pausable) {
-    const updated = await transitionRun(prisma, run.id, 'paused', 'Preempted for P0 incident');
+    const updated = await transitionRun(prisma, run.id, 'paused', 'Preempted for P0 operation');
     preempted.push(updated);
-    if (preempted.length >= 1) break; // Free one slot
+    if (preempted.length >= 1) break;
   }
 
   return preempted;
@@ -213,13 +208,13 @@ export async function preemptForPriority(
 
 export async function detectLoop(
   prisma: PrismaClient,
-  incidentId: string,
+  operationId: string,
 ): Promise<boolean> {
   const windowStart = new Date(Date.now() - LOOP_DETECTION_WINDOW_MS);
 
   const recentRuns = await prisma.run.count({
     where: {
-      incidentId,
+      operationId,
       createdAt: { gte: windowStart },
     },
   });
@@ -236,7 +231,6 @@ export async function quarantineRun(
 ): Promise<PrismaRun> {
   const run = await transitionRun(prisma, runId, 'quarantined', reason);
 
-  // Revoke all active capabilities for this run
   await prisma.capability.updateMany({
     where: { runId, revokedAt: null },
     data: { revokedAt: new Date() },
@@ -257,7 +251,6 @@ export async function killRun(
 ): Promise<PrismaRun> {
   const run = await prisma.run.findUniqueOrThrow({ where: { id: runId } });
 
-  // Cancel if pending/scheduled, fail if running, quarantine otherwise
   let targetStatus: RunStatus;
   if (run.status === 'pending' || run.status === 'scheduled') {
     targetStatus = 'cancelled';
@@ -266,7 +259,7 @@ export async function killRun(
   } else if (run.status === 'paused') {
     targetStatus = 'cancelled';
   } else {
-    return run; // Already in terminal state
+    return run;
   }
 
   return transitionRun(prisma, runId, targetStatus, `Kill switch: ${reason}`);
@@ -292,7 +285,6 @@ export async function recordSpend(
       data: { runId, budgetCents: run.budgetCents, spentCents: run.spentCents },
     });
 
-    // Record budget event via normalized emitter
     await emitRunEvent(prisma, runId, 'budget', {
       budgetCents: run.budgetCents,
       spentCents: run.spentCents,
@@ -320,5 +312,3 @@ export async function checkTimeouts(prisma: PrismaClient): Promise<PrismaRun[]> 
 
   return failed;
 }
-
-// Note: sequence number allocation is handled by emitRunEvent() in run-events.ts

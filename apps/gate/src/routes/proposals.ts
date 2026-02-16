@@ -40,7 +40,7 @@ export async function proposalRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const proposal = await prisma.proposal.findUnique({
       where: { id },
-      include: { evidenceBundle: true, run: { include: { incident: true } } },
+      include: { evidenceBundle: true, run: { include: { operation: true } } },
     });
     if (!proposal) return reply.code(404).send({ error: 'Proposal not found' });
     return reply.send(proposal);
