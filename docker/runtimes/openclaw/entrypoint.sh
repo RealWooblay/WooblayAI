@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "=== Wooblay OpenClaw Runtime (v5 — Gated Tools) ==="
+echo "=== Wooblay OpenClaw Runtime (v7 — Unrestricted + Hook Monitoring) ==="
 echo "  Gate URL:     ${GATE_URL}"
 echo "  Model:        ${OPENCLAW_MODEL:-claude-sonnet-4-20250514}"
-echo "  Strategy:     Gated tools via registerTool → Wooblay Gate policy"
+echo "  Strategy:     Full OpenClaw access — Hook monitors all actions via Gate"
 
 # ── Gateway token ─────────────────────────────────────────────────────────
 if [ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
@@ -26,10 +26,8 @@ fi
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 if [ -n "${GITHUB_TOKEN}" ]; then
   echo "  GitHub:       Token set (${#GITHUB_TOKEN} chars)"
-  # Set as global env so OpenClaw agent tools (gated_exec with git commands) can use it
   export GH_TOKEN="${GITHUB_TOKEN}"
   export GITHUB_TOKEN="${GITHUB_TOKEN}"
-  # Configure git to use the token for HTTPS repos
   git config --global credential.helper "!f() { echo \"username=token\"; echo \"password=${GITHUB_TOKEN}\"; }; f"
 else
   echo "  GitHub:       not configured"
@@ -50,6 +48,113 @@ if [ "${TELEGRAM_ENABLED}" = "true" ] && [ -n "${TELEGRAM_BOT_TOKEN}" ]; then
 else
   CHANNELS_CONFIG="{}"
   echo "  Telegram:     disabled"
+fi
+
+# ── Hybrid Identity: Seed SOUL.md + IDENTITY.md ─────────────────────────
+# The UI sets a base role → we seed it here.
+# The agent can then evolve SOUL.md/IDENTITY.md during its session.
+# Wooblay Gate tracks writes to these files so we can read back what the
+# agent "thinks it is" — best of both worlds.
+INSTANCE_NAME="${INSTANCE_NAME:-agent}"
+OPENCLAW_AGENT_ROLE="${OPENCLAW_AGENT_ROLE:-}"
+OPENCLAW_AGENT_SOUL="${OPENCLAW_AGENT_SOUL:-}"
+OPENCLAW_AGENT_GOAL="${OPENCLAW_AGENT_GOAL:-}"
+
+# Ensure workspace dir exists
+mkdir -p /root/clawd
+
+if [ -n "${OPENCLAW_AGENT_SOUL}" ]; then
+  # Evolved SOUL content from a previous session — restore it
+  echo "${OPENCLAW_AGENT_SOUL}" > /root/clawd/SOUL.md
+  echo "  Identity:     restored evolved SOUL.md (${#OPENCLAW_AGENT_SOUL} chars)"
+elif [ -n "${OPENCLAW_AGENT_ROLE}" ]; then
+  # Seed initial SOUL.md from user-set role
+  cat > /root/clawd/SOUL.md << SOULEOF
+# Soul
+
+You are **${INSTANCE_NAME}**, an AI agent supervised by Wooblay.
+
+## Role
+${OPENCLAW_AGENT_ROLE}
+
+## Principles
+- Stay within your assigned role. Actions outside it may be flagged or denied.
+- You operate under Wooblay's gated tool system — every risky action requires approval.
+- Be transparent about what you're doing and why.
+- You may evolve this file as you learn more about your task. Updates to SOUL.md
+  are tracked by Wooblay so your supervisor can see how your identity develops.
+
+## Goal
+${OPENCLAW_AGENT_GOAL:-Work according to your role. Await instructions from your supervisor.}
+SOULEOF
+  echo "  Identity:     seeded SOUL.md from role: ${OPENCLAW_AGENT_ROLE:0:50}..."
+else
+  echo "  Identity:     no role set (agent will self-discover)"
+fi
+
+# Write IDENTITY.md as a compact reference for the agent
+if [ -n "${OPENCLAW_AGENT_ROLE}" ] || [ -n "${OPENCLAW_AGENT_SOUL}" ]; then
+  cat > /root/clawd/IDENTITY.md << IDEOF
+# Identity — ${INSTANCE_NAME}
+
+- **Name:** ${INSTANCE_NAME}
+- **Role:** ${OPENCLAW_AGENT_ROLE:-not set}
+- **Goal:** ${OPENCLAW_AGENT_GOAL:-awaiting instructions}
+- **Supervisor:** Wooblay Gate (all risky actions are gated)
+- **Session:** This file was generated at startup. You may update it as you work.
+IDEOF
+  echo "  Identity:     wrote IDENTITY.md"
+fi
+
+# ── AWS Credentials ──────────────────────────────────────────────────────
+AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
+AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
+AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+
+if [ -n "${AWS_ACCESS_KEY_ID}" ] && [ -n "${AWS_SECRET_ACCESS_KEY}" ]; then
+  mkdir -p /root/.aws
+  cat > /root/.aws/credentials << AWSCRED
+[default]
+aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+AWSCRED
+  cat > /root/.aws/config << AWSCONF
+[default]
+region = ${AWS_DEFAULT_REGION}
+output = json
+AWSCONF
+  echo "  AWS:          configured (region: ${AWS_DEFAULT_REGION})"
+else
+  echo "  AWS:          not configured"
+fi
+
+# ── GCP Credentials ─────────────────────────────────────────────────────
+GCP_SERVICE_ACCOUNT_KEY="${GCP_SERVICE_ACCOUNT_KEY:-}"
+GCP_PROJECT_ID="${GCP_PROJECT_ID:-}"
+
+if [ -n "${GCP_SERVICE_ACCOUNT_KEY}" ]; then
+  echo "${GCP_SERVICE_ACCOUNT_KEY}" | base64 -d > /root/gcp-key.json 2>/dev/null || \
+    echo "${GCP_SERVICE_ACCOUNT_KEY}" > /root/gcp-key.json
+  export GOOGLE_APPLICATION_CREDENTIALS="/root/gcp-key.json"
+
+  if [ -n "${GCP_PROJECT_ID}" ]; then
+    export GCLOUD_PROJECT="${GCP_PROJECT_ID}"
+    export GOOGLE_CLOUD_PROJECT="${GCP_PROJECT_ID}"
+  fi
+
+  # Activate service account if gcloud CLI is available
+  if command -v gcloud &> /dev/null; then
+    gcloud auth activate-service-account --key-file=/root/gcp-key.json 2>/dev/null && \
+      echo "  GCP:          authenticated via gcloud (project: ${GCP_PROJECT_ID:-auto})" || \
+      echo "  GCP:          key file set but gcloud auth failed — GOOGLE_APPLICATION_CREDENTIALS is set"
+    if [ -n "${GCP_PROJECT_ID}" ]; then
+      gcloud config set project "${GCP_PROJECT_ID}" 2>/dev/null || true
+    fi
+  else
+    echo "  GCP:          key file set (GOOGLE_APPLICATION_CREDENTIALS) — no gcloud CLI"
+  fi
+else
+  echo "  GCP:          not configured"
 fi
 
 # ── Generate OpenClaw config ──────────────────────────────────────────────
@@ -82,16 +187,6 @@ cat > /root/.openclaw/openclaw.json << JSONEOF
       }
     }
   },
-  "tools": {
-    "deny": ["exec", "bash", "write", "edit", "apply_patch", "browser"],
-    "allow": [
-      "gated_exec", "gated_write", "gated_edit", "gated_web_fetch",
-      "read", "web_search", "web_fetch",
-      "session_status", "sessions_list", "sessions_history",
-      "memory_search", "memory_get",
-      "image"
-    ]
-  },
   "agents": {
     "list": ${AGENTS_LIST}
   },
@@ -100,9 +195,9 @@ cat > /root/.openclaw/openclaw.json << JSONEOF
 JSONEOF
 
 echo "  OK: /root/.openclaw/openclaw.json"
-echo "      Built-in DENIED: exec, bash, write, edit, apply_patch, browser"
-echo "      Gated ALLOWED:   gated_exec, gated_write, gated_edit, gated_web_fetch"
-echo "      Safe ALLOWED:    read, web_search, session_status, memory_search, image"
+echo "      Tools:  UNRESTRICTED — OpenClaw has full access to all tools"
+echo "      Gate:   Hook monitors ALL tool events (audit + logging)"
+echo "      Extras: gated_exec, gated_write, gated_edit, gated_web_fetch (via plugin)"
 
 # ── Verify plugin is installed ────────────────────────────────────────────
 if [ -f /root/.openclaw/extensions/wooblay/index.ts ] && [ -f /root/.openclaw/extensions/wooblay/openclaw.plugin.json ]; then
@@ -135,9 +230,9 @@ echo "  OK: Doctor complete"
 # ── Start OpenClaw Gateway ────────────────────────────────────────────────
 echo ""
 echo "→ Starting OpenClaw gateway..."
-echo "  Agent will use gated_exec/gated_write/gated_edit instead of exec/write/edit."
-echo "  Every gated tool call → Wooblay Gate → policy → approve/deny."
-echo "  Approve/deny in the Wooblay UI at: ${GATE_URL}"
+echo "  OpenClaw runs UNRESTRICTED — full access to all tools including sub-agents."
+echo "  Wooblay Hook monitors ALL tool events → audit + timeline in Gate."
+echo "  Gate UI: ${GATE_URL}"
 if [ "${TELEGRAM_ENABLED}" = "true" ]; then
   echo "  Telegram bot active — message your bot to interact with the agent."
 fi

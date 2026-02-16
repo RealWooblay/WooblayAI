@@ -47,7 +47,7 @@ variable "gate_image" {
 
 variable "instance_type" {
   type    = string
-  default = "t3.small"
+  default = "t4g.small"
 }
 
 variable "clerk_publishable_key" {
@@ -205,7 +205,7 @@ data "aws_ami" "amazon_linux" {
 
   filter {
     name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+    values = ["al2023-ami-*-arm64"]
   }
 }
 

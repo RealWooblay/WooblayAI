@@ -112,11 +112,19 @@ The policy engine starts with static rules but evolves:
 
 ## Long-Term Vision
 
-### Phase 1: Agent Governance (Now)
-- Deploy and supervise OpenClaw agents
-- Approve/deny actions from dashboard
-- Cryptographic receipt trail
-- Policy engine with risk classification
+### Phase 1: Agent Governance (Shipped)
+- Deploy and supervise OpenClaw agents from the dashboard
+- Approve/deny actions with human-readable descriptions
+- Cryptographic receipt trail with hash chain integrity verification
+- Policy engine with presets (Balanced/Strict/Permissive) and risk classification
+- AI supervisor: threat detection, behavioral analysis, contribution assessment (OpenAI)
+- Agent trust scoring (0-100) with trend indicators
+- Cost tracking per agent with daily/weekly summaries
+- Activity feed with rule-based and AI-powered flag detection
+- Audit trail export (JSON/CSV) with chain integrity verification
+- Mission Cards with pipeline view for agent observability
+- Webhook notifications for approvals, flags, and trust alerts
+- Multi-instance deployment with per-agent configuration
 
 ### Phase 2: Universal Agent Gateway (6 months)
 - Adapters for every major agent framework (LangChain, CrewAI, AutoGen, custom)

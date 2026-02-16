@@ -130,7 +130,7 @@ networks:
 export async function instanceRoutes(app: FastifyInstance): Promise<void> {
   // Ensure instances directory exists
   if (!existsSync(INSTANCES_DIR)) {
-    try { mkdirSync(INSTANCES_DIR, { recursive: true }); } catch {}
+    try { mkdirSync(INSTANCES_DIR, { recursive: true }); } catch { }
   }
 
   /**
@@ -154,9 +154,9 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           const [name, status] = line.split('|');
           if (name) containerStatuses[name] = status;
         }
-      } catch {}
+      } catch { }
 
-      const enriched = instances.map((inst) => ({
+      const enriched = instances.map((inst: typeof instances[number]) => ({
         ...inst,
         liveStatus: containerStatuses[`wooblay-agent-${inst.name}`] ?? null,
       }));
@@ -183,6 +183,13 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       githubToken?: string;
       policyPreset?: string;
       configOverrides?: Record<string, string>;
+      role?: string;
+      goal?: string;
+      awsAccessKeyId?: string;
+      awsSecretAccessKey?: string;
+      awsRegion?: string;
+      gcpServiceAccountKey?: string;
+      gcpProjectId?: string;
     };
 
     if (!body.name || typeof body.name !== 'string') {
@@ -212,6 +219,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           status: 'provisioning',
           agentRuntime: body.agentRuntime ?? 'openclaw',
           model: body.model ?? 'claude-sonnet-4-20250514',
+          role: body.role ?? null,
           configJson: JSON.stringify({
             port,
             gatewayToken,
@@ -221,6 +229,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
             telegramEnabled: body.telegramEnabled ?? false,
             telegramAllowedUsers: body.telegramAllowedUsers ?? '',
             policyPreset: body.policyPreset ?? 'balanced',
+            goal: body.goal ?? '',
             ...body.configOverrides,
           }),
           telegramBot: body.telegramEnabled ? 'configured' : null,
@@ -233,16 +242,29 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const dir = getInstanceDir(instance.id);
       mkdirSync(dir, { recursive: true });
 
+      // Parse config for goal/soul
+      const goalFromConfig = body.configOverrides?.goal ?? '';
+
       const envConfig: Record<string, string> = {
         OPENCLAW_GATEWAY_TOKEN: gatewayToken,
         GATE_URL: GATE_INTERNAL_URL,
         WOOBLAY_TOOL_FILTER: 'risky',
         OPENCLAW_MODEL: body.model ?? 'claude-sonnet-4-20250514',
         TELEGRAM_ENABLED: String(body.telegramEnabled ?? false),
+        INSTANCE_NAME: name,
+        // Hybrid identity: seed role into agent's SOUL.md via entrypoint
+        ...(body.role ? { OPENCLAW_AGENT_ROLE: body.role } : {}),
+        ...(goalFromConfig ? { OPENCLAW_AGENT_GOAL: goalFromConfig } : {}),
         ...(body.anthropicApiKey ? { ANTHROPIC_API_KEY: body.anthropicApiKey } : {}),
         ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
         ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),
         ...(body.githubToken ? { GITHUB_TOKEN: body.githubToken } : {}),
+        // Cloud provider credentials
+        ...(body.awsAccessKeyId ? { AWS_ACCESS_KEY_ID: body.awsAccessKeyId } : {}),
+        ...(body.awsSecretAccessKey ? { AWS_SECRET_ACCESS_KEY: body.awsSecretAccessKey } : {}),
+        ...(body.awsRegion ? { AWS_DEFAULT_REGION: body.awsRegion } : {}),
+        ...(body.gcpServiceAccountKey ? { GCP_SERVICE_ACCOUNT_KEY: body.gcpServiceAccountKey } : {}),
+        ...(body.gcpProjectId ? { GCP_PROJECT_ID: body.gcpProjectId } : {}),
         ...(body.configOverrides ?? {}),
       };
 
@@ -263,7 +285,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
             `docker ps -q --filter "name=wooblay-agent-${name}"`,
             { timeout: 5000, stdio: 'pipe' },
           ).toString().trim() || null;
-        } catch {}
+        } catch { }
 
         await prisma.instance.update({
           where: { id: instance.id },
@@ -307,7 +329,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           `docker ps -a --filter "name=wooblay-agent-${instance.name}" --format "{{.Status}}"`,
           { timeout: 5000, stdio: 'pipe' },
         ).toString().trim() || null;
-      } catch {}
+      } catch { }
 
       return reply.send({ ...instance, liveStatus });
     } catch (err) {
@@ -331,6 +353,13 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       telegramEnabled: boolean;
       githubToken: string;
       configOverrides: Record<string, string>;
+      role: string;
+      goal: string;
+      awsAccessKeyId: string;
+      awsSecretAccessKey: string;
+      awsRegion: string;
+      gcpServiceAccountKey: string;
+      gcpProjectId: string;
     }>;
 
     try {
@@ -341,6 +370,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const updateData: Record<string, unknown> = {};
       if (body.model) updateData.model = body.model;
       if (body.agentRuntime) updateData.agentRuntime = body.agentRuntime;
+      if (body.role !== undefined) updateData.role = body.role || null;
       if (body.telegramEnabled !== undefined) {
         updateData.telegramBot = body.telegramEnabled ? 'configured' : null;
       }
@@ -352,6 +382,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         ...(body.model ? { model: body.model } : {}),
         ...(body.telegramEnabled !== undefined ? { telegramEnabled: body.telegramEnabled } : {}),
         ...(body.telegramAllowedUsers ? { telegramAllowedUsers: body.telegramAllowedUsers } : {}),
+        ...(body.goal !== undefined ? { goal: body.goal } : {}),
         ...(body.configOverrides ?? {}),
       };
       updateData.configJson = JSON.stringify(newConfig);
@@ -378,6 +409,11 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         }
 
         // Merge: existing values as base, overlay with new values
+        const effectiveRole = body.role !== undefined ? (body.role || '') : (instance.role ?? '');
+        const effectiveGoal = body.goal ?? newConfig.goal ?? '';
+        // Check for evolved SOUL content stored from previous sessions
+        const evolvedSoul = newConfig.evolvedSoul ?? '';
+
         const envConfig: Record<string, string> = {
           ...existingEnv,
           OPENCLAW_GATEWAY_TOKEN: existingEnv['OPENCLAW_GATEWAY_TOKEN'] ?? existingConfig.gatewayToken ?? generateToken(),
@@ -385,23 +421,119 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           WOOBLAY_TOOL_FILTER: 'risky',
           OPENCLAW_MODEL: body.model ?? instance.model,
           TELEGRAM_ENABLED: String(body.telegramEnabled ?? existingConfig.telegramEnabled ?? false),
+          INSTANCE_NAME: instance.name,
+          // Hybrid identity: role seeds SOUL.md, evolved soul restores previous session
+          ...(effectiveRole ? { OPENCLAW_AGENT_ROLE: effectiveRole } : {}),
+          ...(effectiveGoal ? { OPENCLAW_AGENT_GOAL: effectiveGoal } : {}),
+          ...(evolvedSoul ? { OPENCLAW_AGENT_SOUL: evolvedSoul } : {}),
           ...(body.anthropicApiKey ? { ANTHROPIC_API_KEY: body.anthropicApiKey } : {}),
           ...(body.telegramBotToken ? { TELEGRAM_BOT_TOKEN: body.telegramBotToken } : {}),
           ...(body.telegramAllowedUsers ? { TELEGRAM_ALLOWED_USERS: body.telegramAllowedUsers } : {}),
           ...(body.githubToken ? { GITHUB_TOKEN: body.githubToken } : {}),
+          // Cloud provider credentials
+          ...(body.awsAccessKeyId ? { AWS_ACCESS_KEY_ID: body.awsAccessKeyId } : {}),
+          ...(body.awsSecretAccessKey ? { AWS_SECRET_ACCESS_KEY: body.awsSecretAccessKey } : {}),
+          ...(body.awsRegion ? { AWS_DEFAULT_REGION: body.awsRegion } : {}),
+          ...(body.gcpServiceAccountKey ? { GCP_SERVICE_ACCOUNT_KEY: body.gcpServiceAccountKey } : {}),
+          ...(body.gcpProjectId ? { GCP_PROJECT_ID: body.gcpProjectId } : {}),
           ...(body.configOverrides ?? {}),
         };
         writeInstanceEnv(dir, envConfig);
 
-        // Auto-restart the instance container so config takes effect
+        // ── Hot-inject vs restart ────────────────────────────────────────
+        // A running agent may have hours of deep context. Restarting kills
+        // all memory, sub-agents, and conversation state.
+        //
+        // What ACTUALLY works via docker exec:
+        //   - File writes (AWS creds, GCP key, git config) — SDKs re-read
+        //     these files on every request, so changes take effect immediately.
+        //
+        // What DOES NOT work via docker exec:
+        //   - `export VAR=X` — only sets the var in that exec shell session,
+        //     not in the running OpenClaw process (PID 1). Dies on exit.
+        //   - openclaw.json edits — OpenClaw reads config at startup and
+        //     caches it in memory. File changes are ignored until restart.
+        //
+        // Strategy:
+        //   1. File-based creds → hot-inject (works, no restart)
+        //   2. Env-var-only creds (Anthropic key) → requires restart
+        //   3. Model / Telegram → requires restart (openclaw.json is cached)
+        //   4. Role / Goal → DB + .env only; SOUL.md edited via Profile tab UI
+        //
+        // .env is ALWAYS updated so next cold start picks up everything.
+
+        const containerName = `wooblay-agent-${instance.name}`;
+
+        // These require restart because they need env vars or openclaw.json reload
+        const needsRestart = !!(body.model || body.anthropicApiKey ||
+          body.telegramBotToken || body.telegramEnabled !== undefined);
+
         if (instance.status === 'running') {
-          try {
-            execSync(`cd "${dir}" && docker compose up -d --force-recreate`, {
-              timeout: 60_000, stdio: 'pipe',
-            });
-            request.log.info(`Instance ${instance.name} restarted after config update`);
-          } catch (restartErr: any) {
-            request.log.error(restartErr, `Failed to restart instance ${instance.name} after config update`);
+          // ── File-based hot-inject (reliably works) ─────────────────────
+          const hotInjectCmds: string[] = [];
+
+          // AWS credentials → write ~/.aws/credentials + config
+          // AWS SDK reads these files on every API call — no restart needed
+          if (body.awsAccessKeyId || body.awsSecretAccessKey) {
+            const keyId = body.awsAccessKeyId ?? existingEnv['AWS_ACCESS_KEY_ID'] ?? '';
+            const secret = body.awsSecretAccessKey ?? existingEnv['AWS_SECRET_ACCESS_KEY'] ?? '';
+            const region = body.awsRegion ?? existingEnv['AWS_DEFAULT_REGION'] ?? 'us-east-1';
+            if (keyId && secret) {
+              hotInjectCmds.push(
+                `mkdir -p /root/.aws`,
+                `printf '[default]\\naws_access_key_id = ${keyId}\\naws_secret_access_key = ${secret}\\n' > /root/.aws/credentials`,
+                `printf '[default]\\nregion = ${region}\\noutput = json\\n' > /root/.aws/config`,
+              );
+            }
+          }
+
+          // GCP credentials → write /root/gcp-key.json
+          // Google SDK reads GOOGLE_APPLICATION_CREDENTIALS file path on every call.
+          // The env var was set at container startup by entrypoint.sh, so as long
+          // as we overwrite the file at the same path, it works.
+          if (body.gcpServiceAccountKey) {
+            hotInjectCmds.push(
+              `echo '${body.gcpServiceAccountKey}' | base64 -d > /root/gcp-key.json 2>/dev/null || echo '${body.gcpServiceAccountKey}' > /root/gcp-key.json`,
+            );
+          }
+
+          // GitHub token → update git credential helper (writes to ~/.gitconfig)
+          // git reads this config file on every git operation — no restart needed
+          if (body.githubToken) {
+            hotInjectCmds.push(
+              `git config --global credential.helper "!f() { echo \\"username=token\\"; echo \\"password=${body.githubToken}\\"; }; f"`,
+            );
+          }
+
+          // Role / Goal → saved to DB + .env. The actual SOUL.md / IDENTITY.md
+          // files are edited directly via the Profile tab in the UI, which uses
+          // the /files/write API (base64 pipe into container). No shell escaping.
+
+          // Execute file-based hot-inject
+          if (hotInjectCmds.length > 0) {
+            try {
+              const script = hotInjectCmds.join(' && ');
+              execSync(`docker exec "${containerName}" sh -c '${script.replace(/'/g, "'\\''")}'`, {
+                timeout: 10_000, stdio: 'pipe',
+              });
+              request.log.info(`Instance ${instance.name} — hot-injected file-based credentials (no restart, memory preserved)`);
+            } catch (injectErr: any) {
+              request.log.error(injectErr, `Failed to hot-inject credentials into ${instance.name}`);
+            }
+          }
+
+          // ── Restart only if truly unavoidable ──────────────────────────
+          if (needsRestart) {
+            try {
+              execSync(`cd "${dir}" && docker compose up -d --force-recreate`, {
+                timeout: 60_000, stdio: 'pipe',
+              });
+              request.log.info(`Instance ${instance.name} restarted (model/anthropic-key/telegram change requires restart)`);
+            } catch (restartErr: any) {
+              request.log.error(restartErr, `Failed to restart instance ${instance.name}`);
+            }
+          } else {
+            request.log.info(`Instance ${instance.name} updated — no restart needed`);
           }
         }
       }
@@ -415,6 +547,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * POST /api/instances/:id/start — Start instance container.
+   * If instance dir is missing (e.g. after host migration), re-provision from DB then start.
    */
   app.post('/api/instances/:id/start', async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
@@ -425,7 +558,35 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
       const dir = getInstanceDir(id);
       if (!existsSync(dir)) {
-        return reply.code(400).send({ error: 'Instance directory not found. Re-create the instance.' });
+        // Re-provision after host migration: instance exists in DB but dir was on old host
+        let config: { port?: number; gatewayToken?: string; goal?: string;[k: string]: unknown } = {};
+        try {
+          if (instance.configJson) config = JSON.parse(instance.configJson) as typeof config;
+        } catch { }
+        const port = config.port ?? nextPort++;
+        mkdirSync(dir, { recursive: true });
+        const envConfig: Record<string, string> = {
+          OPENCLAW_GATEWAY_TOKEN: (config.gatewayToken as string) ?? generateToken(),
+          GATE_URL: GATE_INTERNAL_URL,
+          WOOBLAY_TOOL_FILTER: 'risky',
+          OPENCLAW_MODEL: instance.model ?? 'claude-sonnet-4-20250514',
+          TELEGRAM_ENABLED: String((config.telegramEnabled as boolean) ?? false),
+          INSTANCE_NAME: instance.name,
+          ...(instance.role ? { OPENCLAW_AGENT_ROLE: instance.role } : {}),
+          ...(config.goal ? { OPENCLAW_AGENT_GOAL: String(config.goal) } : {}),
+          ...(typeof config.anthropicApiKey === 'string' && config.anthropicApiKey && config.anthropicApiKey !== '***SET***' ? { ANTHROPIC_API_KEY: config.anthropicApiKey } : {}),
+          ...(typeof config.githubToken === 'string' ? { GITHUB_TOKEN: config.githubToken } : {}),
+          ...(typeof config.telegramBotToken === 'string' ? { TELEGRAM_BOT_TOKEN: config.telegramBotToken } : {}),
+          ...(typeof config.telegramAllowedUsers === 'string' ? { TELEGRAM_ALLOWED_USERS: config.telegramAllowedUsers } : {}),
+          ...(typeof config.awsAccessKeyId === 'string' ? { AWS_ACCESS_KEY_ID: config.awsAccessKeyId } : {}),
+          ...(typeof config.awsSecretAccessKey === 'string' ? { AWS_SECRET_ACCESS_KEY: config.awsSecretAccessKey } : {}),
+          ...(typeof config.awsRegion === 'string' ? { AWS_DEFAULT_REGION: config.awsRegion } : {}),
+          ...(typeof config.gcpServiceAccountKey === 'string' ? { GCP_SERVICE_ACCOUNT_KEY: config.gcpServiceAccountKey } : {}),
+          ...(typeof config.gcpProjectId === 'string' ? { GCP_PROJECT_ID: config.gcpProjectId } : {}),
+        };
+        writeInstanceEnv(dir, envConfig);
+        writeInstanceCompose(dir, instance.name, port);
+        request.log.info({ instanceId: id, name: instance.name }, 'Re-provisioned instance dir (was missing after migration)');
       }
 
       execSync(`cd "${dir}" && docker compose up -d`, { timeout: 30_000, stdio: 'pipe' });
@@ -436,7 +597,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           `docker ps -q --filter "name=wooblay-agent-${instance.name}"`,
           { timeout: 5000, stdio: 'pipe' },
         ).toString().trim() || null;
-      } catch {}
+      } catch { }
 
       await prisma.instance.update({
         where: { id },
@@ -463,7 +624,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const containerName = `wooblay-agent-${instance.name}`;
       try {
         execSync(`docker stop "${containerName}"`, { timeout: 15_000, stdio: 'pipe' });
-      } catch {}
+      } catch { }
 
       await prisma.instance.update({
         where: { id },
@@ -500,7 +661,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           `docker ps -q --filter "name=wooblay-agent-${instance.name}"`,
           { timeout: 5000, stdio: 'pipe' },
         ).toString().trim() || null;
-      } catch {}
+      } catch { }
 
       await prisma.instance.update({
         where: { id },
@@ -530,12 +691,12 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         execSync(`docker stop "${containerName}" 2>/dev/null; docker rm "${containerName}" 2>/dev/null`, {
           timeout: 15_000, stdio: 'pipe',
         });
-      } catch {}
+      } catch { }
 
       // Clean up instance directory
       const dir = getInstanceDir(id);
       if (existsSync(dir)) {
-        try { rmSync(dir, { recursive: true, force: true }); } catch {}
+        try { rmSync(dir, { recursive: true, force: true }); } catch { }
       }
 
       await prisma.instance.delete({ where: { id } });

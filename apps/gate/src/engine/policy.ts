@@ -35,6 +35,7 @@ function globMatch(pattern: string, value: string): boolean {
 export async function evaluatePolicy(
   prisma: PrismaClient,
   toolCall: PrismaToolCall,
+  instanceId?: string | null,
 ): Promise<PolicyDecision> {
   // 1. Verify the agent exists and is allowlisted
   const agent = await prisma.agent.findUnique({
@@ -51,11 +52,21 @@ export async function evaluatePolicy(
     return { decision: Decision.DENY, reason: 'Agent is not allowlisted' };
   }
 
-  // 2. Fetch all enabled policy rules, ordered by priority (lowest number = highest priority)
-  const rules = await prisma.policyRule.findMany({
-    where: { enabled: true },
+  // 2. Fetch enabled policy rules, ordered by priority (lowest number = highest priority).
+  //    If instanceId is provided, check for instance-specific rules first.
+  //    Instance-specific rules completely override globals (no merge).
+  let rules = await prisma.policyRule.findMany({
+    where: { enabled: true, instanceId: instanceId ?? null },
     orderBy: { priority: 'asc' },
   });
+
+  // Fall back to global rules if instanceId was provided but no instance-specific rules exist
+  if (instanceId && rules.length === 0) {
+    rules = await prisma.policyRule.findMany({
+      where: { enabled: true, instanceId: null },
+      orderBy: { priority: 'asc' },
+    });
+  }
 
   // 3. Find the first matching rule
   for (const rule of rules) {
@@ -64,6 +75,15 @@ export async function evaluatePolicy(
 
     // Match risk tier ("*" matches any tier)
     if (rule.riskTier !== '*' && rule.riskTier !== toolCall.riskTier) continue;
+
+    // Match business category (if specified on rule)
+    if (rule.matchCategory && rule.matchCategory !== '*') {
+      const toolCategory = (toolCall as any).category as string | null;
+      // If the tool call has no category, category-specific rules should NOT match.
+      // This prevents uncategorized calls from accidentally matching permissive category rules.
+      if (!toolCategory) continue;
+      if (rule.matchCategory !== toolCategory) continue;
+    }
 
     // Match args pattern (optional JSON substring match)
     if (rule.matchArgs) {
@@ -81,10 +101,11 @@ export async function evaluatePolicy(
     }
 
     // First match wins
+    const ruleLabel = rule.description ?? rule.matchTool;
     return {
       decision: rule.decision as Decision,
       ruleId: rule.id,
-      reason: `Matched rule #${rule.priority}: ${rule.matchTool}`,
+      reason: `Matched rule #${rule.priority}: ${ruleLabel}`,
       constraints: rule.constraints ? JSON.parse(rule.constraints) : undefined,
     };
   }

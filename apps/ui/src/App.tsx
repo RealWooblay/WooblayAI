@@ -6,8 +6,8 @@
  * 3. Activated → Main app with sidebar navigation
  */
 
-import { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { useState, Component, type ErrorInfo, type ReactNode } from 'react';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { SignIn, SignUp, useUser, useAuth } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -18,10 +18,11 @@ import { getMe } from './api/client.ts';
 // Pages
 import { CommandCenter as DashboardPage } from './pages/command-center/CommandCenter.tsx';
 import { ApprovalsPage } from './pages/approvals/ApprovalsPage.tsx';
-import { InstancesPage } from './pages/instances/InstancesPage.tsx';
+import { InstanceDetailPage } from './pages/instances/InstanceDetailPage.tsx';
 import { OnboardingPage } from './pages/onboarding/OnboardingPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
-import { ComingSoon } from './components/common/ComingSoon.tsx';
+import { PoliciesPage } from './pages/policies/PoliciesPage.tsx';
+import { ActivityPage } from './pages/activity/ActivityPage.tsx';
 
 // Has Clerk key? If not, skip auth entirely (local dev / instance mode)
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -120,12 +121,12 @@ function AuthenticatedApp() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
-          <Route path="/instances" element={<PageShell><InstancesPage /></PageShell>} />
+          <Route path="/instances" element={<Navigate to="/" replace />} />
+          <Route path="/instances/:id" element={<PageShell><InstanceDetailPage /></PageShell>} />
           <Route path="/settings" element={<PageShell><SettingsPage /></PageShell>} />
-
-          {/* Coming Soon */}
-          <Route path="/policies" element={<PageShell><ComingSoon feature="Policies" description="Custom policy rules for fine-grained tool control." /></PageShell>} />
-          <Route path="/activity" element={<PageShell><ComingSoon feature="Activity Feed" description="Real-time agent activity monitoring." /></PageShell>} />
+          <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
+          <Route path="/activity" element={<PageShell><ActivityPage /></PageShell>} />
+          <Route path="/audit" element={<Navigate to="/activity" replace />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -149,10 +150,34 @@ function AuthPage({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Error boundary — catches crashes in any page so the whole app doesn't unmount. */
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('[ErrorBoundary]', error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="h-full flex flex-col items-center justify-center p-6 canvas-bg">
+          <pre className="text-red-400 font-mono text-lg mb-2">( x_x )</pre>
+          <p className="text-text-primary font-mono text-sm mb-1">Something crashed</p>
+          <p className="text-text-tertiary font-mono text-xs mb-4 max-w-md text-center">{this.state.error.message}</p>
+          <Link to="/" onClick={() => this.setState({ error: null })}
+            className="text-accent hover:text-accent-bright text-xs font-mono">← back to dashboard</Link>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full overflow-y-auto p-6 canvas-bg animate-fade-in">
-      {children}
-    </div>
+    <ErrorBoundary>
+      <div className="h-full overflow-y-auto p-6 canvas-bg animate-fade-in relative">
+        {children}
+        <div className="scanline-overlay pointer-events-none" />
+      </div>
+    </ErrorBoundary>
   );
 }

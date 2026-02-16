@@ -9,7 +9,8 @@ env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: 050752647977.dkr.ecr.us-east-1.amazonaws.com
   GATE_REPO: wooblay-gate
-  INSTANCE_ID: i-0aad96a2b04361357
+  AGENT_REPO: openclaw-wooblay
+  INSTANCE_ID: i-018d018e8e511b4b0
 
 jobs:
   build-and-deploy:
@@ -32,6 +33,9 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -40,15 +44,45 @@ jobs:
         with:
           context: .
           file: docker/gate/Dockerfile
+          platforms: linux/arm64
           push: true
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:${{ github.sha }}
             ${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:mvp
             ${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:latest
           build-args: |
-            VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+            VITE_CLERK_PK=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Check if agent files changed
+        id: agent-changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
+            docker/runtimes/openclaw/ \
+            packages/adapters/openclaw/ \
+            2>/dev/null || echo "first-run")
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Agent files changed — will rebuild agent image"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No agent file changes — skipping agent build"
+          fi
+
+      - name: Build and push Agent image
+        if: steps.agent-changes.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/runtimes/openclaw/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
 
       - name: Deploy to EC2 via SSM
         run: |
@@ -60,8 +94,15 @@ jobs:
               \"cd /opt/wooblay\",
               \"aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}\",
               \"sed -i 's|GATE_IMAGE=.*|GATE_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:mvp|' .env\",
+              \"sed -i 's|AGENT_IMAGE=.*|AGENT_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest|' .env\",
+              \"grep -q '^OPENAI_API_KEY=' .env || echo 'OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}' >> .env\",
+              \"sed -i 's|OPENAI_API_KEY=.*|OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}|' .env\",
+              \"grep -q '^OPENAI_MODEL=' .env || echo 'OPENAI_MODEL=gpt-4.1-mini' >> .env\",
+              \"sed -i 's|OPENAI_API_KEY:.*|OPENAI_API_KEY: \\\"${{ secrets.OPENAI_API_KEY }}\\\"|' docker-compose.yml\",
+              \"sed -i 's|OPENAI_MODEL:.*|OPENAI_MODEL: \\\"gpt-4.1-mini\\\"|' docker-compose.yml\",
               \"docker compose pull gate\",
-              \"docker compose up -d\",
+              \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest\",
+              \"docker compose up -d --force-recreate\",
               \"sleep 15\",
               \"curl -sf http://localhost:4800/health || exit 1\",
               \"echo DEPLOY_SUCCESS\"
@@ -69,9 +110,9 @@ jobs:
             --query "Command.CommandId" \
             --output text \
             --region "${{ env.AWS_REGION }}")
-          
+
           echo "SSM Command ID: $COMMAND_ID"
-          
+
           # Wait for command to complete
           for i in $(seq 1 30); do
             STATUS=$(aws ssm get-command-invocation \
@@ -99,7 +140,7 @@ jobs:
             
             sleep 10
           done
-          
+
           echo "Deploy timed out waiting for SSM command"
           exit 1
 

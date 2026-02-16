@@ -75,8 +75,8 @@ pnpm dev
 
 ```bash
 # Build Docker images
-docker build --platform linux/amd64 -f docker/gate/Dockerfile -t wooblay-gate .
-docker build --platform linux/amd64 -f docker/runtimes/openclaw/Dockerfile -t wooblay-openclaw .
+docker build --platform linux/arm64 -f docker/gate/Dockerfile -t wooblay-gate .
+docker build --platform linux/arm64 -f docker/runtimes/openclaw/Dockerfile -t wooblay-openclaw .
 
 # Push to ECR
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com

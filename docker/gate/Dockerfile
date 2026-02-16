@@ -33,9 +33,10 @@ RUN pnpm --filter @wooblay/crypto build || true
 RUN pnpm --filter @wooblay/gate build
 
 # Vite embeds VITE_ env vars at build time — pass via --build-arg
-ARG VITE_CLERK_PUBLISHABLE_KEY=""
+# Note: VITE_CLERK_PUBLISHABLE_KEY is a public client-side key (not secret)
+ARG VITE_CLERK_PK=""
 ARG VITE_API_URL=""
-ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PK
 ENV VITE_API_URL=$VITE_API_URL
 RUN pnpm --filter @wooblay/ui build
 

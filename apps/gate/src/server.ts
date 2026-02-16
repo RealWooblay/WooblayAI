@@ -28,6 +28,13 @@ import { statsRoutes } from './routes/stats.js';
 import { executionRoutes } from './routes/executions.js';
 import { activityRoutes } from './routes/activity.js';
 import { instanceRoutes } from './routes/instances.js';
+import { policyRoutes } from './routes/policies.js';
+import { flagRoutes } from './routes/flags.js';
+import { auditRoutes } from './routes/audit.js';
+import { missionRoutes } from './routes/mission.js';
+import { webhookRoutes } from './routes/webhooks.js';
+import { aiAnalysisRoutes } from './routes/ai-analysis.js';
+import { workspaceRoutes } from './routes/workspace.js';
 
 // Route modules — platform mode only
 import { userRoutes } from './routes/users.js';
@@ -61,7 +68,15 @@ export async function buildApp() {
   await app.register(statsRoutes);
   await app.register(executionRoutes);
   await app.register(activityRoutes);
+  // Workspace routes BEFORE instance routes (more specific /files path first)
+  await app.register(workspaceRoutes);
   await app.register(instanceRoutes);
+  await app.register(policyRoutes);
+  await app.register(flagRoutes);
+  await app.register(auditRoutes);
+  await app.register(missionRoutes);
+  await app.register(webhookRoutes);
+  await app.register(aiAnalysisRoutes);
 
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);

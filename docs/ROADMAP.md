@@ -1,50 +1,71 @@
 # Wooblay — Feature Roadmap
 
-Features that are partially built in the codebase but not yet integrated into the MVP release.
+## Shipped (MVP)
 
-## Partially Built (Code Exists)
+### Execution-Layer Gating
+Tool calls from agents are intercepted, risk-classified, and routed through policy evaluation. Actions are auto-allowed, auto-denied, or held for human approval with a 24-hour window. Every decision produces a cryptographically signed receipt.
 
-### Receipt Vault & Verification
-**Status:** Backend complete, UI scaffolded  
-**What it does:** Every agent action produces a cryptographically signed receipt with ed25519 signatures and SHA-256 hash chains. The vault page lets you browse all receipts, and each receipt can be independently verified for tamper-proofing.  
-**What's left:** Polish the vault search/filter UI, integrate receipt verification into the approvals flow, add export functionality.  
-**Files:** `apps/ui/src/pages/vault/VaultPage.tsx`, `apps/ui/src/pages/receipts/ReceiptPage.tsx`, `apps/gate/src/routes/receipts.ts`
+### Policy Engine with Presets
+CRUD policy rules with priority ordering, tool/risk matching, and argument patterns. Three one-click presets (Balanced, Strict, Permissive). Policy suggestions based on historical data.
 
-### Audit Trail with AI Analysis
-**Status:** Backend complete, UI scaffolded  
-**What it does:** Full chronological audit log with 12 anomaly detectors that auto-flag suspicious patterns (unusual timing, privilege escalation, repeated denied actions). Produces human-readable narration of causal chains.  
-**What's left:** Connect AI analysis endpoints to the UI, add real-time streaming of flags, tune detection thresholds.  
-**Files:** `apps/ui/src/pages/audit/AuditPage.tsx`, `apps/gate/src/routes/audit.ts`, `apps/gate/src/services/analysis.ts`
+### Human-Readable Descriptions
+Every tool call is translated into plain English. Approvals show what the agent is trying to do and why it was flagged — accessible to non-technical reviewers.
 
-### GitHub Attribution
-**Status:** Backend and webhook handler complete, UI scaffolded  
-**What it does:** Links agent actions back to GitHub PRs and commits. When a PR triggers an agent run, the audit trail shows exactly which code change caused which agent actions.  
-**What's left:** OAuth flow for GitHub app installation, webhook delivery verification, PR comment integration.  
-**Files:** `apps/ui/src/pages/github/GitHubPage.tsx`, `apps/gate/src/routes/github-webhook.ts`
+### Activity Feed with Flag Detection
+Filterable activity table showing all agent actions. Rule-based flag detection (velocity anomalies, retry loops, privilege escalation, sensitive access). Expandable rows with full details.
+
+### AI Supervisor (Optional)
+OpenAI-powered threat assessment, behavioral pattern analysis, contribution evaluation, and session summaries. Non-blocking and non-critical — gracefully degrades without API key.
+
+### Agent Trust Scoring
+0-100 trust score per agent computed from approval/denial history and detected flags. Trend indicators (improving/stable/declining). Displayed on Mission Cards and approval cards.
+
+### Cost Tracking
+Per-tool-call cost estimation with daily/weekly aggregation and burn rate calculation. Displayed on instance cards and mission views.
+
+### Audit Trail Export
+JSON and CSV export with date range filtering and summary statistics. Cryptographic hash chain integrity verification.
+
+### Mission Cards & Pipeline View
+Dashboard shows each instance as a Mission Card with current pipeline stage (Planning → Executing → Approval → Done), trust badge, cost estimate, and recent action summary.
+
+### Webhook Notifications
+Configurable outbound webhooks for approval events, critical flags, and trust alerts. CRUD management with test endpoint.
+
+### Multi-Instance Deployment
+Deploy, configure, start, stop, restart, and delete agent instances from the dashboard. Each instance gets isolated Docker container with own API keys and config.
+
+### Cryptographic Receipt Chain
+Every action produces an immutable receipt with ed25519 signature, SHA-256 hash chain, and RFC 8785 canonical JSON serialization.
+
+---
+
+## Partially Built (Code Exists, Not Fully Integrated)
+
+### Receipt Vault & Verification UI
+**Status:** Backend complete, frontend scaffolded
+Browse and verify receipts from the dashboard. Independent tamper-proof verification.
+**What's left:** Polish search/filter UI, integrate verification into approval flow.
+
+### Session Playback
+**Status:** Backend API complete (`/api/sessions/:id/playback`)
+Ordered timeline of all events in a session with optional AI summary.
+**What's left:** Dedicated frontend page with visual timeline.
+
+### Contribution Analytics
+**Status:** Backend complete, feeds into Mission Cards
+Per-agent metrics: files created/edited, commands run, PRs detected, approval efficiency.
+**What's left:** Dedicated analytics page with charts and trends.
 
 ### Task Timeline
-**Status:** Backend complete, UI scaffolded  
-**What it does:** Step-by-step visual timeline of every tool call within a task, showing the decision chain (policy eval → approval → execution → receipt).  
-**What's left:** Real-time timeline updates via SSE, timeline diff view for comparing runs.  
-**Files:** `apps/ui/src/pages/timeline/TimelinePage.tsx`, `apps/gate/src/routes/timeline.ts`
+**Status:** Backend complete, frontend scaffolded
+Step-by-step visual timeline of every tool call within a task.
+**What's left:** Real-time updates via SSE, timeline diff view.
 
 ### Task Scoring
-**Status:** Backend complete, UI scaffolded  
-**What it does:** Label task outcomes (SUCCESS/FAIL/NEEDS_HUMAN/REGRESSION) and track agent reliability over time. Feeds into policy suggestions.  
-**What's left:** Scoring input forms, per-agent reliability dashboards, automated scoring based on execution results.  
-**Files:** `apps/ui/src/pages/scoring/ScoringPage.tsx`, `apps/gate/src/routes/scores.ts`
-
-### Infrastructure Management
-**Status:** Backend health checks complete, UI scaffolded  
-**What it does:** Monitor runtime health, adapter connectivity, canary trap status, and system-level runtime configuration from a single page.  
-**What's left:** Live health streaming, adapter auto-discovery, configuration hot-reload.  
-**Files:** `apps/ui/src/pages/infrastructure/InfrastructurePage.tsx`, `apps/gate/src/routes/runtime.ts`
-
-### Session Detail View
-**Status:** Backend complete, UI scaffolded  
-**What it does:** Detailed view of all activity within a single agent session — every tool call, approval decision, and execution result in chronological order.  
-**What's left:** Session replay, session comparison, session export.  
-**Files:** `apps/ui/src/pages/sessions/SessionPage.tsx`
+**Status:** Backend complete, frontend scaffolded
+Label task outcomes (SUCCESS/FAIL/NEEDS_HUMAN). Feeds into policy suggestions.
+**What's left:** Scoring input forms, reliability dashboards.
 
 ---
 
@@ -53,23 +74,32 @@ Features that are partially built in the codebase but not yet integrated into th
 ### Slack / Teams Integration
 Approval notifications and actions directly from Slack or Microsoft Teams. Approve/deny agent actions without opening the dashboard.
 
-### Context Engine
-Shared memory layer across agents — agents can read/write structured context that persists across sessions and is visible in the dashboard for full transparency.
-
-### Agent Orchestration Graphs
-Visual DAG editor for defining multi-agent workflows. Chain agents together with conditional routing, parallel execution, and rollback triggers.
-
-### Rollback & Checkpoints
-Filesystem workspace snapshots before destructive actions. One-click rollback to any checkpoint in the receipt chain.
-
-### Cost Tracking & Budgets
-Per-agent and per-task cost tracking (LLM tokens, API calls, compute time). Set budget limits that auto-deny actions when exceeded.
+### MCP (Model Context Protocol) Proxy
+Universal adapter for any MCP-compatible agent (Claude Desktop, Cursor, Windsurf). Wooblay sits as a transparent MCP proxy — zero agent modification required.
 
 ### Custom Adapter SDK
-TypeScript SDK for building Wooblay adapters for any agent framework. Currently supports OpenClaw natively; SDK will enable integration with LangChain, CrewAI, AutoGPT, and custom agents.
+TypeScript SDK for building Wooblay adapters for any agent framework. Currently supports OpenClaw natively; SDK will enable LangChain, CrewAI, AutoGPT integration.
 
-### Multi-Tenant SaaS Mode
-Full multi-tenant deployment with per-tenant isolation, billing, and admin portal. Currently supports single-tenant managed instances.
+### Context Engine
+Shared memory layer across agents — agents read/write structured context that persists across sessions and is visible in the dashboard.
+
+### Agent Orchestration Graphs
+Visual DAG editor for multi-agent workflows. Chain agents with conditional routing, parallel execution, and rollback triggers.
+
+### Rollback & Checkpoints
+Filesystem snapshots before destructive actions. One-click rollback to any checkpoint in the receipt chain.
+
+### Cost Budgets & Alerts
+Per-agent and per-task budget limits. Auto-deny actions when budget exceeded. Alert thresholds.
 
 ### Compliance Reporting
-Auto-generated compliance reports (SOC 2, GDPR, HIPAA) based on the receipt chain and audit trail. Export to PDF with cryptographic attestation.
+Auto-generated SOC 2, GDPR, HIPAA reports from the receipt chain. PDF export with cryptographic attestation.
+
+### Multi-Tenant SaaS Mode
+Full multi-tenant with per-tenant isolation, usage-based billing, and admin portal.
+
+### Cross-Customer Threat Intelligence
+Anonymized pattern sharing across deployments. "Agents across our platform are increasingly attempting X."
+
+### Agent Performance Benchmarking
+Compare agent effectiveness across tasks, models, and configurations.

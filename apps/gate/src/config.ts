@@ -36,4 +36,11 @@ export const config = {
 
   /** Dashboard URL (Vercel frontend). */
   WOOBLAY_DASHBOARD_URL: process.env['WOOBLAY_DASHBOARD_URL'] ?? 'http://localhost:5173',
+
+  // ── AI Analysis ────────────────────────────────────────────────────────
+  /** OpenAI API key for AI-powered agent supervision. */
+  OPENAI_API_KEY: process.env['OPENAI_API_KEY'] ?? '',
+
+  /** OpenAI model for analysis. */
+  OPENAI_MODEL: process.env['OPENAI_MODEL'] ?? 'gpt-4.1-mini',
 } as const;

@@ -35,19 +35,32 @@ interface WizardData {
   telegramAllowedUsers: string;
 }
 
-const MODELS = [
-  'claude-sonnet-4-20250514',
-  'claude-opus-4-20250514',
-  'claude-3.5-sonnet-20241022',
-  'gpt-4o',
-  'gpt-4o-mini',
+const MODELS: { id: string; label: string; tier: 'flagship' | 'standard' | 'fast' }[] = [
+  // Anthropic — flagship
+  { id: 'claude-opus-4-20250514', label: 'Claude Opus 4', tier: 'flagship' },
+  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', tier: 'standard' },
+  { id: 'claude-4.6-opus', label: 'Claude 4.6 Opus', tier: 'flagship' },
+  { id: 'claude-3.5-sonnet-20241022', label: 'Claude 3.5 Sonnet', tier: 'standard' },
+  { id: 'claude-3.5-haiku-20241022', label: 'Claude 3.5 Haiku', tier: 'fast' },
+  // OpenAI
+  { id: 'gpt-4.1', label: 'GPT-4.1', tier: 'flagship' },
+  { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', tier: 'standard' },
+  { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', tier: 'fast' },
+  { id: 'gpt-4o', label: 'GPT-4o', tier: 'standard' },
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', tier: 'fast' },
+  { id: 'o3', label: 'o3', tier: 'flagship' },
+  { id: 'o4-mini', label: 'o4-mini', tier: 'standard' },
+  // Google
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'flagship' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'fast' },
 ];
+
 
 function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<WizardData>({
     name: '',
-    model: MODELS[0],
+    model: MODELS[0].id,
     anthropicApiKey: '',
     githubToken: '',
     telegramEnabled: false,
@@ -64,7 +77,7 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
       toast('Instance deployed successfully', 'success');
       onClose();
       setStep(1);
-      setData({ name: '', model: MODELS[0], anthropicApiKey: '', githubToken: '', telegramEnabled: false, telegramBotToken: '', telegramAllowedUsers: '' });
+      setData({ name: '', model: MODELS[0].id, anthropicApiKey: '', githubToken: '', telegramEnabled: false, telegramBotToken: '', telegramAllowedUsers: '' });
     },
     onError: (err) => toast(`Deploy failed: ${err.message}`, 'error'),
   });
@@ -125,7 +138,11 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
                 onChange={(e) => setData({ ...data, model: e.target.value })}
                 className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent/50"
               >
-                {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+                {MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} ({m.tier})
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -261,7 +278,7 @@ function ConfigureModal({ instance, open, onClose }: { instance: Instance; open:
   const [telegramAllowedUsers, setTelegramAllowedUsers] = useState(existingConfig.telegramAllowedUsers ?? '');
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [githubToken, setGithubToken] = useState('');
-  const [model, setModel] = useState(instance.model || MODELS[0]);
+  const [model, setModel] = useState(instance.model || MODELS[0].id);
 
   const updateMut = useMutation({
     mutationFn: (body: Partial<CreateInstanceRequest>) => updateInstance(instance.id, body),
@@ -304,7 +321,11 @@ function ConfigureModal({ instance, open, onClose }: { instance: Instance; open:
               onChange={(e) => setModel(e.target.value)}
               className="w-full bg-surface-0 border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent/50"
             >
-              {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+              {MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label} ({m.tier})
+                </option>
+              ))}
             </select>
           </div>
 

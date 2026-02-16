@@ -1,8 +1,16 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser as useClerkUser } from '@clerk/clerk-react';
 import { getApprovals } from '../../api/client.ts';
 import clsx from 'clsx';
+
+const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+function useSafeUser(): { user: any } {
+  if (!HAS_CLERK) return { user: null };
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  return useClerkUser();
+}
 
 const NAV_ITEMS: ReadonlyArray<{
   to: string;
@@ -12,7 +20,6 @@ const NAV_ITEMS: ReadonlyArray<{
   badge?: boolean;
 }> = [
   { to: '/', label: 'Dashboard', icon: '◉', end: true },
-  { to: '/instances', label: 'Instances', icon: '◎' },
   { to: '/approvals', label: 'Approvals', icon: '⬡', badge: true },
   { to: '/policies', label: 'Policies', icon: '◇' },
   { to: '/activity', label: 'Activity', icon: '◈' },
@@ -20,7 +27,7 @@ const NAV_ITEMS: ReadonlyArray<{
 
 export function Sidebar() {
   const location = useLocation();
-  const { user } = useUser();
+  const { user } = useSafeUser();
 
   const { data: approvals } = useQuery({
     queryKey: ['approvals', 'pending'],

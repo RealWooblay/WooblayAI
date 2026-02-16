@@ -96,7 +96,7 @@ program
   .requiredOption('--runtime <name>', 'Runtime manifest name (e.g. openclaw)', 'openclaw')
   .requiredOption('--tenant <name>', 'Tenant name (lowercase, alphanumeric + hyphens)')
   .option('--region <region>', 'AWS region', 'us-east-1')
-  .option('--instance-type <type>', 'EC2 instance type', 't3.medium')
+  .option('--instance-type <type>', 'EC2 instance type', 't4g.medium')
   .option('--skip-build', 'Skip Docker image build', false)
   .option('--skip-push', 'Skip pushing images to ECR', false)
   .option('--dry-run', 'Plan only, do not create resources', false)
