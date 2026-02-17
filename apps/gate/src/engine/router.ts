@@ -432,8 +432,6 @@ async function applyRouting(
       confidence: result.confidence,
       status: result.status === 'needs_approval' ? ('pending' as const) : (result.status as any),
       classifiedIntent: result.classifiedIntent,
-      riskAssessment: result.riskAssessment,
-      suggestedFollowUp: result.suggestedFollowUp,
     },
   });
 }

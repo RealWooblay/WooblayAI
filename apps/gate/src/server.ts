@@ -157,14 +157,6 @@ async function start() {
     }
   }
 
-  // Start the run recovery reaper
-  try {
-    const { startReaper } = await import('./engine/run-recovery.js');
-    startReaper(prisma);
-    console.log('[reaper] Run recovery reaper started');
-  } catch (err) {
-    console.error('[reaper] Failed to start reaper:', err);
-  }
 
   try {
     await app.listen({ port: config.PORT, host: '0.0.0.0' });

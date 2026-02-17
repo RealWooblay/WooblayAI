@@ -466,7 +466,7 @@ function LiveEventRow({ event }: { event: LiveEvent }) {
   };
 
   const config = typeConfig[event.type] ?? { label: event.type, color: 'text-text-muted', icon: '.' };
-  const data = event.data ?? {};
+  const data = (event.data ?? {}) as Record<string, any>;
   const time = new Date(event.timestamp);
   const timeStr = time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
