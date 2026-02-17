@@ -47,6 +47,4 @@ export interface ActionDefinition {
   describe: (params: Record<string, unknown>) => string;
   /** Validate params before execution */
   validate: (params: Record<string, unknown>) => { valid: boolean; error?: string };
-  /** Build a dry-run command (for simulation) */
-  buildDryRunCommand?: (params: Record<string, unknown>) => string | null;
 }

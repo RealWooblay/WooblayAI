@@ -21,13 +21,14 @@ import { createApproval } from '../services/approval.js';
 import { validateBody } from '../middleware/validate.js';
 import { describeToolCall, explainWhyFlagged } from '../engine/analysis.js';
 import { detectFlags } from '../engine/flags.js';
-import { getActionDefinition, listActions } from '../engine/action-registry.js';
+import { getActionDefinition } from '../engine/action-registry.js';
 import { parseScopeBoundaries, checkScope } from '../engine/scope.js';
-import { simulateAction, supportsSimulation } from '../engine/simulate.js';
+import { simulateAction, simulateLocalAction, shouldSimulate } from '../engine/simulate.js';
 import { executeSecureAction } from '../engine/secure-exec.js';
 import { emitRunEvent } from '../engine/run-events.js';
 import { redactSecrets } from '../services/vault.js';
 import { getOrgScope } from '../middleware/org-scope.js';
+import type { SimulationThreshold } from '../types/simulation.js';
 
 /** Default decision trail when none is provided by the agent. */
 const defaultTrail: DecisionTrail = {
@@ -36,6 +37,23 @@ const defaultTrail: DecisionTrail = {
   inputs_used: [],
   citations: [],
 };
+
+/** Read org simulation threshold from settings. Defaults to 'high'. */
+async function getOrgSimulationThreshold(orgId: string | null): Promise<SimulationThreshold> {
+  if (!orgId) return 'high';
+  try {
+    const org = await prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { settings: true },
+    });
+    if (org?.settings) {
+      const settings = JSON.parse(org.settings);
+      const valid: SimulationThreshold[] = ['critical_only', 'high', 'medium', 'all'];
+      if (valid.includes(settings.simulationThreshold)) return settings.simulationThreshold;
+    }
+  } catch { /* default */ }
+  return 'high';
+}
 
 export async function toolRoutes(app: FastifyInstance): Promise<void> {
   app.post(
@@ -143,7 +161,58 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
         // 5. Handle the decision
         switch (policyDecision.decision) {
           case Decision.ALLOW: {
-            // ALLOW → EXECUTE immediately
+            // Policy says ALLOW — now check if Layer 2 (simulation) should trigger.
+            // This is dynamic: based on the AI risk tier and the org's threshold setting.
+            const org = getOrgScope(request);
+            const simThreshold = await getOrgSimulationThreshold(org.orgId ?? null);
+            const needsSim = shouldSimulate(riskTier, simThreshold, false);
+
+            let simResult = null;
+            if (needsSim) {
+              try {
+                const syntheticRunId = `gate-${toolCall.id}`;
+                simResult = await simulateLocalAction(prisma, {
+                  toolName: body.toolName,
+                  args: parsedArgs,
+                  riskTier,
+                  aiDescription: aiDescription ?? undefined,
+                  runId: syntheticRunId,
+                });
+
+                if (!simResult.passed) {
+                  // Simulation failed (intent mismatch) — block the action
+                  const receipt = await createReceipt(prisma, {
+                    toolCallId: toolCall.id,
+                    agentPubkey: body.agentPubkey,
+                    toolName: body.toolName,
+                    riskTier,
+                    policyDecision: 'DENY',
+                    policyRuleId: policyDecision.ruleId ?? null,
+                    decisionTrail,
+                  });
+
+                  return reply.code(200).send({
+                    decision: 'DENY',
+                    toolCallId: toolCall.id,
+                    receiptId: receipt.id,
+                    reason: `Simulation blocked: ${simResult.summary}`,
+                    description,
+                    whyFlagged: simResult.summary,
+                    riskTier,
+                    simulation: {
+                      strategy: simResult.strategy,
+                      passed: false,
+                      summary: simResult.summary,
+                      aiAnalysis: simResult.aiAnalysis,
+                    },
+                  });
+                }
+              } catch (err) {
+                request.log.warn(err, 'Simulation failed (non-blocking, allowing through)');
+              }
+            }
+
+            // ALLOW → EXECUTE
             const receipt = await createReceipt(prisma, {
               toolCallId: toolCall.id,
               agentPubkey: body.agentPubkey,
@@ -161,6 +230,11 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
               reason: policyDecision.reason,
               description,
               riskTier,
+              simulation: simResult ? {
+                strategy: simResult.strategy,
+                passed: simResult.passed,
+                summary: simResult.summary,
+              } : undefined,
             });
           }
 
@@ -231,20 +305,13 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'action and params are required' });
     }
 
-    // Validate action exists in registry
+    // Look up optional convenience shortcut — NOT a gatekeeper
     const actionDef = getActionDefinition(body.action);
-    if (!actionDef) {
-      const supported = listActions().map((a) => a.action).join(', ');
-      return reply.code(400).send({
-        error: `Unknown action: ${body.action}`,
-        supportedActions: supported,
-      });
-    }
 
-    // For exec:run, the provider comes from params (agent specifies which creds to use)
-    const effectiveProvider = body.action === 'exec:run' && body.params.provider
+    // Provider resolution: params.provider > action def > default
+    const effectiveProvider = body.params.provider
       ? String(body.params.provider)
-      : actionDef.provider;
+      : actionDef?.provider ?? 'generic';
 
     // Find connection for this provider in the caller's org
     const org = getOrgScope(request);
@@ -269,31 +336,30 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // Layer 2: Simulation
+    // Layer 2: Simulation — credential actions ALWAYS get simulated
     let simulationResult = null;
-    // Use a synthetic run ID for agent-initiated actions (not tied to an operation run)
     const syntheticRunId = `agent-${Date.now()}`;
-    if (supportsSimulation(body.action)) {
-      try {
-        simulationResult = await simulateAction(prisma, {
-          actionSpec: { action: body.action, params: body.params },
-          connectionId: connection.id,
-          runId: syntheticRunId,
+    try {
+      simulationResult = await simulateAction(prisma, {
+        actionSpec: { action: body.action, params: body.params },
+        connectionId: connection.id,
+        runId: syntheticRunId,
+        statedIntent: body.action,
+      });
+      if (!simulationResult.passed) {
+        return reply.code(403).send({
+          success: false,
+          error: 'Pre-execution simulation failed — intent mismatch detected',
+          simulation: {
+            strategy: simulationResult.strategy,
+            summary: simulationResult.summary,
+            details: simulationResult.details,
+            aiAnalysis: simulationResult.aiAnalysis,
+          },
         });
-        if (!simulationResult.passed) {
-          return reply.code(403).send({
-            success: false,
-            error: 'Pre-execution simulation failed',
-            simulation: {
-              strategy: simulationResult.strategy,
-              summary: simulationResult.summary,
-              details: simulationResult.details,
-            },
-          });
-        }
-      } catch (err: any) {
-        request.log.warn(err, 'Simulation failed (non-blocking)');
       }
+    } catch (err: any) {
+      request.log.warn(err, 'Simulation failed (non-blocking, allowing through)');
     }
 
     // Layer 3: Secure execution

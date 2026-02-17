@@ -43,13 +43,7 @@ function getKek(): { keyId: string; key: Buffer } {
   const masterKeyHex = config.VAULT_MASTER_KEY;
   const isProduction = config.NODE_ENV === 'production';
 
-  // Production: both KMS_KEY_ID and VAULT_MASTER_KEY are required
-  if (isProduction && !kmsKeyId) {
-    throw new Error(
-      'FATAL: KMS_KEY_ID must be set in production. ' +
-      'Wooblay refuses to start without KMS-backed encryption in production.',
-    );
-  }
+  // Production: VAULT_MASTER_KEY is required. KMS_KEY_ID is recommended but not mandatory.
   if (isProduction && !masterKeyHex) {
     throw new Error(
       'FATAL: VAULT_MASTER_KEY must be set in production. ' +

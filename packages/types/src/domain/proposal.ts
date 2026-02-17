@@ -3,8 +3,7 @@ export type ProposalStatus =
   | 'approved'
   | 'denied'
   | 'executed'
-  | 'verified'
-  | 'rolled_back';
+  | 'verified';
 
 export type RiskClass = 'low' | 'medium' | 'high' | 'critical';
 
@@ -28,6 +27,5 @@ export interface Proposal {
   policySnapshot: string | null;
   verificationId: string | null;
   toolCallId: string | null;
-  rollbackOf: string | null;
   createdAt: string;
 }

@@ -252,6 +252,3 @@ export async function operationRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(updated);
   });
 }
-
-/** @deprecated Use operationRoutes */
-export const incidentRoutes = operationRoutes;

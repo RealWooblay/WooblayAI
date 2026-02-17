@@ -26,18 +26,19 @@ When you **Add sensor** (GitHub), you create a **Connection**. That single conne
 
 | Role | What it does | Direction |
 |------|----------------|-----------|
-| **Sensor** | Receives webhooks from GitHub (PR opened, push, check_run). The sensor engine turns those into **Operations** (with a fixed intent per event type). | **Inbound**: GitHub → Wooblay |
+| **Sensor** | Receives webhooks from GitHub (PR opened, push, check_run). The sensor engine turns those into **Operations** with intent derived from user-defined event rules (or built-in defaults). | **Inbound**: GitHub → Wooblay |
 | **Gateway** | When the agent wants to create a PR, comment on a PR, or push a branch, the agent sends a **capability token** to the Tool Gateway. The gateway looks up an active **Connection** for your org, decrypts the stored credential, and calls the GitHub API. The agent never sees the token. | **Outbound**: Agent → Gateway → GitHub |
 
 So the **same credential** you add for the sensor is what the **agent uses** to make PRs or comments — through the gateway, not through the sensor. The sensor only observes and creates operations; it does not execute. Execution is via the Tool Gateway.
 
-**Where does intent (e.g. "qa") come from?** It is **not** set in the UI. It is **hardcoded in the sensor engine** by event type:
+**Where does intent (e.g. "fix") come from?** Intent is **AI-classified from context**, with optional user hints:
 
-- `pull_request` opened/synchronize (non-draft) → `intent: 'qa'`
-- Push to default branch → `intent: 'review'`
-- Check run failed (default branch or agent PR) → `intent: 'fix'`
+1. **No hardcoded defaults** — If the user hasn't configured event rules, all matched events create operations with `pending_classification` intent. The AI router classifies intent from the full event context.
+2. **User hints (optional)** — Users can enable/disable specific event types and set a default intent (e.g., "CI failures default to fix"). These are hints, not rules — the AI router may reclassify when context warrants it.
+3. **AI router classification** — The universal routing prompt (domain-agnostic, works for any sensor type) analyzes the rich event context to determine true intent. It scores agents on role match, specialization, complexity fit, and routing history (past success rates). It also recommends follow-up operations when appropriate (e.g., fix → verify).
+4. **Smart escalation** — The sensor engine automatically adjusts priority from context signals. Force push to protected branch → P0. High-risk files changed → escalate. Massive changes → escalate. No manual conditions — the engine reads context and decides.
 
-The UI only lets you configure which events/repos/branches to watch (sensor config); it does not let you choose or override the intent.
+**Rich event context** — Sensors extract structured signals from payloads: code change metrics (additions, deletions, change size classification), risk signals (sensitive file detection: env, Docker, CI config, secrets), branch classification (default, release, agent, protected), author type, PR labels, force push detection, and more. All signals feed the AI router for classification and agent matching.
 
 ---
 
@@ -145,7 +146,7 @@ Result returned to caller (agent/orchestrator)
 - Has built-in tools: `exec` (shell), `write` (files), `edit` (files), `browser`, `web_fetch`, etc.
 - Has a plugin system (extensions) and a hook system (event listeners)
 
-Wooblay integrates with OpenClaw at **three levels**:
+Wooblay integrates with OpenClaw at **two levels**:
 
 ### 1. Wooblay Plugin (gated tools)
 
@@ -169,26 +170,15 @@ Each gated tool:
 
 **The agent itself (the LLM) is told** these tools exist. When it decides "I need to run a command", it calls `gated_exec` — it doesn't know that a policy check is happening behind the scenes.
 
-### 2. Hook handler (audit logging)
+### 2. Hook handler (policy enforcement + audit)
 
 **File:** `packages/adapters/openclaw/src/hooks/handler.ts`
 
-OpenClaw fires events for every tool call (`tool:start`, `tool:result`). The Wooblay hook listens to these and:
-- On `tool:start`: POSTs to Gate to log the tool call
-- On `tool:result`: POSTs to Gate to record the result and generate a signed receipt
+OpenClaw fires events for every tool call (`tool:start`, `tool:result`). The Wooblay hook listens to these and **enforces policy**:
+- On `tool:start`: POSTs to Gate for policy evaluation. If Gate returns DENY, the hook **throws to abort execution**. If Gate is unreachable, the hook blocks the action (fail-safe). If PENDING_APPROVAL, the hook blocks and directs the agent to use gated tools.
+- On `tool:result`: POSTs to Gate to record the result and generate a signed receipt.
 
-This is **fire-and-forget** (non-blocking). It doesn't affect execution — it's purely for the audit trail.
-
-### 3. Exec Approval Bridge (blocking approval flow)
-
-**File:** `packages/adapters/openclaw/src/bridge/exec-approval-bridge.ts`
-
-OpenClaw has a native approval system (`exec-approvals.json`). The bridge:
-1. Listens for `exec.approval.requested` events from OpenClaw
-2. Forwards each request to Gate for policy evaluation
-3. Resolves the approval back to OpenClaw (allow / deny)
-
-The pre-baked `exec-approvals.json` sets `ask: "always"` and `askFallback: "deny"`, so every risky tool call from OpenClaw's built-in tools goes through this flow.
+This is **not** fire-and-forget — the hook actively enforces policy on every tool call from any source (built-in, plugin, MCP server). No skip lists, no hardcoded exceptions.
 
 ---
 

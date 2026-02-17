@@ -11,8 +11,6 @@ export interface SecureExecRequest {
   runId: string;
   /** Path to agent workspace (if workspace mount is needed) */
   workspacePath?: string;
-  /** Whether to run dry-run simulation first */
-  simulate?: boolean;
 }
 
 export interface SecureExecResult {
@@ -23,12 +21,5 @@ export interface SecureExecResult {
   durationMs: number;
   containerId: string;
   description: string;
-  /** Dry-run result (if simulation was requested) */
-  simulation?: {
-    passed: boolean;
-    stdout: string;
-    stderr: string;
-    exitCode: number;
-  };
   error?: string;
 }

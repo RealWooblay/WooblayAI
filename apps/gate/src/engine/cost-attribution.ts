@@ -11,7 +11,6 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
-import { emitRunEvent } from './run-events.js';
 
 import type { CostCategory, CostEntry, RunCostSummary } from '../types/budget.js';
 export type { CostCategory, CostEntry, RunCostSummary };

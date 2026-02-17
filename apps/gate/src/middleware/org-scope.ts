@@ -25,22 +25,6 @@ export interface OrgScope {
   canAccess: (targetOrgId: string | null) => boolean;
 }
 
-// ── Models that require org scoping ─────────────────────────────────────
-
-export const ORG_SCOPED_MODELS = [
-  'Incident',
-  'Run',
-  'Connection',
-  'Workspace',
-  'Artifact',
-  'Verification',
-  'RepoConfig',
-  'SecretLease',
-  'EvidenceBundle',
-  'PolicyRule',
-  'RunCost',
-] as const;
-
 // ── Extract org scope from request ──────────────────────────────────────
 
 /**

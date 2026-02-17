@@ -21,7 +21,7 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // ── Deterministic Run ID ────────────────────────────────────────────────
 
-export function computeRunId(operationId: string, attempt: number): string {
+function computeRunId(operationId: string, attempt: number): string {
   return createHash('sha256')
     .update(`${operationId}:${attempt}`)
     .digest('hex')
@@ -30,7 +30,7 @@ export function computeRunId(operationId: string, attempt: number): string {
 
 // ── State Machine ───────────────────────────────────────────────────────
 
-export function canTransition(from: RunStatus, to: RunStatus): boolean {
+function canTransition(from: RunStatus, to: RunStatus): boolean {
   const allowed = RUN_TRANSITIONS[from];
   return allowed?.includes(to) ?? false;
 }
@@ -263,35 +263,6 @@ export async function killRun(
   }
 
   return transitionRun(prisma, runId, targetStatus, `Kill switch: ${reason}`);
-}
-
-// ── Budget Tracking ─────────────────────────────────────────────────────
-
-export async function recordSpend(
-  prisma: PrismaClient,
-  runId: string,
-  amountCents: number,
-): Promise<{ exceeded: boolean }> {
-  const run = await prisma.run.update({
-    where: { id: runId },
-    data: { spentCents: { increment: amountCents } },
-  });
-
-  const exceeded = run.spentCents >= run.budgetCents;
-
-  if (exceeded) {
-    await persistEvent(prisma, {
-      type: 'run.budget_exceeded',
-      data: { runId, budgetCents: run.budgetCents, spentCents: run.spentCents },
-    });
-
-    await emitRunEvent(prisma, runId, 'budget', {
-      budgetCents: run.budgetCents,
-      spentCents: run.spentCents,
-    });
-  }
-
-  return { exceeded };
 }
 
 // ── Timeout Detection ───────────────────────────────────────────────────

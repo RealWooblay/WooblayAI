@@ -88,10 +88,11 @@ The core innovation. Every credentialed agent action passes through three sequen
 - `checkScope()` validates the action + params against patterns before execution.
 - Example: `git:push` allowed only to `feature/*` branches, blocked from `main`.
 
-**Layer 2: Pre-Execution Simulation** (`engine/simulate.ts`)
-- Dry-run the action before real execution.
-- Strategies: `DRY_RUN` (container with `--dry-run` flag), `DIFF_PREVIEW`, `API_CHECK`, `EVIDENCE_BUNDLE`.
-- `simulateAction()` returns pass/fail with structured details.
+**Layer 2: Sandbox Simulation + AI Intent Verification** (`engine/simulate.ts`)
+- Runs the command in an isolated sandbox container (`--network none`, no credentials, read-only filesystem) then AI verifies the command's behavior matches its stated intent.
+- Strategies: `SANDBOX_EXEC` (container sandbox for exec/structured actions), `CONTENT_ANALYSIS` (AI analysis for write/edit operations).
+- `simulateAction()` and `simulateLocalAction()` return pass/fail with AI intent analysis.
+- `shouldSimulate()` dynamically decides if simulation triggers based on org threshold and risk tier.
 
 **Layer 3: Ephemeral Secure Execution** (`engine/secure-exec.ts`)
 - Spawn a short-lived Docker container with:

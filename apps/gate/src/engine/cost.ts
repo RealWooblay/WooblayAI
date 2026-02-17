@@ -52,10 +52,10 @@ export function estimateAgentTurnCost(model: string): number {
   return 0.03; // default: Sonnet-class
 }
 
-/** Compute cost summary for a given agent or instance. */
+/** Compute cost summary for a given agent. */
 export async function computeCostSummary(
   prisma: PrismaClient,
-  filter: { agentPubkey?: string; instanceId?: string },
+  filter: { agentPubkey?: string },
 ): Promise<CostSummary> {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());

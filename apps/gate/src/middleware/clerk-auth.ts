@@ -35,6 +35,9 @@ const PUBLIC_PATHS = [
   '/api/tool/execute',
   '/api/tool/structured-execute',
   '/api/sync/events',
+  '/api/gateway/execute',
+  '/api/gateway/capabilities',
+  '/api/gateway/bypass-report',
 ];
 
 /** Route prefixes that never require user auth (e.g. external webhooks). */

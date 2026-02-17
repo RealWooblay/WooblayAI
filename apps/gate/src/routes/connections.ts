@@ -12,7 +12,6 @@ import { prisma } from '../db/client.js';
 import { getOrgScope, withOrg } from '../middleware/org-scope.js';
 import { envelopeEncrypt, envelopeDecrypt, isEncrypted } from '../services/vault.js';
 import { resolveGitHubToken } from '../services/github-app.js';
-import { listActions } from '../engine/action-registry.js';
 import { parseScopeBoundaries, describeScopeBoundaries } from '../engine/scope.js';
 
 export async function connectionRoutes(app: FastifyInstance): Promise<void> {
@@ -40,10 +39,7 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
         },
       });
 
-      // Enrich with available actions per provider
-      const allActions = listActions();
       const enriched = connections.map((c) => {
-        const providerActions = allActions.filter((a) => a.provider === c.provider);
         const boundaries = parseScopeBoundaries(c.scopeBoundaries);
         return {
           ...c,
@@ -53,8 +49,8 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
             config: c.sensorConfig ? (() => { try { return JSON.parse(c.sensorConfig!); } catch { return null; } })() : null,
           },
           execution: {
-            actions: providerActions,
             scopeBoundaries: describeScopeBoundaries(boundaries),
+            note: 'Any action can be executed through this provider. The gate enforces policy on every call.',
           },
         };
       });
@@ -416,11 +412,10 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ secrets: allSecrets });
   });
 
-  // ── List available actions ───────────────────────────────────────────
-  app.get('/api/actions/available', async (request: FastifyRequest, reply: FastifyReply) => {
+  // ── Connected providers (replaces hardcoded action list) ────────────
+  app.get('/api/connections/providers', async (request: FastifyRequest, reply: FastifyReply) => {
     const org = getOrgScope(request);
 
-    // Get active connections for this org
     const connections = await prisma.connection.findMany({
       where: { ...org.filter, status: 'active' },
       select: {
@@ -431,22 +426,16 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
-    const allActions = listActions();
-    const connectedProviders = new Set(connections.map((c) => c.provider));
-
-    const available = allActions.map((a) => ({
-      ...a,
-      connected: connectedProviders.has(a.provider),
-      connections: connections
-        .filter((c) => c.provider === a.provider)
-        .map((c) => ({
-          id: c.id,
-          name: c.name,
-          scopeBoundaries: describeScopeBoundaries(parseScopeBoundaries(c.scopeBoundaries))
-            .filter((sb) => sb.action === a.action),
-        })),
+    const providers = connections.map((c) => ({
+      id: c.id,
+      provider: c.provider,
+      name: c.name,
+      scopeBoundaries: describeScopeBoundaries(parseScopeBoundaries(c.scopeBoundaries)),
     }));
 
-    return reply.send(available);
+    return reply.send({
+      providers,
+      note: 'Any action can be executed through any connected provider. Policy is enforced dynamically by the gate.',
+    });
   });
 }

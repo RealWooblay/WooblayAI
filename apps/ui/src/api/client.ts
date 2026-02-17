@@ -395,6 +395,20 @@ export const applyPreset = (name: string, instanceId?: string) =>
   fetchApi<{ preset: string; description: string; rules: PolicyRule[] }>(`/api/policies/presets/${name}${toQueryString({ instanceId })}`, { method: 'POST', body: '{}' });
 
 // ---------------------------------------------------------------------------
+// Org Policy Settings (simulation threshold, etc.)
+// ---------------------------------------------------------------------------
+
+export interface OrgPolicySettings {
+  simulationThreshold: 'critical_only' | 'high' | 'medium' | 'all';
+}
+
+export const getOrgPolicySettings = () =>
+  fetchApi<OrgPolicySettings>('/api/policies/settings');
+
+export const updateOrgPolicySettings = (body: Partial<OrgPolicySettings>) =>
+  fetchApi<OrgPolicySettings>('/api/policies/settings', { method: 'PUT', body: JSON.stringify(body) });
+
+// ---------------------------------------------------------------------------
 // Flags
 // ---------------------------------------------------------------------------
 
@@ -805,9 +819,9 @@ export const addConnectionSecret = (connectionId: string, secret: { key: string;
 export const deleteConnectionSecret = (connectionId: string, key: string) =>
   fetchApi<any>(`/api/connections/${connectionId}/secrets/${key}`, { method: 'DELETE' });
 
-// ── Available Actions ───────────────────────────────────────────────────
+// ── Connected Providers ──────────────────────────────────────────────────
 
-export const getAvailableActions = () => fetchApi<any[]>('/api/actions/available');
+export const getConnectedProviders = () => fetchApi<any>('/api/connections/providers');
 
 // ── MVP: Budget ─────────────────────────────────────────────────────────
 
@@ -824,20 +838,6 @@ export const getVerificationStats = (runId: string) =>
   fetchApi<{ total: number; passed: number; failed: number; skipped: number; passRate: number | null }>(
     `/api/runs/${runId}/verification-stats`,
   );
-
-// ── MVP: Rollbacks ──────────────────────────────────────────────────────
-
-export const createRollback = (
-  runId: string,
-  data: { originalProposalId: string; type: string; reason: string },
-) =>
-  fetchApi<{ rollbackProposalId: string; status: string }>(`/api/runs/${runId}/rollback`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-
-export const getRunRollbacks = (runId: string) =>
-  fetchApi<any[]>(`/api/runs/${runId}/rollbacks`);
 
 // ── MVP: Repo Config ────────────────────────────────────────────────────
 
@@ -873,3 +873,28 @@ export const stopWorkspace = (workspaceId: string) =>
 
 export const rerunEvidence = (bundleId: string) =>
   fetchApi<any>(`/api/evidence/${bundleId}/rerun`, { method: 'POST', body: JSON.stringify({}) });
+
+// ── External API Keys ────────────────────────────────────────────────────
+
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface ApiKeyCreated extends ApiKeyInfo {
+  key: string; // Plaintext — only returned once
+}
+
+export const getApiKeys = () =>
+  fetchApi<ApiKeyInfo[]>('/api/api-keys');
+
+export const createApiKey = (data: { name: string; expiresInDays?: number }) =>
+  fetchApi<ApiKeyCreated>('/api/api-keys', { method: 'POST', body: JSON.stringify(data) });
+
+export const revokeApiKey = (id: string) =>
+  fetchApi<{ revoked: boolean }>(`/api/api-keys/${id}`, { method: 'DELETE' });

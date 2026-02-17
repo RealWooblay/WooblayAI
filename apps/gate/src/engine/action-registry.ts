@@ -1,17 +1,17 @@
 /**
- * Action Registry — maps structured action requests to execution specs.
+ * Action Registry — optional convenience shortcuts for common actions.
  *
- * Agents send structured action requests (not shell commands):
- *   { action: "git:push", params: { remote: "origin", branch: "feature-x" } }
+ * The registry is NOT a gatekeeper. Any action can be executed through the
+ * gateway — if it's not in the registry, it's treated as generic execution:
+ * the agent provides { command, provider, image? } and Wooblay runs it in an
+ * ephemeral container with the provider's credentials.
  *
- * The registry translates these to deterministic execution specs:
- *   - The exact CLI command to run
- *   - The base Docker image needed
- *   - Which credentials to inject
- *   - Which network endpoints to allow
+ * Registry entries are shortcuts: if an agent sends "git:push" with { branch },
+ * the registry knows how to build the git command, which image to use, etc.
+ * But the agent could also send a generic action with the raw command.
  *
- * This is the foundation of secure execution: the agent declares WHAT it wants,
- * Wooblay decides HOW to execute it safely.
+ * The three-layer security moat (policy → simulation → secure exec) applies
+ * to ALL actions regardless of whether they're in the registry.
  */
 
 import type { ActionSpec, ExecutionSpec, ActionDefinition } from '../types/actions.js';
@@ -39,11 +39,6 @@ const ACTIONS: Record<string, ActionDefinition> = {
       if (!p.branch) return { valid: false, error: 'branch is required' };
       if (typeof p.branch !== 'string') return { valid: false, error: 'branch must be a string' };
       return { valid: true };
-    },
-    buildDryRunCommand: (p) => {
-      const remote = sanitize(String(p.remote ?? 'origin'));
-      const branch = sanitize(String(p.branch));
-      return `git -C /workspace push --dry-run ${remote} ${branch}`;
     },
   },
 
@@ -81,11 +76,6 @@ const ACTIONS: Record<string, ActionDefinition> = {
     buildEnv: () => ({}),
     describe: (p) => `Pull from ${p.remote ?? 'origin'}${p.branch ? ` (${p.branch})` : ''}`,
     validate: () => ({ valid: true }),
-    buildDryRunCommand: (p) => {
-      const remote = sanitize(String(p.remote ?? 'origin'));
-      const branch = p.branch ? sanitize(String(p.branch)) : '';
-      return `git -C /workspace fetch --dry-run ${remote} ${branch}`.trim();
-    },
   },
 
   // ── GitHub API Operations ─────────────────────────────────────────────
@@ -178,12 +168,6 @@ const ACTIONS: Record<string, ActionDefinition> = {
       if (!p.source) return { valid: false, error: 'source is required' };
       if (!p.destination) return { valid: false, error: 'destination is required' };
       return { valid: true };
-    },
-    buildDryRunCommand: (p) => {
-      const src = sanitize(String(p.source));
-      const dst = sanitize(String(p.destination));
-      const recursive = p.recursive ? ' --recursive' : '';
-      return `aws s3 cp --dryrun ${src} ${dst}${recursive}`;
     },
   },
 
@@ -301,92 +285,76 @@ export function getActionDefinition(action: string): ActionDefinition | null {
 
 /**
  * Build a full execution spec from an action request + credential map.
+ *
+ * If the action is in the registry, uses the structured definition.
+ * If not, falls through to generic execution — the agent must provide
+ * { command, provider } in params. This means ANY action can execute
+ * through the gateway, not just registered ones.
  */
 export function buildExecutionSpec(
   spec: ActionSpec,
   credentials: Record<string, string>,
 ): ExecutionSpec | { error: string } {
   const def = getActionDefinition(spec.action);
-  if (!def) {
-    return { error: `Unknown action: ${spec.action}. Supported: ${Object.keys(ACTIONS).join(', ')}` };
+
+  // ── Known action (registry shortcut) ──────────────────────────────
+  if (def) {
+    const validation = def.validate(spec.params);
+    if (!validation.valid) {
+      return { error: `Invalid params for ${spec.action}: ${validation.error}` };
+    }
+
+    const command = def.buildCommand(spec.params);
+    const env = { ...def.buildEnv(spec.params), ...credentials };
+
+    const image = spec.params.image ? String(spec.params.image) : def.image;
+    const timeoutMs = spec.params.timeout
+      ? Math.min(Number(spec.params.timeout), 600_000)
+      : def.timeoutMs;
+    const mountWorkspace = spec.params.mountWorkspace !== undefined
+      ? Boolean(spec.params.mountWorkspace)
+      : def.mountWorkspace;
+
+    return {
+      command,
+      env,
+      image,
+      allowedEndpoints: def.allowedEndpoints,
+      mountWorkspace,
+      workdir: '/workspace',
+      timeoutMs,
+      provider: spec.params.provider ? String(spec.params.provider) : def.provider,
+      description: def.describe(spec.params),
+    };
   }
 
-  const validation = def.validate(spec.params);
-  if (!validation.valid) {
-    return { error: `Invalid params for ${spec.action}: ${validation.error}` };
+  // ── Unknown action (generic execution) ────────────────────────────
+  // Agent provides the command directly. No registry entry needed.
+  const command = spec.params.command ? String(spec.params.command) : null;
+  if (!command) {
+    return {
+      error: `Action "${spec.action}" is not a known shortcut. Provide "command" in params for generic execution.`,
+    };
   }
 
-  const command = def.buildCommand(spec.params);
-  const env = { ...def.buildEnv(spec.params), ...credentials };
-
-  // For exec:run, allow agent to specify image and timeout overrides
-  const image = spec.action === 'exec:run' && spec.params.image
-    ? String(spec.params.image)
-    : def.image;
-  const timeoutMs = spec.action === 'exec:run' && spec.params.timeout
-    ? Math.min(Number(spec.params.timeout), 600_000)
-    : def.timeoutMs;
-  const mountWorkspace = spec.action === 'exec:run' && spec.params.mountWorkspace !== undefined
-    ? Boolean(spec.params.mountWorkspace)
-    : def.mountWorkspace;
+  const env: Record<string, string> = { ...credentials };
+  if (spec.params.env && typeof spec.params.env === 'object') {
+    for (const [k, v] of Object.entries(spec.params.env as Record<string, string>)) {
+      env[k] = String(v);
+    }
+  }
 
   return {
     command,
     env,
-    image,
-    allowedEndpoints: def.allowedEndpoints,
-    mountWorkspace,
+    image: spec.params.image ? String(spec.params.image) : 'node:20-slim',
+    allowedEndpoints: ['*:443', '*:80'],
+    mountWorkspace: spec.params.mountWorkspace !== undefined ? Boolean(spec.params.mountWorkspace) : false,
     workdir: '/workspace',
-    timeoutMs,
-    provider: spec.action === 'exec:run' && spec.params.provider
-      ? String(spec.params.provider)
-      : def.provider,
-    description: def.describe(spec.params),
+    timeoutMs: spec.params.timeout ? Math.min(Number(spec.params.timeout), 600_000) : 300_000,
+    provider: spec.params.provider ? String(spec.params.provider) : 'generic',
+    description: `${spec.action}: ${command.slice(0, 100)}`,
   };
-}
-
-/**
- * Build a dry-run execution spec (for simulation).
- */
-export function buildDryRunSpec(
-  spec: ActionSpec,
-  credentials: Record<string, string>,
-): ExecutionSpec | { error: string } | null {
-  const def = getActionDefinition(spec.action);
-  if (!def?.buildDryRunCommand) return null;
-
-  const dryRunCmd = def.buildDryRunCommand(spec.params);
-  if (!dryRunCmd) return null;
-
-  const validation = def.validate(spec.params);
-  if (!validation.valid) {
-    return { error: `Invalid params: ${validation.error}` };
-  }
-
-  const env = { ...def.buildEnv(spec.params), ...credentials };
-
-  return {
-    command: dryRunCmd,
-    env,
-    image: def.image,
-    allowedEndpoints: def.allowedEndpoints,
-    mountWorkspace: def.mountWorkspace,
-    workdir: '/workspace',
-    timeoutMs: 30_000,
-    provider: def.provider,
-    description: `[DRY RUN] ${def.describe(spec.params)}`,
-  };
-}
-
-/**
- * List all supported actions.
- */
-export function listActions(): { action: string; provider: string; description: string }[] {
-  return Object.entries(ACTIONS).map(([action, def]) => ({
-    action,
-    provider: def.provider,
-    description: def.describe({}),
-  }));
 }
 
 // ── Sanitization ────────────────────────────────────────────────────────

@@ -166,6 +166,7 @@ export async function sensorRoutes(app: FastifyInstance): Promise<void> {
           confidence: routingResult.confidence,
           status: routingResult.status,
           reason: routingResult.reason,
+          riskAssessment: routingResult.riskAssessment,
         } : null,
         runId,
       });

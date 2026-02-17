@@ -45,8 +45,8 @@ flowchart TB
         end
 
         subgraph Engines["Core Engines · engine/"]
-            SENSOR["sensor.ts<br/>Sensor Engine<br/>Rule filter → dedup<br/>Extracts EventContext<br/>Creates Operation<br/>Suggests intent"]
-            ROUTER["router.ts<br/>Agent Router<br/>AI intent classification<br/>LLM agent scoring<br/>Confidence thresholds"]
+            SENSOR["sensor.ts<br/>Sensor Engine<br/>Rule filter → condition eval → dedup<br/>Rich EventContext extraction<br/>Risk signal detection<br/>Change size classification<br/>Conditional event rules<br/>Follow-up operation chaining"]
+            ROUTER["router.ts<br/>Agent Router<br/>AI intent classification<br/>Multi-dimension agent scoring<br/>(role match · specialization · complexity fit)<br/>Agent history + success rates<br/>Confidence thresholds"]
             ORCH["orchestrator.ts<br/>Run Orchestrator<br/>State machine<br/>Loop detection<br/>Timeout reaper"]
             RISK["risk.ts<br/>Risk Classifier<br/>Structural + AI layers<br/>READ / WRITE / DESTRUCTIVE"]
             POLICY["policy-eval.ts<br/>Policy Evaluator<br/>Evidence requirements<br/>Budget checks"]
@@ -55,7 +55,7 @@ flowchart TB
         subgraph Moat["Three-Layer Security Moat"]
             direction TB
             SCOPE["LAYER 1: scope.ts<br/>Scope Boundaries<br/>Per-action allowed/blocked patterns<br/>checkScope()"]
-            SIM["LAYER 2: simulate.ts<br/>Pre-Execution Simulation<br/>DRY_RUN / DIFF_PREVIEW /<br/>API_CHECK / EVIDENCE_BUNDLE<br/>simulateAction()"]
+            SIM["LAYER 2: simulate.ts<br/>Sandbox Simulation +<br/>AI Intent Verification<br/>SANDBOX_EXEC / CONTENT_ANALYSIS<br/>simulateAction()"]
             EXEC["LAYER 3: secure-exec.ts<br/>Ephemeral Container Execution<br/>Docker spawn → inject creds →<br/>run command → capture output →<br/>destroy container<br/>executeSecureAction()"]
         end
 
@@ -77,7 +77,6 @@ flowchart TB
             BUDGET["budget.ts + cost-attribution.ts<br/>Per-run budget, daily limits"]
             TRUST["trust.ts + contributions.ts<br/>0-100 trust score, trends"]
             EVIDENCE["evidence.ts + evidence-env.ts<br/>CI replay, structured diffs"]
-            ROLLBACK["rollback.ts<br/>Compensating proposals"]
             EVENTS["events/bus.ts + run-events.ts<br/>WooblayEventBus → DB persist"]
         end
 
@@ -96,7 +95,7 @@ flowchart TB
             T_ROUTING["routing.ts"]
             T_SENSOR["sensor.ts"]
             T_RISK["risk.ts"]
-            T_OTHER["evidence, budget, trust,<br/>capability, policy,<br/>rollback, supervisor"]
+            T_OTHER["evidence, budget, trust,<br/>capability, policy,<br/>supervisor"]
         end
     end
 
@@ -233,7 +232,7 @@ flowchart TB
     class ALB,EC2,RDS,KMS,ECR,GH_CI infra
     class P_ROUTING,P_RISK,P_POLICY,P_SUPER prompt
     class T_ACTIONS,T_SCOPE,T_SIM,T_EXEC,T_ROUTING,T_SENSOR,T_RISK,T_OTHER typeDef
-    class BUDGET,TRUST,EVIDENCE,ROLLBACK,EVENTS engine
+    class BUDGET,TRUST,EVIDENCE,EVENTS engine
     class ACTIONS engine
     class SUPERVISOR engine
 ```
@@ -247,7 +246,7 @@ flowchart TB
 Every credentialed action passes through all three layers sequentially:
 
 1. **Scope Boundaries** (`scope.ts`) — Per-connection `allowed`/`blocked` patterns. Example: `git:push` allowed only to `feature/*` branches, blocked from `main`.
-2. **Pre-Execution Simulation** (`simulate.ts`) — Dry-run the action in an ephemeral container before real execution. Strategies: `DRY_RUN`, `DIFF_PREVIEW`, `API_CHECK`, `EVIDENCE_BUNDLE`.
+2. **Sandbox Simulation + AI Intent Verification** (`simulate.ts`) — Run the command in an isolated sandbox container (`--network none`, no credentials, 30s timeout) then AI verifies the command's behavior matches its stated intent. Strategies: `SANDBOX_EXEC` (container sandbox), `CONTENT_ANALYSIS` (file write/edit analysis).
 3. **Secure Execution** (`secure-exec.ts`) — Spin up a short-lived Docker container, inject credentials as env vars (resolved from encrypted vault), execute the deterministic command from the action registry, capture output, destroy the container. **The agent never sees credentials.**
 
 ### Agent Credential Isolation + Two-Mode Secrets

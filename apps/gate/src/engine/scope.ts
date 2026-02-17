@@ -66,31 +66,13 @@ function extractScopeTarget(action: string, params: Record<string, unknown>): st
 
 // ── Pattern Matching ────────────────────────────────────────────────────
 
-/**
- * Test if a target string matches a glob-like pattern.
- * Supports: "*" (match all), "prefix*" (prefix match), exact match.
- */
-function matchesPattern(target: string, pattern: string): boolean {
-  if (pattern === '*') return true;
-
-  if (pattern.endsWith('*')) {
-    const prefix = pattern.slice(0, -1);
-    return target.startsWith(prefix);
-  }
-
-  if (pattern.startsWith('*')) {
-    const suffix = pattern.slice(1);
-    return target.endsWith(suffix);
-  }
-
-  return target === pattern;
-}
+import { globMatch } from '../utils/glob-match.js';
 
 /**
  * Test if a target matches any pattern in a list.
  */
 function matchesAnyPattern(target: string, patterns: string[]): boolean {
-  return patterns.some((p) => matchesPattern(target, p));
+  return patterns.some((p) => globMatch(p, target));
 }
 
 // ── Public API ──────────────────────────────────────────────────────────

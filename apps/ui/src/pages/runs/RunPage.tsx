@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getRun, pauseRun, resumeRun, killRun, approveProposal, denyProposal,
-  getCaseFile, getVerificationStats, createRollback, getRunRollbacks,
+  getCaseFile, getVerificationStats,
   rerunEvidence,
 } from '../../api/client.ts';
 import { Spinner } from '../../components/common/Spinner.tsx';
@@ -52,12 +52,6 @@ export function RunPage() {
     queryFn: () => getVerificationStats(id!),
     enabled: !!id,
     refetchInterval: 10_000,
-  });
-
-  const { data: rollbacks } = useQuery({
-    queryKey: ['rollbacks', id],
-    queryFn: () => getRunRollbacks(id!),
-    enabled: !!id,
   });
 
   if (isLoading || !run) {
@@ -156,28 +150,6 @@ export function RunPage() {
         </>
       )}
 
-      {/* Rollbacks */}
-      {(rollbacks?.length ?? 0) > 0 && (
-        <>
-          <h2 className="text-sm font-medium text-text-primary mb-3 mt-6">Rollbacks</h2>
-          <div className="space-y-2 mb-8">
-            {rollbacks!.map((r: any) => (
-              <div key={r.id} className="bg-surface-1 border border-border rounded-lg px-4 py-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[11px] font-mono text-text-primary">{r.type}</span>
-                  <ProposalStatusBadge status={r.status} />
-                </div>
-                {r.originalProposalId && (
-                  <p className="text-[10px] text-text-tertiary">
-                    Rollback of: {r.originalProposalId.slice(0, 12)}...
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
       {/* Timeline */}
       <h2 className="text-sm font-medium text-text-primary mb-3 mt-6">Timeline ({events.length} events)</h2>
       <div className="border-l-2 border-border pl-4 space-y-2 max-h-[400px] overflow-y-auto">
@@ -224,18 +196,6 @@ function ProposalCard({ proposal, runId }: { proposal: any; runId: string }) {
     mutationFn: () => denyProposal(proposal.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['run', runId] }),
   });
-  const rollbackMut = useMutation({
-    mutationFn: () => createRollback(runId, {
-      originalProposalId: proposal.id,
-      type: 'rollback:capability_revoke',
-      reason: 'Manual rollback from UI',
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['run', runId] });
-      qc.invalidateQueries({ queryKey: ['rollbacks', runId] });
-    },
-  });
-
   const riskColors: Record<string, string> = {
     low: 'text-emerald-400',
     medium: 'text-amber-400',
@@ -247,13 +207,10 @@ function ProposalCard({ proposal, runId }: { proposal: any; runId: string }) {
     ? (typeof proposal.policySnapshot === 'string' ? JSON.parse(proposal.policySnapshot) : proposal.policySnapshot)
     : null;
 
-  const isRollback = proposal.actionClass?.startsWith('rollback:');
-
   return (
-    <div className={`bg-surface-1 border rounded-lg px-4 py-3 ${isRollback ? 'border-red-500/30' : 'border-border'}`}>
+    <div className="bg-surface-1 border border-border rounded-lg px-4 py-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          {isRollback && <span className="text-[10px] font-medium text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">ROLLBACK</span>}
           <span className="text-[11px] font-mono text-text-primary">{proposal.actionClass}</span>
           <span className={`text-[10px] font-medium ${riskColors[proposal.riskClass] ?? ''}`}>
             {proposal.riskClass}
@@ -272,11 +229,6 @@ function ProposalCard({ proposal, runId }: { proposal: any; runId: string }) {
               <Button size="xs" onClick={() => approveMut.mutate()}>Approve</Button>
               <Button size="xs" variant="danger" onClick={() => denyMut.mutate()}>Deny</Button>
             </>
-          )}
-          {(proposal.status === 'executed' || proposal.status === 'verified') && !isRollback && (
-            <Button size="xs" variant="secondary" onClick={() => rollbackMut.mutate()}>
-              Rollback
-            </Button>
           )}
         </div>
       </div>

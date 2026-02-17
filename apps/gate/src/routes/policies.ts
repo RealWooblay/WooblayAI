@@ -11,6 +11,7 @@ import { isAIEnabled } from '../services/ai-supervisor.js';
 import OpenAI from 'openai';
 import { config } from '../config.js';
 import { buildPolicyOptimizerPrompt } from '../prompts/policy-optimizer.js';
+import { getOrgScope } from '../middleware/org-scope.js';
 
 export async function policyRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -375,6 +376,76 @@ Suggest policy optimizations.`,
         error: 'AI analysis failed',
         detail,
       });
+    }
+  });
+
+  // ── Org Settings (simulation threshold, etc.) ───────────────────────────
+
+  /**
+   * GET /api/policies/settings — Get org-level policy settings.
+   */
+  app.get('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const org = getOrgScope(request);
+      if (!org.orgId) {
+        return reply.send({ simulationThreshold: 'high' });
+      }
+
+      const orgRecord = await prisma.organization.findUnique({
+        where: { id: org.orgId },
+        select: { settings: true },
+      });
+
+      const settings = orgRecord?.settings ? JSON.parse(orgRecord.settings) : {};
+      return reply.send({
+        simulationThreshold: settings.simulationThreshold ?? 'high',
+      });
+    } catch (err) {
+      request.log.error(err, 'Failed to get org settings');
+      return reply.code(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/policies/settings — Update org-level policy settings.
+   */
+  app.put('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const org = getOrgScope(request);
+      if (!org.orgId) {
+        return reply.code(400).send({ error: 'No organization context' });
+      }
+
+      const body = request.body as { simulationThreshold?: string };
+      const validThresholds = ['critical_only', 'high', 'medium', 'all'];
+
+      if (body.simulationThreshold && !validThresholds.includes(body.simulationThreshold)) {
+        return reply.code(400).send({
+          error: `Invalid simulationThreshold. Must be one of: ${validThresholds.join(', ')}`,
+        });
+      }
+
+      // Read existing settings and merge
+      const orgRecord = await prisma.organization.findUnique({
+        where: { id: org.orgId },
+        select: { settings: true },
+      });
+
+      const existing = orgRecord?.settings ? JSON.parse(orgRecord.settings) : {};
+      const updated = { ...existing };
+      if (body.simulationThreshold) updated.simulationThreshold = body.simulationThreshold;
+
+      await prisma.organization.update({
+        where: { id: org.orgId },
+        data: { settings: JSON.stringify(updated) },
+      });
+
+      return reply.send({
+        simulationThreshold: updated.simulationThreshold ?? 'high',
+      });
+    } catch (err) {
+      request.log.error(err, 'Failed to update org settings');
+      return reply.code(500).send({ error: 'Internal server error' });
     }
   });
 }

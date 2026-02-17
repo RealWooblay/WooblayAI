@@ -1,7 +1,7 @@
 /**
  * Capability Token Engine.
  *
- * Mints, validates, and revokes scoped capability tokens that bind
+ * Validates scoped capability tokens that bind
  * (workspace, run, action_class) to a time-bounded, max-use permission.
  *
  * Tokens are signed with the server's ed25519 key and contain structured
@@ -18,20 +18,17 @@
  * Tool Gateway, which validates and uses the real credential on their behalf.
  */
 
-import { randomBytes, createHash } from 'node:crypto';
-import type { PrismaClient, Capability as PrismaCapability } from '@prisma/client';
+import { createHash } from 'node:crypto';
+import type { PrismaClient } from '@prisma/client';
 import { persistEvent } from '../events/bus.js';
 import { config } from '../config.js';
-import { sign, verify, canonicalJson } from '@wooblay/crypto';
-import type { KeyEntry, CapabilityClaims, MintCapabilityInput, ValidationResult } from '../types/capability.js';
-export type { CapabilityClaims, MintCapabilityInput, ValidationResult };
+import { verify, canonicalJson } from '@wooblay/crypto';
+import type { KeyEntry, CapabilityClaims, ValidationResult } from '../types/capability.js';
+export type { CapabilityClaims, ValidationResult };
 
 // ── Constants ───────────────────────────────────────────────────────────
 
-const DEFAULT_TTL_MS = 15 * 60 * 1000; // 15 minutes
-const DEFAULT_MAX_USES = 10;
 const TOKEN_AUD = 'wooblay:gateway';
-const TOKEN_VERSION = 1;
 const CLOCK_SKEW_SECONDS = 60; // ±60s tolerance
 
 /** Get all verification keys: current + previous (for rotation). */
@@ -62,17 +59,6 @@ function getVerifyKeys(): KeyEntry[] {
 }
 
 // ── Token Claims ────────────────────────────────────────────────────────
-
-/**
- * Encode claims into a signed token.
- * Format: wbl_cap_v1.<base64url(claims)>.<hex(ed25519_sig)>
- */
-function encodeToken(claims: CapabilityClaims, privateKeyHex: string): string {
-  const claimsJson = canonicalJson(claims);
-  const claimsB64 = Buffer.from(claimsJson, 'utf-8').toString('base64url');
-  const signature = sign(claimsJson, privateKeyHex);
-  return `wbl_cap_v1.${claimsB64}.${signature}`;
-}
 
 /**
  * Decode and verify a signed token. Tries the key matching `kid` first,
@@ -113,77 +99,6 @@ function decodeToken(token: string): CapabilityClaims | null {
 /** Hash a scope or policy snapshot for inclusion in claims. */
 function hashJson(obj: unknown): string {
   return createHash('sha256').update(canonicalJson(obj)).digest('hex');
-}
-
-// ── Mint ────────────────────────────────────────────────────────────────
-
-export async function mintCapability(
-  prisma: PrismaClient,
-  input: MintCapabilityInput,
-): Promise<PrismaCapability & { token: string }> {
-  // Verify the run exists and is active
-  const run = await prisma.run.findUnique({ where: { id: input.runId } });
-  if (!run) throw new Error(`Run not found: ${input.runId}`);
-  if (!['running', 'scheduled'].includes(run.status)) {
-    throw new Error(`Cannot mint capability for run in status: ${run.status}`);
-  }
-
-  const jti = randomBytes(16).toString('hex');
-  const ttlMs = input.ttlMs ?? DEFAULT_TTL_MS;
-  const now = Date.now();
-  const expiresAt = new Date(now + ttlMs);
-  const scopeHash = hashJson(input.scope);
-  const policySnapshotHash = input.policySnapshot ? hashJson(input.policySnapshot) : null;
-
-  // Build claims with kid for key rotation
-  const claims: CapabilityClaims = {
-    v: TOKEN_VERSION,
-    aud: TOKEN_AUD,
-    kid: config.WOOBLAY_SERVER_KEY_ID,
-    iat: Math.floor(now / 1000),
-    exp: Math.floor(expiresAt.getTime() / 1000),
-    jti,
-    runId: input.runId,
-    workspaceId: input.workspaceId ?? null,
-    actionClass: input.actionClass,
-    scopeHash,
-    policySnapshotHash,
-  };
-
-  // Sign the token
-  const privateKey = config.WOOBLAY_SERVER_PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error('WOOBLAY_SERVER_PRIVATE_KEY is required to mint capability tokens');
-  }
-  const token = encodeToken(claims, privateKey);
-
-  // Persist in DB (id = jti, not the full token)
-  const capability = await prisma.capability.create({
-    data: {
-      id: jti,
-      runId: input.runId,
-      workspaceId: input.workspaceId ?? null,
-      actionClass: input.actionClass,
-      scope: JSON.stringify(input.scope),
-      policySnapshot: input.policySnapshot ? JSON.stringify(input.policySnapshot) : null,
-      expiresAt,
-      maxUses: input.maxUses ?? DEFAULT_MAX_USES,
-    },
-  });
-
-  await persistEvent(prisma, {
-    type: 'capability.issued',
-    data: {
-      capabilityId: jti,
-      runId: input.runId,
-      actionClass: input.actionClass,
-      expiresAt: expiresAt.toISOString(),
-      scopeHash,
-      policySnapshotHash,
-    },
-  });
-
-  return { ...capability, token };
 }
 
 // ── Validate ────────────────────────────────────────────────────────────
@@ -287,59 +202,6 @@ function actionClassMatches(pattern: string, requested: string): boolean {
     return requested.startsWith(prefix);
   }
   return false;
-}
-
-// ── Revoke ──────────────────────────────────────────────────────────────
-
-export async function revokeCapability(
-  prisma: PrismaClient,
-  token: string,
-  reason: string,
-): Promise<PrismaCapability> {
-  // If a full signed token is passed, extract jti
-  const jti = extractJti(token);
-
-  const capability = await prisma.capability.update({
-    where: { id: jti },
-    data: { revokedAt: new Date() },
-  });
-
-  await persistEvent(prisma, {
-    type: 'capability.revoked',
-    data: { capabilityId: jti, reason },
-  });
-
-  return capability;
-}
-
-/** Revoke all active capabilities for a run (used by kill switch). */
-export async function revokeAllForRun(
-  prisma: PrismaClient,
-  runId: string,
-  reason: string,
-): Promise<number> {
-  const result = await prisma.capability.updateMany({
-    where: { runId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
-
-  return result.count;
-}
-
-// ── Query ───────────────────────────────────────────────────────────────
-
-export async function getActiveCapabilities(
-  prisma: PrismaClient,
-  runId: string,
-): Promise<PrismaCapability[]> {
-  return prisma.capability.findMany({
-    where: {
-      runId,
-      revokedAt: null,
-      expiresAt: { gt: new Date() },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────

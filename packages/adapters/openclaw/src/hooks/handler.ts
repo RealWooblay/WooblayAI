@@ -1,18 +1,20 @@
 /**
- * OpenClaw Hook Handler for Wooblay Audit & Logging
+ * OpenClaw Hook Handler — Wooblay Gate Enforcement
  *
  * IMPORTANT: This file must be SELF-CONTAINED — no external imports.
  * OpenClaw loads hooks as single handler.ts files and does not resolve
  * package imports from the hooks directory.
  *
- * This hook listens to tool lifecycle events for audit logging and
- * receipt generation via Wooblay Gate's REST API.
+ * Every tool call — from any source (built-in, plugin, MCP server) —
+ * is routed through Wooblay Gate for policy evaluation:
  *
- * Events:
- *   - tool:start   — log when a tool call begins
- *   - tool:result   — log results + trigger receipt generation
- *   - command:new    — log session resets (audit trail)
- *   - command:stop   — log session stops
+ *   - tool:start → submits to Gate. Gate decides ALLOW / DENY / APPROVE.
+ *                   If DENY, throws to abort execution.
+ *                   If Gate unreachable, blocks (fail-safe).
+ *   - tool:result → reports execution outcome for receipt chain + audit trail.
+ *   - command:new/stop → audit trail for session lifecycle.
+ *
+ * No skip lists. No hardcoded exceptions. Every action goes through Gate.
  */
 
 // ── Inline Gate client (no external imports) ────────────────────────────
@@ -26,16 +28,6 @@ async function gatePost(path: string, body: Record<string, unknown>): Promise<Re
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-async function gateGet(path: string): Promise<Record<string, unknown> | null> {
-  try {
-    const res = await fetch(`${GATE_URL}${path}`);
     if (!res.ok) return null;
     return (await res.json()) as Record<string, unknown>;
   } catch {
@@ -77,10 +69,6 @@ interface HookEvent {
 
 // ── State ───────────────────────────────────────────────────────────────
 
-/**
- * Map OpenClaw's toolCallId → Wooblay's toolCallId for correlation
- * between tool:start and tool:result events.
- */
 const toolCallMap = new Map<string, string>();
 
 // ── Handler ─────────────────────────────────────────────────────────────
@@ -98,12 +86,27 @@ const handler = async (event: HookEvent): Promise<void> => {
         break;
     }
   } catch (err) {
+    // Re-throw policy denials — this is how we block tool execution
+    if (err instanceof PolicyDeniedError) {
+      throw err;
+    }
     console.error(
       '[wooblay-hook] Error:',
       err instanceof Error ? err.message : String(err),
     );
   }
 };
+
+// ── Policy Denied Error ─────────────────────────────────────────────────
+
+class PolicyDeniedError extends Error {
+  constructor(toolName: string, reason: string) {
+    super(`[Wooblay] BLOCKED: ${toolName} — ${reason}`);
+    this.name = 'PolicyDeniedError';
+  }
+}
+
+// ── Tool Event Handler ──────────────────────────────────────────────────
 
 async function handleToolEvent(event: HookEvent): Promise<void> {
   const { action, context, sessionKey } = event;
@@ -116,7 +119,7 @@ async function handleToolEvent(event: HookEvent): Promise<void> {
         `[wooblay-hook] tool:start — ${toolName} (id: ${toolCallId}) session: ${sessionKey}`,
       );
 
-      // Submit to Gate as an observation (fire-and-forget)
+      // Submit to Gate for policy evaluation
       const decision = await gatePost('/api/tool/execute', {
         toolName,
         args: (context.args as Record<string, unknown>) ?? {},
@@ -130,6 +133,32 @@ async function handleToolEvent(event: HookEvent): Promise<void> {
       if (toolCallId && decision?.toolCallId) {
         toolCallMap.set(toolCallId, decision.toolCallId as string);
       }
+
+      // ENFORCE: If Gate says DENY, throw to abort the tool execution
+      if (decision?.decision === 'DENY') {
+        const reason = (decision.reason as string) ?? 'Blocked by policy';
+        console.log(`[wooblay-hook] BLOCKED: ${toolName} — ${reason}`);
+        throw new PolicyDeniedError(toolName, reason);
+      }
+
+      // If Gate is unreachable (decision is null), fail-safe: block risky tools
+      if (decision === null) {
+        console.log(`[wooblay-hook] BLOCKED (fail-safe): ${toolName} — Gate unreachable`);
+        throw new PolicyDeniedError(toolName, 'Wooblay Gate unreachable — action blocked for safety');
+      }
+
+      // PENDING_APPROVAL is logged but not blocked here — the gated tools handle approval polling.
+      // If a built-in tool reaches here with PENDING, we block (it shouldn't be using built-ins).
+      if (decision?.decision === 'PENDING_APPROVAL') {
+        console.log(`[wooblay-hook] BLOCKED: ${toolName} — requires approval (use gated tools)`);
+        throw new PolicyDeniedError(
+          toolName,
+          `Requires human approval (approval ID: ${decision.approvalId}). Use gated tools for approval flow.`,
+        );
+      }
+
+      // EXECUTE — allowed, continue
+      console.log(`[wooblay-hook] ALLOWED: ${toolName}`);
       break;
     }
 
@@ -160,7 +189,6 @@ async function handleToolEvent(event: HookEvent): Promise<void> {
     }
 
     case 'update':
-      // Progress updates — future enhancement
       break;
   }
 }

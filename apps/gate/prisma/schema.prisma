@@ -14,6 +14,7 @@ model Organization {
   name      String
   slug      String?  @unique
   imageUrl  String?
+  settings  String?  // JSON — org-level settings (simulationThreshold, etc.)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -503,16 +504,18 @@ model Operation {
   branch            String?
   commitSha         String?
   prNumber          Int?     // PR number for PR-based sensors
-  connectionId      String?  // Connection/Sensor that created this operation
+  connectionId        String?  // Connection/Sensor that created this operation
+  parentOperationId   String?  // Parent operation (for follow-up chains)
+  followUpConfig      String?  // JSON — follow-up operation definitions from event rules
   // Agent routing
-  instanceId        String?  // Assigned agent instance (null = unassigned)
-  routingConfidence Float?   // 0.0-1.0 AI confidence in the routing match
-  routingStatus     String   @default("pending") // pending | auto_routed | approved | manual
-  routingReason     String?  // AI explanation for routing decision
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  instanceId          String?  // Assigned agent instance (null = unassigned)
+  routingConfidence   Float?   // 0.0-1.0 AI confidence in the routing match
+  routingStatus       String   @default("pending") // pending | auto_routed | approved | manual
+  routingReason       String?  // AI explanation for routing decision
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  runs              Run[]
+  runs                Run[]
 
   @@map("Incident")
   @@index([orgId])
@@ -525,6 +528,7 @@ model Operation {
   @@index([connectionId])
   @@index([instanceId])
   @@index([routingStatus])
+  @@index([parentOperationId])
 }
 
 model Run {
@@ -585,7 +589,7 @@ model Proposal {
   compensatingAction String?  // Human-readable description of how to undo
   evidenceBundleId  String?
   evidenceBundle    EvidenceBundle? @relation(fields: [evidenceBundleId], references: [id])
-  status            String    @default("pending") // pending | approved | denied | executed | verified | rolled_back
+  status            String    @default("pending") // pending | approved | denied | executed | verified
   approver          String?   // Clerk user ID of the approver
   approverEmail     String?   // Email at approval time (denormalized for audit)
   approverRole      String?   // Role at approval time (denormalized for audit)
@@ -594,14 +598,12 @@ model Proposal {
   policySnapshot    String?   // JSON — frozen copy of PolicyRule at evaluation time
   verificationId    String?   // Link to Verification record
   toolCallId        String?   // Link to existing ToolCall if executed via legacy path
-  rollbackOf        String?   // If this is a rollback, link to the original proposal ID
   createdAt         DateTime  @default(now())
 
   @@index([runId])
   @@index([status])
   @@index([actionClass])
   @@index([createdAt])
-  @@index([rollbackOf])
 }
 
 model EvidenceBundle {
@@ -895,6 +897,27 @@ model GitHubTaskLink {
 
   @@unique([taskId, prId])
   @@index([taskId])
+}
+
+// ── External API Keys ────────────────────────────────────────────────────────
+// Allows external agents (OpenAI GPTs, Claude MCP, LangChain, etc.)
+// to call the gateway without needing a Wooblay-hosted run.
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  orgId       String    // Org this key belongs to
+  name        String    // Human-readable label: "GPT Action Key", "Claude MCP"
+  keyHash     String    @unique // SHA-256 of the raw key (never store plaintext)
+  prefix      String    // First 8 chars of key for identification: "wbl_ak_xxxxxxxx"
+  scopes      String    @default("[\"gateway:execute\"]") // JSON — allowed scopes
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  expiresAt   DateTime? // Optional expiry
+  createdAt   DateTime  @default(now())
+
+  @@index([orgId])
+  @@index([keyHash])
+  @@index([revokedAt])
 }
 
 // ── Webhook Delivery Dedupe ───────────────────────────────────────────────────

@@ -12,5 +12,4 @@ export * from './budget.js';
 export * from './trust.js';
 export * from './capability.js';
 export * from './policy.js';
-export * from './rollback.js';
 export * from './supervisor.js';

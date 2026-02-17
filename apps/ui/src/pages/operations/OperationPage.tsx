@@ -422,7 +422,7 @@ function SecuritySummary({ operation: _operation }: { operation: any }) {
           <p className="text-[11px] font-medium text-text-primary">Simulation</p>
         </div>
         <p className="text-[10px] text-text-tertiary leading-relaxed">
-          Dry-run verification confirms actions will produce expected results before executing.
+          Sandbox execution + AI intent verification. Commands run in isolated containers (no network, no creds) to verify behavior matches stated intent.
         </p>
       </div>
       <div className="bg-surface-1 border border-border rounded-lg p-3">
@@ -452,6 +452,7 @@ function LiveEventRow({ event }: { event: LiveEvent }) {
     'simulation.completed': { label: 'Sim Result', color: 'text-cyan-400', icon: '~' },
     'simulation_start': { label: 'Sim Start', color: 'text-cyan-300', icon: '~' },
     'simulation_complete': { label: 'Sim Done', color: 'text-cyan-400', icon: '~' },
+    'simulation_sandbox': { label: 'Sandbox', color: 'text-cyan-300', icon: '~' },
     'state_change': { label: 'State', color: 'text-zinc-400', icon: '*' },
     'evidence': { label: 'Evidence', color: 'text-orange-400', icon: 'E' },
     'error': { label: 'Error', color: 'text-red-400', icon: '!' },
@@ -462,7 +463,6 @@ function LiveEventRow({ event }: { event: LiveEvent }) {
     'capability': { label: 'Capability', color: 'text-indigo-400', icon: 'K' },
     'budget': { label: 'Budget', color: 'text-orange-400', icon: '$' },
     'verification': { label: 'Verify', color: 'text-emerald-400', icon: 'V' },
-    'rollback': { label: 'Rollback', color: 'text-red-400', icon: 'R' },
   };
 
   const config = typeConfig[event.type] ?? { label: event.type, color: 'text-text-muted', icon: '.' };
@@ -477,9 +477,17 @@ function LiveEventRow({ event }: { event: LiveEvent }) {
     summary = `${data.action} → ${data.allowed ? 'ALLOWED' : 'BLOCKED'}`;
     if (data.reason) summary += ` (${String(data.reason).slice(0, 80)})`;
   } else if (event.type === 'simulation_start' || event.type === 'simulation_complete') {
-    summary = `${data.action} [${data.strategy ?? 'sim'}]`;
+    summary = `${data.action ?? data.toolName ?? ''} [${data.strategy ?? 'sim'}]`;
     if (data.passed !== undefined) summary += data.passed ? ' PASSED' : ' FAILED';
-    if (data.summary) summary += ` — ${String(data.summary).slice(0, 80)}`;
+    if (data.intentMatch !== undefined) summary += data.intentMatch ? ' (intent match)' : ' (INTENT MISMATCH)';
+    if (data.summary) summary += ` — ${String(data.summary).slice(0, 120)}`;
+    if (data.discrepancies && Array.isArray(data.discrepancies) && data.discrepancies.length > 0) {
+      summary += ` | Discrepancies: ${(data.discrepancies as string[]).join('; ').slice(0, 100)}`;
+    }
+    if (data.durationMs) summary += ` (${data.durationMs}ms)`;
+  } else if (event.type === 'simulation_sandbox') {
+    summary = `${data.action ?? ''} → container ${String(data.containerId ?? '').slice(0, 12)} exit:${data.exitCode ?? '?'}`;
+    if (data.command) summary += ` cmd: ${String(data.command).slice(0, 80)}`;
     if (data.durationMs) summary += ` (${data.durationMs}ms)`;
   } else if (event.type === 'secure_exec_start') {
     summary = `${data.action} → container ${String(data.containerId ?? '').slice(0, 12)}`;
@@ -507,9 +515,16 @@ function LiveEventRow({ event }: { event: LiveEvent }) {
     if (!summary) summary = JSON.stringify(data).slice(0, 120);
   }
 
+  const isSimEvent = event.type.startsWith('simulation') || event.type === 'simulation.completed';
+  const hasSandboxOutput = data.stdoutPreview || data.stderrPreview || data.sandboxStdout || data.sandboxStderr;
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className="px-3 py-2 hover:bg-surface-2/50 transition-colors group">
-      <div className="flex items-start gap-2">
+      <div
+        className={`flex items-start gap-2 ${isSimEvent && hasSandboxOutput ? 'cursor-pointer' : ''}`}
+        onClick={() => isSimEvent && hasSandboxOutput && setExpanded(!expanded)}
+      >
         <span className="text-[9px] font-mono text-text-muted w-16 shrink-0 pt-0.5">
           {timeStr}
         </span>
@@ -519,10 +534,51 @@ function LiveEventRow({ event }: { event: LiveEvent }) {
         <span className={`text-[10px] font-medium ${config.color} w-16 shrink-0`}>
           {config.label}
         </span>
-        <span className="text-[10px] text-text-secondary truncate">
+        <span className="text-[10px] text-text-secondary truncate flex-1">
           {summary}
         </span>
+        {isSimEvent && hasSandboxOutput && (
+          <span className="text-[9px] text-text-muted opacity-0 group-hover:opacity-100 transition-opacity">
+            {expanded ? 'collapse' : 'expand'}
+          </span>
+        )}
       </div>
+
+      {expanded && isSimEvent && (
+        <div className="ml-[7.5rem] mt-1.5 space-y-1.5 text-[10px]">
+          {(data.stdoutPreview || data.sandboxStdout) && (
+            <div>
+              <span className="text-text-muted font-medium">stdout:</span>
+              <pre className="mt-0.5 p-1.5 bg-black/30 rounded text-text-secondary text-[9px] font-mono overflow-x-auto max-h-24 overflow-y-auto">
+                {String(data.stdoutPreview ?? data.sandboxStdout ?? '').slice(0, 1000) || '(empty)'}
+              </pre>
+            </div>
+          )}
+          {(data.stderrPreview || data.sandboxStderr) && (
+            <div>
+              <span className="text-red-400/70 font-medium">stderr:</span>
+              <pre className="mt-0.5 p-1.5 bg-black/30 rounded text-red-400/60 text-[9px] font-mono overflow-x-auto max-h-24 overflow-y-auto">
+                {String(data.stderrPreview ?? data.sandboxStderr ?? '').slice(0, 1000) || '(empty)'}
+              </pre>
+            </div>
+          )}
+          {data.intentMatch !== undefined && (
+            <div className={`flex items-center gap-1 ${data.intentMatch ? 'text-emerald-400' : 'text-red-400'}`}>
+              <span>{data.intentMatch ? 'Intent Match' : 'Intent Mismatch'}</span>
+            </div>
+          )}
+          {data.discrepancies && Array.isArray(data.discrepancies) && data.discrepancies.length > 0 && (
+            <div className="text-red-400/80">
+              <span className="font-medium">Discrepancies:</span>
+              <ul className="list-disc list-inside ml-1">
+                {(data.discrepancies as string[]).map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

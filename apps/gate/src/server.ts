@@ -41,7 +41,6 @@ import { workspaceRoutes } from './routes/workspace.js';
 import { operationRoutes } from './routes/operations.js';
 import { runRoutes } from './routes/runs.js';
 import { proposalRoutes } from './routes/proposals.js';
-import { capabilityRoutes } from './routes/capabilities.js';
 import { gatewayRoutes } from './routes/gateway.js';
 import { sensorRoutes } from './routes/sensors.js';
 import { insightsRoutes } from './routes/insights.js';
@@ -49,8 +48,8 @@ import { caseFileRoutes } from './routes/case-file.js';
 import { connectionRoutes } from './routes/connections.js';
 import { repoConfigRoutes } from './routes/repo-config.js';
 import { verificationRoutes } from './routes/verifications.js';
-import { rollbackRoutes } from './routes/rollbacks.js';
 import { workspaceRunnerRoutes } from './routes/workspace-runner.js';
+import { apiKeyRoutes } from './routes/api-keys.js';
 
 // Route modules — platform mode only
 import { userRoutes } from './routes/users.js';
@@ -106,7 +105,6 @@ export async function buildApp() {
   await app.register(operationRoutes);
   await app.register(runRoutes);
   await app.register(proposalRoutes);
-  await app.register(capabilityRoutes);
   await app.register(gatewayRoutes);
   await app.register(sensorRoutes);
   await app.register(insightsRoutes);
@@ -114,8 +112,8 @@ export async function buildApp() {
   await app.register(connectionRoutes);
   await app.register(repoConfigRoutes);
   await app.register(verificationRoutes);
-  await app.register(rollbackRoutes);
   await app.register(workspaceRunnerRoutes);
+  await app.register(apiKeyRoutes);
 
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);

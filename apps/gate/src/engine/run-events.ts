@@ -10,7 +10,6 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
-import { persistEvent } from '../events/bus.js';
 
 export type RunEventType =
   | 'state_change'
@@ -22,12 +21,12 @@ export type RunEventType =
   | 'capability'
   | 'error'
   | 'budget'
-  | 'rollback'
   | 'secure_exec_start'
   | 'secure_exec_complete'
   | 'secure_exec_simulation'
   | 'simulation_start'
   | 'simulation_complete'
+  | 'simulation_sandbox'
   | 'scope_check';
 
 /**
@@ -67,22 +66,3 @@ export async function emitRunEvent(
   return result;
 }
 
-/**
- * Emit a run event AND persist to the global event bus.
- * Use this for events that should also appear in the global event stream.
- */
-export async function emitRunEventWithBus(
-  prisma: PrismaClient,
-  runId: string,
-  type: RunEventType,
-  data: Record<string, unknown>,
-  busEvent?: Parameters<typeof persistEvent>[1],
-): Promise<{ id: string; sequenceNum: number }> {
-  const result = await emitRunEvent(prisma, runId, type, data);
-
-  if (busEvent) {
-    await persistEvent(prisma, busEvent);
-  }
-
-  return result;
-}

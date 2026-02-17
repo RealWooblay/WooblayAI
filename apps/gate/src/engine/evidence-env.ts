@@ -126,34 +126,3 @@ export async function persistEnvironment(
   });
   return env.id;
 }
-
-// ── Compare Environments ────────────────────────────────────────────────
-
-export function environmentsMatch(
-  a: EnvironmentManifest,
-  b: EnvironmentManifest,
-): { match: boolean; diffs: string[] } {
-  const diffs: string[] = [];
-
-  if (a.baseImageDigest !== b.baseImageDigest) {
-    diffs.push(`Base image: ${a.baseImageDigest?.slice(0, 16)} vs ${b.baseImageDigest?.slice(0, 16)}`);
-  }
-  if (a.dependencyHash !== b.dependencyHash) {
-    diffs.push(`Dependency lockfile hash differs`);
-  }
-  if (a.envVarHash !== b.envVarHash) {
-    diffs.push(`Environment variable names differ`);
-  }
-
-  // Compare toolchain versions
-  const allTools = new Set([...Object.keys(a.toolchainVersions), ...Object.keys(b.toolchainVersions)]);
-  for (const tool of allTools) {
-    const va = a.toolchainVersions[tool];
-    const vb = b.toolchainVersions[tool];
-    if (va !== vb) {
-      diffs.push(`${tool}: ${va} vs ${vb}`);
-    }
-  }
-
-  return { match: diffs.length === 0, diffs };
-}

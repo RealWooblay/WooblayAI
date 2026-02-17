@@ -97,10 +97,9 @@ function ActionMetricCard({ metric }: { metric: any }) {
         <span className="text-[10px] text-text-tertiary">{metric.total} samples</span>
       </div>
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <MetricBar label="Success" value={metric.successRate} color="emerald" unit="%" />
         <MetricBar label="Override" value={metric.overrideRate} color="amber" unit="%" />
-        <MetricBar label="Rollback" value={metric.rollbackRate} color="red" unit="%" />
         <div>
           <p className="text-[10px] text-text-tertiary mb-1">MTTF</p>
           <p className="text-sm font-mono text-text-primary">

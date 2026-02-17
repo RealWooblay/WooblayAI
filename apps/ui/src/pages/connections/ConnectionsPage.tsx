@@ -108,6 +108,175 @@ function ScopeBoundaryEditor({ connection, onSave }: { connection: any; onSave: 
   );
 }
 
+// ── Event Rules Editor ────────────────────────────────────────────────
+// User declares WHAT they care about. AI handles the HOW.
+// No manual conditions, no workflow chains — that's n8n territory.
+
+const ALL_EVENTS = [
+  { event: 'ci_failure' as const, label: 'CI Failure', description: 'Check run fails on default or agent branch', defaultIntent: 'fix' as const },
+  { event: 'pr_opened' as const, label: 'PR Opened', description: 'New pull request or synchronize', defaultIntent: 'review' as const },
+  { event: 'push' as const, label: 'Push', description: 'Push to a watched branch', defaultIntent: 'review' as const },
+  { event: 'pr_merged' as const, label: 'PR Merged', description: 'Pull request merged to base', defaultIntent: 'deploy' as const },
+] as const;
+
+const INTENT_OPTIONS = ['fix', 'qa', 'review', 'deploy', 'custom'] as const;
+const PRIORITY_OPTIONS = ['P0', 'P1', 'P2'] as const;
+
+const DEFAULT_RULES: { event: string; intent: string; priority: string; enabled: boolean }[] = [
+  { event: 'ci_failure', intent: 'fix', priority: 'P1', enabled: true },
+  { event: 'pr_opened', intent: 'review', priority: 'P2', enabled: true },
+  { event: 'push', intent: 'review', priority: 'P2', enabled: true },
+  { event: 'pr_merged', intent: 'deploy', priority: 'P2', enabled: false },
+];
+
+const AI_FEATURES = [
+  { label: 'Intent Classification', description: 'AI analyzes event context and classifies what action is needed — not hardcoded, adapts per event' },
+  { label: 'Smart Escalation', description: 'AI auto-escalates priority from context signals: risk level, change size, sensitive files, force push' },
+  { label: 'Agent Matching', description: 'Multi-dimension scoring: role match, specialization, performance history, complexity fit' },
+  { label: 'Follow-Up Chaining', description: 'AI decides when a completed operation needs a follow-up and creates it automatically' },
+];
+
+function EventRulesEditor({ connectionId, sensorConfig }: { connectionId: string; sensorConfig: any }) {
+  const qc = useQueryClient();
+
+  const existing: any[] = sensorConfig?.eventRules ?? [];
+  const [rules, setRules] = useState(() => {
+    if (existing.length > 0) return existing.map((r: any) => ({ event: r.event, intent: r.intent, priority: r.priority, enabled: r.enabled }));
+    return DEFAULT_RULES.map((r) => ({ ...r }));
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (eventRules: any[]) =>
+      updateSensorConfig(connectionId, {
+        sensorConfig: { ...sensorConfig, eventRules },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['connections'] });
+    },
+  });
+
+  const updateRule = (idx: number, field: string, value: any) => {
+    setRules((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  };
+
+  const handleSave = () => {
+    saveMut.mutate(rules);
+  };
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <h4 className="text-[11px] font-medium text-text-secondary">Event Sensing</h4>
+          <p className="text-[10px] text-text-tertiary mt-0.5">
+            Choose which events create operations. Set a default intent or leave it — the AI classifies from context.
+          </p>
+        </div>
+        <Button size="xs" onClick={handleSave} disabled={saveMut.isPending}>
+          {saveMut.isPending ? 'Saving…' : saveMut.isSuccess ? '✓ Saved' : 'Save rules'}
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        {ALL_EVENTS.map((evt) => {
+          const idx = rules.findIndex((r: any) => r.event === evt.event);
+          const rule = idx >= 0 ? rules[idx] : null;
+          const isEnabled = rule?.enabled ?? false;
+          const ruleIdx = idx >= 0 ? idx : -1;
+
+          const ensureRule = () => {
+            if (idx < 0) {
+              setRules((prev) => [...prev, { event: evt.event, intent: evt.defaultIntent, priority: 'P2', enabled: true }]);
+            }
+          };
+
+          return (
+            <div
+              key={evt.event}
+              className={`bg-surface-2 border rounded-lg px-3 py-2.5 transition-colors ${isEnabled ? 'border-accent/30' : 'border-border opacity-60'}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    className={`w-8 h-4 rounded-full relative transition-colors ${isEnabled ? 'bg-accent' : 'bg-surface-3'}`}
+                    onClick={() => {
+                      if (idx < 0) {
+                        ensureRule();
+                      } else {
+                        updateRule(ruleIdx, 'enabled', !isEnabled);
+                      }
+                    }}
+                  >
+                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${isEnabled ? 'left-4' : 'left-0.5'}`} />
+                  </button>
+                  <div>
+                    <span className="text-[11px] font-medium text-text-primary">{evt.label}</span>
+                    <p className="text-[9px] text-text-tertiary">{evt.description}</p>
+                  </div>
+                </div>
+
+                {isEnabled && ruleIdx >= 0 && rule && (
+                  <div className="flex items-center gap-2">
+                    <div>
+                      <label className="text-[8px] text-text-tertiary uppercase tracking-wider block mb-0.5">Default Intent</label>
+                      <select
+                        value={rule.intent}
+                        onChange={(e) => updateRule(ruleIdx, 'intent', e.target.value)}
+                        className="bg-surface-3 border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary focus:border-accent focus:outline-none"
+                      >
+                        {INTENT_OPTIONS.map((i) => (
+                          <option key={i} value={i}>{i}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[8px] text-text-tertiary uppercase tracking-wider block mb-0.5">Default Priority</label>
+                      <select
+                        value={rule.priority ?? 'P2'}
+                        onChange={(e) => updateRule(ruleIdx, 'priority', e.target.value)}
+                        className="bg-surface-3 border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary focus:border-accent focus:outline-none"
+                      >
+                        {PRIORITY_OPTIONS.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* AI Intelligence Summary */}
+      <div className="mt-3 bg-surface-1 border border-accent/10 rounded-lg p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <div className="w-4 h-4 rounded bg-accent/20 flex items-center justify-center">
+            <span className="text-[8px] text-accent font-bold">AI</span>
+          </div>
+          <span className="text-[10px] font-medium text-text-secondary">Intelligent Processing</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {AI_FEATURES.map((f) => (
+            <div key={f.label} className="flex items-start gap-1.5">
+              <span className="text-[8px] text-accent mt-0.5 shrink-0">+</span>
+              <div>
+                <span className="text-[9px] font-medium text-text-primary">{f.label}</span>
+                <p className="text-[8px] text-text-tertiary leading-tight">{f.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-[9px] text-text-muted mt-2">
+        If no rules are saved, all matched events create operations and the AI classifies everything from context. Rules let you filter which events you care about and hint at default intent.
+      </p>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────
 
 export function ConnectionsPage() {
@@ -276,9 +445,8 @@ export function ConnectionsPage() {
                 type="button"
                 onClick={() => { if (t.available) { setSelectedProvider(t.id); setAddStep(t.id as any); } }}
                 disabled={!t.available}
-                className={`text-left rounded-lg border px-4 py-3 transition-colors ${
-                  t.available ? 'border-border hover:border-accent/50 hover:bg-surface-2' : 'border-border/50 opacity-60 cursor-not-allowed'
-                }`}
+                className={`text-left rounded-lg border px-4 py-3 transition-colors ${t.available ? 'border-border hover:border-accent/50 hover:bg-surface-2' : 'border-border/50 opacity-60 cursor-not-allowed'
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -490,15 +658,13 @@ export function ConnectionsPage() {
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       {isSensingCapable && (
-                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
-                          sensing.enabled ? 'bg-blue-500/15 text-blue-400' : 'bg-zinc-500/15 text-zinc-400'
-                        }`}>
+                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${sensing.enabled ? 'bg-blue-500/15 text-blue-400' : 'bg-zinc-500/15 text-zinc-400'
+                          }`}>
                           Sensing: {sensing.enabled ? 'Active' : 'Off'}
                         </span>
                       )}
-                      <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
-                        conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
-                      }`}>
+                      <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
+                        }`}>
                         Execution: {conn.status === 'active' ? `${execution.actions.length} actions` : 'Inactive'}
                       </span>
                       {sensorData && sensorData.operationsLast24h > 0 && (
@@ -608,6 +774,7 @@ export function ConnectionsPage() {
                             </div>
                           </div>
                         )}
+                        <EventRulesEditor connectionId={conn.id} sensorConfig={sensing.config} />
                       </>
                     )}
 

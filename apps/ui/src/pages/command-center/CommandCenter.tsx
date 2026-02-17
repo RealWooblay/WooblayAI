@@ -629,6 +629,21 @@ export function CommandCenter() {
           </Link>
         )}
 
+        {/* External Agent Integration */}
+        <Link to="/settings" className="block p-4 rounded-xl bg-indigo-500/8 border border-indigo-500/20 hover:border-indigo-500/40 transition-colors group">
+          <div className="flex items-start gap-3">
+            <span className="font-mono text-indigo-400 text-sm mt-0.5">{'{ }'}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-indigo-300">Connect External Agents</p>
+              <p className="text-[10px] text-indigo-400/60 mt-0.5">
+                Use Wooblay's secure gateway from any AI agent or framework.
+                Create an API key — same policy enforcement and credential vault, no hosting required.
+              </p>
+            </div>
+            <span className="text-[10px] text-indigo-400/60 font-mono shrink-0 group-hover:text-indigo-400 transition-colors">setup →</span>
+          </div>
+        </Link>
+
         {/* Empty State — Setup Checklist */}
         {isEmpty && !hasData && !deployOpen && (
           <div className="space-y-4">

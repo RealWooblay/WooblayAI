@@ -21,10 +21,10 @@
 
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import type { ActionSpec, ExecutionSpec } from '../types/actions.js';
-import { buildExecutionSpec, buildDryRunSpec } from './action-registry.js';
+import { buildExecutionSpec } from './action-registry.js';
 import { envelopeDecrypt, isEncrypted, redactSecrets } from '../services/vault.js';
 import { persistEvent } from '../events/bus.js';
 import { emitRunEvent } from './run-events.js';
@@ -55,13 +55,18 @@ async function resolveCredentials(
     throw new Error(`Connection ${connectionId} not found or inactive`);
   }
 
-  if (connection.provider !== provider) {
+  // Allow 'generic' provider to match any connection (for passthrough actions)
+  if (provider !== 'generic' && connection.provider !== provider) {
     throw new Error(`Connection provider mismatch: expected ${provider}, got ${connection.provider}`);
   }
 
   const creds: Record<string, string> = {};
 
-  if (provider === 'github') {
+  // ── Known provider credential resolution ───────────────────────────────
+  // These extract the main credential (token, key) in the standard env var format.
+  // Additional secrets from the connection's secrets[] array are always injected below.
+
+  if (connection.provider === 'github') {
     let token = connection.credentialRef;
     if (isEncrypted(token)) {
       token = envelopeDecrypt(token);
@@ -70,7 +75,7 @@ async function resolveCredentials(
     creds['GH_TOKEN'] = token;
   }
 
-  if (provider === 'aws') {
+  if (connection.provider === 'aws') {
     const meta = connection.metadata ? JSON.parse(connection.metadata) : {};
     if (meta.awsAccessKeyId) creds['AWS_ACCESS_KEY_ID'] = meta.awsAccessKeyId;
     if (meta.awsSecretAccessKey) {
@@ -81,7 +86,7 @@ async function resolveCredentials(
     if (meta.region) creds['AWS_DEFAULT_REGION'] = meta.region;
   }
 
-  if (provider === 'gcp') {
+  if (connection.provider === 'gcp') {
     const meta = connection.metadata ? JSON.parse(connection.metadata) : {};
     if (meta.gcpServiceAccountKey) {
       let key = meta.gcpServiceAccountKey;
@@ -91,7 +96,22 @@ async function resolveCredentials(
     }
   }
 
-  // Inject exec_only secrets from this connection
+  // ── Generic provider: inject credentialRef as API key ──────────────────
+  if (connection.provider !== 'github' && connection.provider !== 'aws' && connection.provider !== 'gcp') {
+    if (connection.credentialRef) {
+      let token = connection.credentialRef;
+      if (isEncrypted(token)) {
+        token = envelopeDecrypt(token);
+      }
+      // Use the provider name as env var prefix (e.g., STRIPE_API_KEY for stripe)
+      const prefix = connection.provider.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      creds[`${prefix}_API_KEY`] = token;
+      // Also set as generic API_KEY for convenience
+      creds['API_KEY'] = token;
+    }
+  }
+
+  // ── Always inject exec_only secrets from this connection ───────────────
   if (connection.secrets) {
     const secrets: { key: string; encryptedValue: string; mode: string }[] = JSON.parse(connection.secrets);
     for (const s of secrets) {
@@ -102,33 +122,6 @@ async function resolveCredentials(
   }
 
   return creds;
-}
-
-/**
- * Resolve all exec_only secrets across all active connections in an org.
- * Used by the generic exec:run action which may not know the provider upfront.
- */
-export async function resolveAllExecSecrets(
-  prisma: PrismaClient,
-  orgId: string | null,
-): Promise<Record<string, string>> {
-  const where: any = { status: 'active' };
-  if (orgId) where.orgId = orgId;
-
-  const connections = await prisma.connection.findMany({ where, select: { secrets: true } });
-  const envVars: Record<string, string> = {};
-
-  for (const c of connections) {
-    if (!c.secrets) continue;
-    const secrets: { key: string; encryptedValue: string; mode: string }[] = JSON.parse(c.secrets);
-    for (const s of secrets) {
-      if (s.mode === 'exec_only') {
-        envVars[s.key] = isEncrypted(s.encryptedValue) ? envelopeDecrypt(s.encryptedValue) : s.encryptedValue;
-      }
-    }
-  }
-
-  return envVars;
 }
 
 /**
@@ -265,24 +258,17 @@ export async function executeSecureAction(
   prisma: PrismaClient,
   request: SecureExecRequest,
 ): Promise<SecureExecResult> {
-  const { actionSpec, connectionId, runId, workspacePath, simulate } = request;
+  const { actionSpec, connectionId, runId, workspacePath } = request;
   const containerName = buildContainerName();
 
-  // 1. Resolve credentials
+  // 1. Resolve credentials — provider comes from params, action def, or connection
   let credentials: Record<string, string>;
   try {
     const def = (await import('./action-registry.js')).getActionDefinition(actionSpec.action);
-    if (!def) {
-      return {
-        success: false, stdout: '', stderr: `Unknown action: ${actionSpec.action}`,
-        exitCode: 1, durationMs: 0, containerId: '', description: actionSpec.action,
-        error: `Unknown action: ${actionSpec.action}`,
-      };
-    }
-    // For exec:run, use the provider from params; otherwise from the action definition
-    const effectiveProvider = actionSpec.action === 'exec:run' && actionSpec.params.provider
+    // Provider resolution: params.provider > action definition > connection's own provider
+    const effectiveProvider = actionSpec.params.provider
       ? String(actionSpec.params.provider)
-      : def.provider;
+      : def?.provider ?? 'generic';
     credentials = await resolveCredentials(prisma, connectionId, effectiveProvider);
   } catch (err: any) {
     return {
@@ -315,43 +301,8 @@ export async function executeSecureAction(
     };
   }
 
-  // 4. Optional dry-run simulation
-  let simulation: SecureExecResult['simulation'];
-  if (simulate) {
-    const dryRunSpec = buildDryRunSpec(actionSpec, credentials);
-    if (dryRunSpec && !('error' in dryRunSpec)) {
-      const simContainerName = `${containerName}-sim`;
-      const simResult = await runInContainer(dryRunSpec, simContainerName, workspacePath);
-      simulation = {
-        passed: simResult.exitCode === 0,
-        stdout: simResult.stdout,
-        stderr: simResult.stderr,
-        exitCode: simResult.exitCode,
-      };
-
-      await emitRunEvent(prisma, runId, 'secure_exec_simulation', {
-        action: actionSpec.action,
-        passed: simulation.passed,
-        dryRunOutput: redactSecrets(simResult.stdout.slice(0, 2000)),
-      });
-
-      if (!simulation.passed) {
-        return {
-          success: false,
-          stdout: simResult.stdout,
-          stderr: simResult.stderr,
-          exitCode: simResult.exitCode,
-          durationMs: simResult.durationMs,
-          containerId: simContainerName,
-          description: execSpec.description,
-          simulation,
-          error: 'Dry-run simulation failed — action not executed',
-        };
-      }
-    }
-  }
-
-  // 5. Execute in ephemeral container
+  // 4. Execute in ephemeral container
+  // (Simulation is now handled upstream by simulate.ts before reaching here)
   await emitRunEvent(prisma, runId, 'secure_exec_start', {
     action: actionSpec.action,
     description: execSpec.description,
@@ -391,7 +342,100 @@ export async function executeSecureAction(
     durationMs: result.durationMs,
     containerId: containerName,
     description: execSpec.description,
-    simulation,
     error: result.exitCode !== 0 ? redactSecrets(result.stderr || 'Execution failed') : undefined,
   };
+}
+
+// ── Sandbox Execution (Layer 2 Simulation) ──────────────────────────────
+
+export interface SandboxResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
+  containerId: string;
+}
+
+/**
+ * Run a command in a completely isolated sandbox container.
+ *
+ * Used by the simulation layer (Layer 2) to verify intent before real execution.
+ * The sandbox has:
+ *   - NO network access (--network none)
+ *   - NO real credentials (dummy env vars)
+ *   - Temp workspace (not the real one)
+ *   - 30-second hard timeout
+ *   - Container auto-destroyed after
+ *
+ * This is NOT execution. It's a test run to observe what the command tries to do.
+ */
+export async function runSandboxExec(
+  command: string,
+  options: {
+    image?: string;
+    env?: Record<string, string>;
+    workspacePath?: string;
+    timeoutMs?: number;
+  } = {},
+): Promise<SandboxResult> {
+  const containerName = `${CONTAINER_PREFIX}-sandbox-${randomBytes(6).toString('hex')}`;
+  const image = options.image || 'node:20-slim';
+  const timeoutMs = options.timeoutMs || 30_000;
+  const startTime = Date.now();
+
+  // Dummy env vars so code referencing $SECRET doesn't crash on "unbound variable"
+  // but never contains real values
+  const dummyEnv: Record<string, string> = {
+    WOOBLAY_SANDBOX: 'true',
+    ...(options.env || {}),
+  };
+
+  const envFlags = Object.entries(dummyEnv)
+    .map(([k, v]) => `-e ${k}="${v.replace(/"/g, '\\"')}"`)
+    .join(' ');
+
+  // Mount workspace as read-only if provided (snapshot, not real)
+  const mountFlags = options.workspacePath
+    ? `-v "${options.workspacePath}:/workspace:ro"`
+    : '';
+
+  const dockerCmd = [
+    'docker run',
+    '--rm',
+    `--name ${containerName}`,
+    '--read-only',
+    '--tmpfs /tmp:rw,noexec,nosuid,size=64m',
+    '--memory 512m',
+    '--cpus 0.5',
+    '--pids-limit 64',
+    '--network none',      // No network — this is the key sandbox constraint
+    envFlags,
+    mountFlags,
+    '-w /workspace',
+    image,
+    `sh -c "${command.replace(/"/g, '\\"')}"`,
+  ].filter(Boolean).join(' ');
+
+  try {
+    const { stdout, stderr } = await execAsync(dockerCmd, {
+      timeout: timeoutMs,
+      maxBuffer: MAX_OUTPUT_BYTES,
+    });
+
+    return {
+      stdout: stdout.slice(0, MAX_OUTPUT_BYTES),
+      stderr: stderr.slice(0, MAX_OUTPUT_BYTES),
+      exitCode: 0,
+      durationMs: Date.now() - startTime,
+      containerId: containerName,
+    };
+  } catch (err: any) {
+    return {
+      stdout: (err.stdout ?? '').slice(0, MAX_OUTPUT_BYTES),
+      stderr: (err.stderr ?? err.message ?? '').slice(0, MAX_OUTPUT_BYTES),
+      exitCode: err.code ?? 1,
+      durationMs: Date.now() - startTime,
+      containerId: containerName,
+    };
+  }
 }

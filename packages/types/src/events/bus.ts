@@ -46,16 +46,21 @@ export type WooblayEvent =
   // ── Secure Execution events ───────────────────────────────────────
   | { type: 'secure_exec.completed';   data: { runId: string; action: string; success: boolean; durationMs: number; containerId: string } }
   // ── Gateway events ──────────────────────────────────────────────────
-  | { type: 'gateway.executed';        data: { capabilityId: string; runId: string; actionClass: string; success: boolean; containerId?: string } }
+  | { type: 'gateway.executed';        data: { callerId?: string; capabilityId?: string; authMode?: string; runId?: string | null; actionClass: string; success: boolean; containerId?: string } }
   | { type: 'gateway.bypass_attempt';  data: { runId?: string; target: string; blocked: boolean } }
+  | { type: 'gateway.auth_failed';     data: { target: string; reason: string } }
+  | { type: 'gateway.policy_denied';   data: { apiKeyId: string; action: string; riskTier: string; category: string; policyRuleId?: string } }
+  | { type: 'gateway.policy_passed';   data: { apiKeyId: string; action: string; riskTier: string; category: string; decision: string } }
+  // ── API Key events ────────────────────────────────────────────────────
+  | { type: 'api_key.created';         data: { apiKeyId: string; orgId: string; name: string } }
+  | { type: 'api_key.revoked';         data: { apiKeyId: string; orgId: string } }
   // ── Capability events ───────────────────────────────────────────────
   | { type: 'capability.issued';       data: { capabilityId: string; runId: string; actionClass: string; expiresAt: string; scopeHash?: string; policySnapshotHash?: string | null } }
   | { type: 'capability.revoked';      data: { capabilityId: string; reason: string } }
   | { type: 'capability.expired';      data: { capabilityId: string } }
   // ── Verification events ─────────────────────────────────────────────
   | { type: 'verification.completed';  data: { verificationId: string; proposalId: string; status: string } }
-  // ── Rollback events ─────────────────────────────────────────────────
-  | { type: 'rollback.created';        data: { rollbackProposalId: string; originalProposalId: string; type: string } };
+;
 
 export type WooblayEventType = WooblayEvent['type'];
 

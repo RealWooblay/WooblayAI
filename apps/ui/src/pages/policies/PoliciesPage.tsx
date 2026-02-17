@@ -17,8 +17,11 @@ import {
   deletePolicy,
   applyPreset,
   optimizePolicies,
+  getOrgPolicySettings,
+  updateOrgPolicySettings,
   type PolicyRule,
   type AIPolicySuggestion,
+  type OrgPolicySettings,
 } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
 
@@ -145,6 +148,22 @@ export function PoliciesPage() {
   const delMutation = useMutation({
     mutationFn: (id: string) => deletePolicy(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: policyKey }); toast('Rule deleted', 'info'); },
+  });
+
+  // ── Org simulation threshold ────────────────────────────────────────────
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-policy-settings'],
+    queryFn: getOrgPolicySettings,
+  });
+
+  const simThresholdMutation = useMutation({
+    mutationFn: (threshold: OrgPolicySettings['simulationThreshold']) =>
+      updateOrgPolicySettings({ simulationThreshold: threshold }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['org-policy-settings'] });
+      toast('Simulation threshold updated', 'success');
+    },
+    onError: (err: Error) => toast(`Failed: ${err.message}`, 'error'),
   });
 
   const runAI = async () => {
@@ -313,7 +332,7 @@ export function PoliciesPage() {
             <span className="text-[10px] font-bold text-blue-400 font-mono">2</span>
             <span className="text-[11px] font-medium text-blue-400">Simulation</span>
           </div>
-          <p className="text-[10px] text-text-tertiary">Dry-run verification confirms expected outcome before real execution.</p>
+          <p className="text-[10px] text-text-tertiary">Sandbox execution + AI intent verification. Verifies command behavior matches stated intent.</p>
         </div>
         <div className="bg-purple-500/5 border border-purple-500/15 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-1">
@@ -321,6 +340,46 @@ export function PoliciesPage() {
             <span className="text-[11px] font-medium text-purple-400">Secure Execution</span>
           </div>
           <p className="text-[10px] text-text-tertiary">Ephemeral containers with scoped credentials. Agent never touches secrets.</p>
+        </div>
+      </div>
+
+      {/* ── Simulation Threshold ──────────────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xs font-semibold text-text-primary font-mono">
+              <span className="text-blue-400">[~]</span> simulation threshold
+            </h2>
+            <p className="text-[10px] text-text-tertiary mt-1">
+              Controls which local actions trigger sandbox simulation (Layer 2) before execution.
+              Credential actions are always simulated regardless of this setting.
+            </p>
+          </div>
+          <div className="shrink-0 flex items-center gap-2">
+            {([
+              { value: 'critical_only', label: 'Critical only', desc: 'Only credential actions' },
+              { value: 'high', label: 'High risk', desc: 'DESTRUCTIVE + credentials' },
+              { value: 'medium', label: 'Medium+', desc: 'WRITE + DESTRUCTIVE' },
+              { value: 'all', label: 'All', desc: 'Every action simulated' },
+            ] as const).map(opt => {
+              const isActive = (orgSettings?.simulationThreshold ?? 'high') === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => simThresholdMutation.mutate(opt.value)}
+                  disabled={simThresholdMutation.isPending}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono transition-all border ${
+                    isActive
+                      ? 'bg-blue-500/15 border-blue-500/30 text-blue-400'
+                      : 'bg-surface-2/50 border-border text-text-tertiary hover:text-text-secondary hover:border-border/80'
+                  }`}
+                  title={opt.desc}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 

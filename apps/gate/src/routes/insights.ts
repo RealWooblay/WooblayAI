@@ -2,7 +2,7 @@
  * Insights routes — metric display (no automation).
  *
  * Computes and displays per-action-class metrics:
- * - Success rate, override rate, rollback rate, sample count, MTTF.
+ * - Success rate, override rate, sample count, MTTF.
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -45,17 +45,12 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
       const executed = items.filter((p) => p.status === 'executed' || p.status === 'verified').length;
       const verified = items.filter((p) => p.status === 'verified').length;
       const denied = items.filter((p) => p.status === 'denied').length;
-      const rolledBack = items.filter((p) => p.status === 'rolled_back').length;
-
-      // Success = verified / (executed + verified + rolled_back)
-      const completedCount = executed + verified + rolledBack;
+      // Success = verified / (executed + verified)
+      const completedCount = executed + verified;
       const successRate = completedCount > 0 ? (verified / completedCount) * 100 : 0;
 
       // Override rate = denied / total
       const overrideRate = total > 0 ? (denied / total) * 100 : 0;
-
-      // Rollback rate = rolled_back / completedCount
-      const rollbackRate = completedCount > 0 ? (rolledBack / completedCount) * 100 : 0;
 
       // Mean time to fix (from proposal creation to verified)
       const verifiedItems = items.filter((p) => p.status === 'verified' && p.approvedAt);
@@ -79,10 +74,8 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
         executed,
         verified,
         denied,
-        rolledBack,
         successRate: Math.round(successRate * 10) / 10,
         overrideRate: Math.round(overrideRate * 10) / 10,
-        rollbackRate: Math.round(rollbackRate * 10) / 10,
         mttfMs: mttfMs ? Math.round(mttfMs) : null,
         riskDistribution,
         hasIrreversible: items.some((p) => p.irreversible),
