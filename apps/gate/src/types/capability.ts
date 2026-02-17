@@ -41,10 +41,27 @@ export interface MintCapabilityInput {
   maxUses?: number;
 }
 
+/** Shape of capability record returned from DB validation. */
+export interface ValidatedCapability {
+  id: string;
+  runId: string;
+  workspaceId: string | null;
+  actionClass: string;
+  scope: string;
+  policySnapshot: string | null;
+  proposalId: string | null;
+  issuedAt: Date;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  usedCount: number;
+  maxUses: number;
+  createdAt: Date;
+}
+
 export interface ValidationResult {
   valid: boolean;
   reason?: string;
-  capability?: unknown;
+  capability?: ValidatedCapability;
   scope?: Record<string, unknown>;
   claims?: CapabilityClaims;
   /** The orgId of the run this capability belongs to */

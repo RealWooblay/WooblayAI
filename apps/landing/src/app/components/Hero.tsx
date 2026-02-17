@@ -30,13 +30,13 @@ export function Hero() {
       <div className="relative text-center px-6 max-w-4xl mx-auto">
         <FadeIn>
           <p className="text-accent/80 text-[13px] font-mono tracking-widest uppercase mb-6">
-            The secure execution environment for AI agents
+            The execution firewall for AI agents
           </p>
         </FadeIn>
 
         <FadeIn delay={0.04}>
           <h1 className="font-display text-[clamp(2.8rem,7vw,5.5rem)] font-bold tracking-[-0.04em] leading-[0.92]">
-            <span className="text-gradient">Agents declare.</span>
+            <span className="text-gradient">Agents decide.</span>
             <br />
             <span className="text-white/20">Wooblay executes.</span>
           </h1>
@@ -44,7 +44,7 @@ export function Hero() {
 
         <FadeIn delay={0.08}>
           <p className="mt-7 text-white/50 text-[17px] sm:text-[19px] leading-relaxed max-w-2xl mx-auto">
-            Three layers of security between your agents and the world: policy gates, pre-execution simulation, and ephemeral secure execution. Agents never touch credentials. Every action verified.
+            Intercept, simulate, and verify every real-world action before it happens. No long-lived credentials. No blind trust. Every action verified.
           </p>
         </FadeIn>
 

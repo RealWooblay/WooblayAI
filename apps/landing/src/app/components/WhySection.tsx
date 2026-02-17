@@ -4,9 +4,9 @@ import { motion, useInView } from 'framer-motion'
 import { useRef } from 'react'
 
 const alerts = [
-  { time: '3:14 AM', text: 'Agent merged a PR. Skipped review.' },
-  { time: '3:17 AM', text: 'Agent changed prod config. No rollback plan.' },
-  { time: '3:19 AM', text: 'Agent rotated a key. Mid-deploy.' },
+  { time: '3:14 AM', text: 'Agent made a change. No review.' },
+  { time: '3:17 AM', text: 'Agent updated production. No rollback plan.' },
+  { time: '3:19 AM', text: 'Agent accessed sensitive data.' },
 ]
 
 export function WhySection() {
@@ -69,7 +69,7 @@ export function WhySection() {
             <span className="text-white">This already happens.</span>
           </p>
           <p className="mt-4 text-white/40 text-[15px] leading-relaxed max-w-md mx-auto">
-            Agents merge PRs, change config, rotate keys. Often there&apos;s no review, no evidence, and no record of who approved what.
+            AI agents are taking real-world actions. Often without review, evidence, or a clear record of who approved what.
           </p>
         </motion.div>
       </div>

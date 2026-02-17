@@ -26,7 +26,7 @@ export type WooblayEvent =
   // ── Operation events (was Incident) ─────────────────────────────────
   | { type: 'operation.created';       data: { operationId: string; source: string; priority: OperationPriority; title: string } }
   | { type: 'operation.updated';       data: { operationId: string; status: OperationStatus; previousStatus: OperationStatus } }
-  | { type: 'operation.routed';        data: { operationId: string; instanceId: string | null; confidence: number; status: RoutingStatus } }
+  | { type: 'operation.routed';        data: { operationId: string; instanceId: string | null; confidence: number; status: RoutingStatus; classifiedIntent?: string } }
   // Backward-compat aliases
   | { type: 'incident.created';        data: { incidentId: string; source: string; priority: OperationPriority; title: string } }
   | { type: 'incident.updated';        data: { incidentId: string; status: OperationStatus; previousStatus: OperationStatus } }
@@ -41,8 +41,12 @@ export type WooblayEvent =
   // ── Evidence events ─────────────────────────────────────────────────
   | { type: 'evidence.started';        data: { evidenceId: string; runId: string; recipeType: string } }
   | { type: 'evidence.completed';      data: { evidenceId: string; status: EvidenceStatus; reproducible: boolean } }
+  // ── Simulation events ──────────────────────────────────────────────
+  | { type: 'simulation.completed';    data: { runId: string; action: string; strategy: string; passed: boolean } }
+  // ── Secure Execution events ───────────────────────────────────────
+  | { type: 'secure_exec.completed';   data: { runId: string; action: string; success: boolean; durationMs: number; containerId: string } }
   // ── Gateway events ──────────────────────────────────────────────────
-  | { type: 'gateway.executed';        data: { capabilityId: string; runId: string; actionClass: string; success: boolean } }
+  | { type: 'gateway.executed';        data: { capabilityId: string; runId: string; actionClass: string; success: boolean; containerId?: string } }
   | { type: 'gateway.bypass_attempt';  data: { runId?: string; target: string; blocked: boolean } }
   // ── Capability events ───────────────────────────────────────────────
   | { type: 'capability.issued';       data: { capabilityId: string; runId: string; actionClass: string; expiresAt: string; scopeHash?: string; policySnapshotHash?: string | null } }
