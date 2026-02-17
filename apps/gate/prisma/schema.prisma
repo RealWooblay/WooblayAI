@@ -342,6 +342,7 @@ model Instance {
   githubPat     Boolean  @default(false) // Whether a GitHub PAT is configured
   inferredRole  String?  // AI-derived role: "Frontend developer building React dashboard"
   role          String?  // User-corrected role override
+  secrets       String?  // JSON — [{ key, encryptedValue }] agent-visible env vars
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

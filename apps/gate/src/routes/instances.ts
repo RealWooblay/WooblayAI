@@ -737,4 +737,106 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(500).send({ error: 'Internal server error' });
     }
   });
+
+  // ── Instance Secrets (agent-visible env vars) ─────────────────────────
+
+  /**
+   * GET /api/instances/:id/secrets — List instance env var keys (values are never returned).
+   */
+  app.get('/api/instances/:id/secrets', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const instance = await prisma.instance.findUnique({ where: { id }, select: { secrets: true } });
+      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+
+      let secrets: { key: string }[] = [];
+      if (instance.secrets) {
+        try {
+          const parsed = JSON.parse(instance.secrets) as { key: string; encryptedValue: string }[];
+          secrets = parsed.map(s => ({ key: s.key }));
+        } catch { /* ignore corrupt data */ }
+      }
+
+      return reply.send({ secrets });
+    } catch (err: any) {
+      request.log.error({ err }, 'Failed to list instance secrets');
+      return reply.code(500).send({ error: 'Failed to list secrets', detail: err.message });
+    }
+  });
+
+  /**
+   * POST /api/instances/:id/secrets — Add an env var to the instance.
+   * Body: { key: string, value: string }
+   */
+  app.post('/api/instances/:id/secrets', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as { key?: string; value?: string };
+
+      if (!body.key || !body.value) {
+        return reply.code(400).send({ error: 'key and value are required' });
+      }
+
+      const normalizedKey = body.key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      if (!normalizedKey) return reply.code(400).send({ error: 'Invalid key name' });
+
+      const instance = await prisma.instance.findUnique({ where: { id }, select: { secrets: true } });
+      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+
+      let secrets: { key: string; encryptedValue: string }[] = [];
+      if (instance.secrets) {
+        try { secrets = JSON.parse(instance.secrets); } catch { /* ignore */ }
+      }
+
+      // Upsert — replace if key already exists
+      secrets = secrets.filter(s => s.key !== normalizedKey);
+
+      // Import envelope encrypt
+      const { envelopeEncrypt } = await import('../services/vault.js');
+      secrets.push({ key: normalizedKey, encryptedValue: envelopeEncrypt(body.value) });
+
+      await prisma.instance.update({
+        where: { id },
+        data: { secrets: JSON.stringify(secrets) },
+      });
+
+      return reply.code(201).send({ key: normalizedKey });
+    } catch (err: any) {
+      request.log.error({ err }, 'Failed to add instance secret');
+      return reply.code(500).send({ error: 'Failed to add secret', detail: err.message });
+    }
+  });
+
+  /**
+   * DELETE /api/instances/:id/secrets/:key — Remove an env var.
+   */
+  app.delete('/api/instances/:id/secrets/:key', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id, key } = request.params as { id: string; key: string };
+
+      const instance = await prisma.instance.findUnique({ where: { id }, select: { secrets: true } });
+      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+
+      let secrets: { key: string; encryptedValue: string }[] = [];
+      if (instance.secrets) {
+        try { secrets = JSON.parse(instance.secrets); } catch { /* ignore */ }
+      }
+
+      const before = secrets.length;
+      secrets = secrets.filter(s => s.key !== key);
+      if (secrets.length === before) {
+        return reply.code(404).send({ error: `Secret ${key} not found` });
+      }
+
+      await prisma.instance.update({
+        where: { id },
+        data: { secrets: JSON.stringify(secrets) },
+      });
+
+      return reply.code(204).send();
+    } catch (err: any) {
+      request.log.error({ err }, 'Failed to delete instance secret');
+      return reply.code(500).send({ error: 'Failed to delete secret', detail: err.message });
+    }
+  });
 }

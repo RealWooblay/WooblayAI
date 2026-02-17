@@ -18,113 +18,123 @@ import { parseScopeBoundaries, describeScopeBoundaries } from '../engine/scope.j
 export async function connectionRoutes(app: FastifyInstance): Promise<void> {
   // ── List connections (with dual-role info) ───────────────────────────
   app.get('/api/connections', async (request: FastifyRequest, reply: FastifyReply) => {
-    const org = getOrgScope(request);
-    const connections = await prisma.connection.findMany({
-      where: { ...org.filter },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        provider: true,
-        name: true,
-        status: true,
-        scopes: true,
-        metadata: true,
-        sensorEnabled: true,
-        sensorConfig: true,
-        scopeBoundaries: true,
-        webhookSecret: true,
-        createdAt: true,
-        updatedAt: true,
-        // NEVER return credentialRef to the client
-      },
-    });
-
-    // Enrich with available actions per provider
-    const allActions = listActions();
-    const enriched = connections.map((c) => {
-      const providerActions = allActions.filter((a) => a.provider === c.provider);
-      const boundaries = parseScopeBoundaries(c.scopeBoundaries);
-      return {
-        ...c,
-        webhookSecret: undefined, // Don't leak secret in list view
-        sensing: {
-          enabled: c.sensorEnabled,
-          config: c.sensorConfig ? JSON.parse(c.sensorConfig) : null,
+    try {
+      const org = getOrgScope(request);
+      const connections = await prisma.connection.findMany({
+        where: { ...org.filter },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          provider: true,
+          name: true,
+          status: true,
+          scopes: true,
+          metadata: true,
+          sensorEnabled: true,
+          sensorConfig: true,
+          scopeBoundaries: true,
+          webhookSecret: true,
+          createdAt: true,
+          updatedAt: true,
+          // NEVER return credentialRef to the client
         },
-        execution: {
-          actions: providerActions,
-          scopeBoundaries: describeScopeBoundaries(boundaries),
-        },
-      };
-    });
+      });
 
-    return reply.send(enriched);
+      // Enrich with available actions per provider
+      const allActions = listActions();
+      const enriched = connections.map((c) => {
+        const providerActions = allActions.filter((a) => a.provider === c.provider);
+        const boundaries = parseScopeBoundaries(c.scopeBoundaries);
+        return {
+          ...c,
+          webhookSecret: undefined, // Don't leak secret in list view
+          sensing: {
+            enabled: c.sensorEnabled,
+            config: c.sensorConfig ? (() => { try { return JSON.parse(c.sensorConfig!); } catch { return null; } })() : null,
+          },
+          execution: {
+            actions: providerActions,
+            scopeBoundaries: describeScopeBoundaries(boundaries),
+          },
+        };
+      });
+
+      return reply.send(enriched);
+    } catch (err: any) {
+      request.log.error({ err }, 'Failed to list connections');
+      return reply.code(500).send({ error: 'Failed to list connections', detail: err.message });
+    }
   });
 
   // ── Create connection ─────────────────────────────────────────────────
   app.post('/api/connections', async (request: FastifyRequest, reply: FastifyReply) => {
-    const body = request.body as {
-      provider: string;
-      name: string;
-      credential: string;
-      scopes?: string[];
-      metadata?: Record<string, unknown>;
-    };
+    try {
+      const body = request.body as {
+        provider: string;
+        name: string;
+        credential: string;
+        scopes?: string[];
+        metadata?: Record<string, unknown>;
+      };
 
-    if (!body.provider || !body.name || !body.credential) {
-      return reply.code(400).send({ error: 'provider, name, and credential are required' });
-    }
+      if (!body.provider || !body.name || !body.credential) {
+        return reply.code(400).send({ error: 'provider, name, and credential are required' });
+      }
 
-    const SUPPORTED_PROVIDERS = ['github', 'aws', 'gcp'];
-    if (!SUPPORTED_PROVIDERS.includes(body.provider)) {
-      return reply.code(400).send({ error: `Unsupported provider: ${body.provider}. Supported: ${SUPPORTED_PROVIDERS.join(', ')}` });
-    }
+      const SUPPORTED_PROVIDERS = ['github', 'aws', 'gcp'];
+      if (!SUPPORTED_PROVIDERS.includes(body.provider)) {
+        return reply.code(400).send({ error: `Unsupported provider: ${body.provider}. Supported: ${SUPPORTED_PROVIDERS.join(', ')}` });
+      }
 
-    const org = getOrgScope(request);
+      const org = getOrgScope(request);
 
-    // Build credential + metadata based on provider
-    let encryptedCred: string;
-    let metadata: string | null = null;
+      // Build credential + metadata based on provider
+      let encryptedCred: string;
+      let metadata: string | null = null;
 
-    if (body.provider === 'github') {
-      encryptedCred = envelopeEncrypt(body.credential);
-    } else if (body.provider === 'aws') {
-      // For AWS, credential = access key ID, metadata stores encrypted secret key
-      const awsMeta = body.metadata as { awsSecretAccessKey?: string; region?: string } | undefined;
-      encryptedCred = body.credential; // Access Key ID (not secret)
-      metadata = JSON.stringify({
-        awsAccessKeyId: body.credential,
-        awsSecretAccessKey: awsMeta?.awsSecretAccessKey ? envelopeEncrypt(awsMeta.awsSecretAccessKey) : '',
-        region: awsMeta?.region ?? 'us-east-1',
+      if (body.provider === 'github') {
+        encryptedCred = envelopeEncrypt(body.credential);
+      } else if (body.provider === 'aws') {
+        // For AWS, credential = access key ID, metadata stores encrypted secret key
+        const awsMeta = body.metadata as { awsSecretAccessKey?: string; region?: string } | undefined;
+        encryptedCred = body.credential; // Access Key ID (not secret)
+        metadata = JSON.stringify({
+          awsAccessKeyId: body.credential,
+          awsSecretAccessKey: awsMeta?.awsSecretAccessKey ? envelopeEncrypt(awsMeta.awsSecretAccessKey) : '',
+          region: awsMeta?.region ?? 'us-east-1',
+        });
+      } else if (body.provider === 'gcp') {
+        // For GCP, credential = service account JSON key (entire content)
+        encryptedCred = envelopeEncrypt(body.credential);
+        metadata = JSON.stringify({
+          gcpServiceAccountKey: envelopeEncrypt(body.credential),
+          project: (body.metadata as { project?: string } | undefined)?.project ?? null,
+        });
+      } else {
+        encryptedCred = envelopeEncrypt(body.credential);
+      }
+
+      const connection = await prisma.connection.create({
+        data: withOrg(org, {
+          provider: body.provider,
+          name: body.name,
+          credentialRef: encryptedCred,
+          scopes: JSON.stringify(body.scopes ?? (body.provider === 'github' ? ['repo'] : ['*'])),
+          metadata,
+        }),
       });
-    } else if (body.provider === 'gcp') {
-      // For GCP, credential = service account JSON key (entire content)
-      encryptedCred = envelopeEncrypt(body.credential);
-      metadata = JSON.stringify({
-        gcpServiceAccountKey: envelopeEncrypt(body.credential),
-        project: (body.metadata as { project?: string } | undefined)?.project ?? null,
+
+      return reply.code(201).send({
+        id: connection.id,
+        provider: connection.provider,
+        name: connection.name,
+        status: connection.status,
+        createdAt: connection.createdAt,
       });
-    } else {
-      encryptedCred = envelopeEncrypt(body.credential);
+    } catch (err: any) {
+      request.log.error({ err }, 'Failed to create connection');
+      return reply.code(500).send({ error: 'Failed to create connection', detail: err.message });
     }
-
-    const connection = await prisma.connection.create({
-      data: withOrg(org, {
-        provider: body.provider,
-        name: body.name,
-        credentialRef: encryptedCred,
-        scopes: JSON.stringify(body.scopes ?? (body.provider === 'github' ? ['repo'] : ['*'])),
-        metadata,
-      }),
-    });
-
-    return reply.code(201).send({
-      id: connection.id,
-      provider: connection.provider,
-      name: connection.name,
-      status: connection.status,
-      createdAt: connection.createdAt,
-    });
   });
 
   // ── Revoke connection ─────────────────────────────────────────────────

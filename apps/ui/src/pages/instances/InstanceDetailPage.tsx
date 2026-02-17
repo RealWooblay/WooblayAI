@@ -23,16 +23,14 @@ import {
   readFile,
   writeFile,
   getFileDownloadUrl,
-  getConnections,
-  getConnectionSecrets,
-  addConnectionSecret,
-  deleteConnectionSecret,
+  getInstanceSecrets,
+  addInstanceSecret,
+  deleteInstanceSecret,
   type FileEntry,
   type MissionData,
   type Instance,
 } from '../../api/client.ts';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
-import { InstanceMiniTour } from '../../components/tour/InstanceMiniTour.tsx';
 import { useTourOptional } from '../../contexts/TourContext.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
@@ -522,51 +520,47 @@ function InstanceMiniTour({ setActiveTab }: { setActiveTab: (t: 'overview' | 'pr
   );
 }
 
-// ── Security Tab — Agent-accessible keys + exec-only summary ─────────────────
+// ── Security Tab — Instance env vars + exec-only summary ─────────────────────
 
-function CapabilitiesSection({ instance: _instance }: { instance: Instance }) {
+function CapabilitiesSection({ instance }: { instance: Instance }) {
   const qc = useQueryClient();
-  const { data: connections } = useQuery({ queryKey: ['connections'], queryFn: getConnections });
-  const activeConns = (connections ?? []).filter((c: any) => c.status === 'active');
-
-  const [selectedConnId, setSelectedConnId] = useState<string | null>(null);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
 
-  // Auto-select first connection
-  if (!selectedConnId && activeConns.length > 0) {
-    setSelectedConnId(activeConns[0].id);
-  }
-
-  const { data: secretsData } = useQuery({
-    queryKey: ['conn-secrets', selectedConnId],
-    queryFn: () => getConnectionSecrets(selectedConnId!),
-    enabled: !!selectedConnId,
+  // Instance-level secrets (no connection required)
+  const { data: secretsData, isLoading: secretsLoading } = useQuery({
+    queryKey: ['instance-secrets', instance.id],
+    queryFn: () => getInstanceSecrets(instance.id),
   });
 
-  const allSecrets = secretsData?.secrets ?? [];
-  const agentSecrets = allSecrets.filter((s: any) => s.mode === 'agent');
-  const execSecrets = allSecrets.filter((s: any) => s.mode === 'exec_only');
-
   const addMut = useMutation({
-    mutationFn: () => addConnectionSecret(selectedConnId!, { key: newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'), value: newValue, mode: 'agent' }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['conn-secrets', selectedConnId] }); setNewKey(''); setNewValue(''); },
+    mutationFn: () => addInstanceSecret(instance.id, {
+      key: newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
+      value: newValue,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance-secrets', instance.id] });
+      setNewKey('');
+      setNewValue('');
+    },
   });
 
   const delMut = useMutation({
-    mutationFn: (key: string) => deleteConnectionSecret(selectedConnId!, key),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conn-secrets', selectedConnId] }),
+    mutationFn: (key: string) => deleteInstanceSecret(instance.id, key),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['instance-secrets', instance.id] }),
   });
+
+  const existingKeys = secretsData?.secrets ?? [];
 
   return (
     <div className="space-y-4">
-      {/* Agent-Accessible API Keys */}
+      {/* Agent Environment Variables */}
       <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-agent-keys">
         <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-1">
-          Agent API Keys
+          Agent Environment Variables
         </h3>
         <p className="text-[10px] text-text-muted mb-4">
-          Injected as environment variables ($KEY_NAME) into the agent container.
+          Injected as <code className="bg-surface-2 px-1 rounded">$KEY_NAME</code> into the agent container. No connection required.
         </p>
 
         {/* Warning */}
@@ -582,117 +576,65 @@ function CapabilitiesSection({ instance: _instance }: { instance: Instance }) {
           </p>
         </div>
 
-        {activeConns.length === 0 ? (
-          <div className="text-center py-6">
-            <p className="text-[12px] text-text-muted mb-2">No connections yet</p>
-            <Link to="/connections" className="text-[11px] text-accent hover:text-accent-bright font-mono">
-              + Add connection
-            </Link>
-          </div>
-        ) : (
-          <>
-            {/* Connection picker */}
-            <div className="flex gap-2 mb-4 flex-wrap">
-              {activeConns.map((c: any) => (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedConnId(c.id)}
-                  className={`text-[11px] font-mono px-3 py-1.5 rounded-lg border transition-colors ${
-                    selectedConnId === c.id
-                      ? 'bg-accent/15 border-accent/30 text-accent'
-                      : 'bg-surface-2/50 border-border text-text-secondary hover:border-border-bright'
-                  }`}
-                >
-                  {c.name}
-                  <span className="text-text-muted ml-1.5">{c.provider}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Existing agent-accessible keys */}
-            {agentSecrets.length > 0 && (
-              <div className="space-y-1.5 mb-4">
-                {agentSecrets.map((s: any) => (
-                  <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-2/50 group">
-                    <div className="flex items-center gap-3">
-                      <code className="text-[11px] text-text-primary font-mono">{s.key}</code>
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20">
-                        agent env
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => delMut.mutate(s.key)}
-                      className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
-                    >
-                      remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add key form */}
-            <div className="flex gap-2 items-end">
-              <div className="flex-1 min-w-0">
-                <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Key</label>
-                <input
-                  value={newKey}
-                  onChange={(e) => setNewKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
-                  placeholder="GITHUB_TOKEN"
-                  className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Value</label>
-                <input
-                  type="password"
-                  value={newValue}
-                  onChange={(e) => setNewValue(e.target.value)}
-                  placeholder="ghp_..."
-                  className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
-                />
-              </div>
-              <button
-                onClick={() => addMut.mutate()}
-                disabled={!newKey.trim() || !newValue.trim() || addMut.isPending}
-                className="shrink-0 px-3 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors"
-              >
-                {addMut.isPending ? '...' : 'Add'}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Exec-only summary (read-only, managed on Connections) */}
-      {execSecrets.length > 0 && (
-        <div className="bg-surface-1 border border-border rounded-xl p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
-              Exec-Only Secrets
-            </h3>
-            <Link to="/connections" className="text-[10px] text-accent hover:text-accent-bright font-mono">
-              Manage &rarr;
-            </Link>
-          </div>
-          <div className="space-y-1.5">
-            {execSecrets.map((s: any) => (
-              <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-2/50">
+        {/* Existing keys */}
+        {secretsLoading ? (
+          <div className="text-[10px] text-text-muted font-mono animate-pulse py-3">loading...</div>
+        ) : existingKeys.length > 0 ? (
+          <div className="space-y-1.5 mb-4">
+            {existingKeys.map((s: any) => (
+              <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-2/50 group">
                 <div className="flex items-center gap-3">
                   <code className="text-[11px] text-text-primary font-mono">{s.key}</code>
-                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
-                    exec only
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20">
+                    agent env
                   </span>
                 </div>
-                <span className="text-[10px] text-text-muted font-mono">••••••</span>
+                <button
+                  onClick={() => delMut.mutate(s.key)}
+                  className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
+                >
+                  remove
+                </button>
               </div>
             ))}
           </div>
-          <p className="text-[9px] text-text-muted mt-3 font-mono">
-            These are only injected during secure execution. The agent never sees them.
-          </p>
+        ) : null}
+
+        {/* Add key form */}
+        <div className="flex gap-2 items-end">
+          <div className="flex-1 min-w-0">
+            <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Key</label>
+            <input
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+              placeholder="OPENAI_API_KEY"
+              className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Value</label>
+            <input
+              type="password"
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              placeholder="sk-..."
+              className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+            />
+          </div>
+          <button
+            onClick={() => addMut.mutate()}
+            disabled={!newKey.trim() || !newValue.trim() || addMut.isPending}
+            className="shrink-0 px-3 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors"
+          >
+            {addMut.isPending ? '...' : 'Add'}
+          </button>
         </div>
-      )}
+        {addMut.isError && (
+          <p className="text-[10px] text-red-400 font-mono mt-2">
+            Failed to add — {(addMut.error as any)?.body ?? 'check server logs'}
+          </p>
+        )}
+      </div>
 
       {/* Quick links */}
       <div className="flex gap-3">
@@ -1474,8 +1416,6 @@ export function InstanceDetailPage() {
       )}
 
       </div>
-
-      <InstanceMiniTour activeTab={activeTab} onSwitchTab={setActiveTab} />
     </div>
   );
 }

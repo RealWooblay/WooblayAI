@@ -15,9 +15,14 @@ const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 /** Set by the auth provider to supply the current JWT. */
 let getTokenFn: (() => Promise<string | null>) | null = null;
+/** Force-fresh variant that always bypasses Clerk's token cache. Set by useAuthSetup. */
+let getTokenFreshFn: (() => Promise<string | null>) | null = null;
 
 export function setGetTokenFn(fn: () => Promise<string | null>) {
   getTokenFn = fn;
+}
+export function setGetTokenFreshFn(fn: () => Promise<string | null>) {
+  getTokenFreshFn = fn;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,10 +69,11 @@ export async function fetchApi<T = unknown>(
     headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
   }
 
-  // Attach Clerk JWT if available
-  if (getTokenFn) {
+  // Attach Clerk JWT — use fresh token on retry
+  const tokenFn = _retried ? (getTokenFreshFn ?? getTokenFn) : getTokenFn;
+  if (tokenFn) {
     try {
-      const token = await getTokenFn();
+      const token = await tokenFn();
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       } else {
@@ -83,7 +89,7 @@ export async function fetchApi<T = unknown>(
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const res = await fetch(url, { ...init, headers, credentials: 'include' });
 
-  // On 401, retry once with a forced-fresh token (handles stale session token)
+  // On 401, retry once with a forced-fresh token from Clerk
   if (res.status === 401 && !_retried && getTokenFn) {
     return fetchApi<T>(path, init, true);
   }
@@ -306,6 +312,20 @@ export const deleteInstance = (id: string) =>
 
 export const getInstanceLogs = (id: string, tail?: number) =>
   fetchApi<{ logs: string }>(`/api/instances/${id}/logs${tail ? `?tail=${tail}` : ''}`);
+
+// ── Instance Secrets (agent-visible env vars) ─────────────────────────
+
+export const getInstanceSecrets = (id: string) =>
+  fetchApi<{ secrets: { key: string }[] }>(`/api/instances/${id}/secrets`);
+
+export const addInstanceSecret = (id: string, secret: { key: string; value: string }) =>
+  fetchApi<{ key: string }>(`/api/instances/${id}/secrets`, {
+    method: 'POST',
+    body: JSON.stringify(secret),
+  });
+
+export const deleteInstanceSecret = (id: string, key: string) =>
+  fetchApi<void>(`/api/instances/${id}/secrets/${key}`, { method: 'DELETE' });
 
 // ---------------------------------------------------------------------------
 // Policies

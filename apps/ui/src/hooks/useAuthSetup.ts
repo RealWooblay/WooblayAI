@@ -7,16 +7,21 @@
  */
 
 import { useAuth } from '@clerk/clerk-react';
-import { setGetTokenFn } from '../api/client.ts';
+import { setGetTokenFn, setGetTokenFreshFn } from '../api/client.ts';
 
 export function useAuthSetup() {
   const { getToken } = useAuth();
-  // Must be synchronous — useEffect would run AFTER the first render,
-  // causing API calls to fire without the token.
-  // Force skipCache on retry (Clerk v5 may cache an expired token briefly).
+
+  // Normal path — uses Clerk's built-in caching
   setGetTokenFn(async () => {
     const token = await getToken();
     if (token) return token;
+    // Clerk returned null — force fresh
+    return getToken({ skipCache: true });
+  });
+
+  // Retry path — always bypass Clerk's internal cache (used on 401 retry)
+  setGetTokenFreshFn(async () => {
     return getToken({ skipCache: true });
   });
 }
