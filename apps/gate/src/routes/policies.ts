@@ -367,9 +367,14 @@ Suggest policy optimizations.`,
         applied: autoApply,
         agentRole,
       });
-    } catch (err) {
+    } catch (err: any) {
       request.log.error(err, 'AI policy optimization failed');
-      return reply.code(500).send({ error: 'AI analysis failed' });
+      const detail = err?.message ?? String(err);
+      const status = err?.status ?? 500;
+      return reply.code(status === 401 || status === 429 ? status : 500).send({
+        error: 'AI analysis failed',
+        detail,
+      });
     }
   });
 }

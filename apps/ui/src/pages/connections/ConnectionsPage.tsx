@@ -252,6 +252,16 @@ export function ConnectionsPage() {
         </div>
       </div>
 
+      {/* General callout: key must have full access (shown when adding any connection) */}
+      {(addStep === 'select' || addStep === 'github' || addStep === 'aws' || addStep === 'gcp') && (
+        <div className="bg-accent/5 border border-accent/20 rounded-lg px-4 py-3 mb-4">
+          <p className="text-[10px] text-accent/90 font-medium mb-0.5">Use a full-access key</p>
+          <p className="text-[10px] text-text-tertiary">
+            The agent can perform any action this key allows (push, deploy, merge, etc.). Give the connection a key with the permissions you want the agent to have — Wooblay gates each action, but cannot add permissions the key doesn&apos;t have.
+          </p>
+        </div>
+      )}
+
       {/* Step 1: Choose type */}
       {addStep === 'select' && (
         <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
