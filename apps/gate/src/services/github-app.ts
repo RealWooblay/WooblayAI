@@ -15,6 +15,7 @@
 
 import { createSign } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
+import { isEncrypted, envelopeDecrypt } from './vault.js';
 
 // ── Token Cache ─────────────────────────────────────────────────────────
 
@@ -159,11 +160,14 @@ export async function resolveGitHubToken(
     return token;
   }
 
-  // Legacy PAT fallback
+  // Legacy PAT fallback — credentialRef may be envelope-encrypted at rest
   if (!connection.credentialRef) {
     throw new Error('No credential available for connection');
   }
 
+  if (isEncrypted(connection.credentialRef)) {
+    return envelopeDecrypt(connection.credentialRef);
+  }
   return connection.credentialRef;
 }
 

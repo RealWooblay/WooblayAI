@@ -12,6 +12,8 @@ import { SignIn, SignUp, useUser, useAuth } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Sidebar } from './components/layout/Sidebar.tsx';
+import { TourProvider } from './contexts/TourContext.tsx';
+import { TourOverlay } from './components/tour/TourOverlay.tsx';
 import { useAuthSetup } from './hooks/useAuthSetup.ts';
 import { getMe } from './api/client.ts';
 
@@ -115,11 +117,12 @@ function ActivationGate() {
 /** Main authenticated application shell. */
 function AuthenticatedApp() {
   return (
-    <div className="h-screen flex bg-void overflow-hidden">
-      <Sidebar />
+    <TourProvider>
+      <div className="h-screen flex bg-void overflow-hidden">
+        <Sidebar />
 
-      <main className="flex-1 overflow-hidden relative">
-        <Routes>
+        <main className="flex-1 overflow-hidden relative">
+          <Routes>
           {/* Primary routes — sensor-first */}
           <Route path="/operations" element={<PageShell><OperationsPage /></PageShell>} />
           <Route path="/operations/:id" element={<PageShell><OperationPage /></PageShell>} />
@@ -146,7 +149,9 @@ function AuthenticatedApp() {
           <Route path="*" element={<Navigate to="/operations" replace />} />
         </Routes>
       </main>
-    </div>
+      </div>
+      <TourOverlay />
+    </TourProvider>
   );
 }
 

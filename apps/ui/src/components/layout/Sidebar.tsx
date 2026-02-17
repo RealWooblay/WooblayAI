@@ -2,6 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useUser as useClerkUser, OrganizationSwitcher } from '@clerk/clerk-react';
 import { getApprovals, getOperations } from '../../api/client.ts';
+import { useTourOptional } from '../../contexts/TourContext.tsx';
 import clsx from 'clsx';
 
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -32,6 +33,7 @@ const NAV_ITEMS: ReadonlyArray<{
 export function Sidebar() {
   const location = useLocation();
   const { user } = useSafeUser();
+  const tour = useTourOptional();
 
   const { data: approvals } = useQuery({
     queryKey: ['approvals', 'pending'],
@@ -132,8 +134,18 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom: User + Settings */}
+      {/* Bottom: Tutorial + Settings + User */}
       <div className="px-3 pb-4 space-y-1">
+        {tour && (
+          <button
+            type="button"
+            onClick={tour.startTour}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all text-text-secondary hover:text-text-primary hover:bg-surface-2"
+          >
+            <span className="text-[11px] w-5 text-center opacity-40">◇</span>
+            <span className="flex-1 text-left">Tutorial</span>
+          </button>
+        )}
         <NavLink
           to="/settings"
           className={() =>

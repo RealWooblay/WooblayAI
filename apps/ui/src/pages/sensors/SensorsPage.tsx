@@ -14,9 +14,17 @@ import { Spinner } from '../../components/common/Spinner.tsx';
 import { Button } from '../../components/common/Button.tsx';
 import { EmptyState } from '../../components/common/EmptyState.tsx';
 
+type AddSensorStep = false | 'select' | 'github';
+
+const SENSOR_PROVIDERS: { id: string; label: string; description: string; available: boolean }[] = [
+  { id: 'github', label: 'GitHub', description: 'Monitor repos for push, PR, and check run events. Creates operations and allows agents to act via the Tool Gateway.', available: true },
+  { id: 'slack', label: 'Slack', description: 'React to messages and slash commands. Coming soon.', available: false },
+  { id: 'api', label: 'API / Webhook', description: 'Call a unique URL to create operations from any system. Coming soon.', available: false },
+];
+
 export function SensorsPage() {
   const qc = useQueryClient();
-  const [showAdd, setShowAdd] = useState(false);
+  const [addStep, setAddStep] = useState<AddSensorStep>(false);
   const [newConn, setNewConn] = useState({ name: '', credential: '' });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [webhookInfo, setWebhookInfo] = useState<Record<string, any>>({});
@@ -43,7 +51,7 @@ export function SensorsPage() {
     onSuccess: async (conn: any) => {
       qc.invalidateQueries({ queryKey: ['connections'] });
       qc.invalidateQueries({ queryKey: ['sensors-status'] });
-      setShowAdd(false);
+      setAddStep(false);
       setNewConn({ name: '', credential: '' });
       // Auto-init sensor
       try {
@@ -101,7 +109,7 @@ export function SensorsPage() {
   const sensorList = sensors?.sensors ?? [];
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto" data-tour="tour-sensors">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold text-text-primary">Sensors</h1>
@@ -110,15 +118,50 @@ export function SensorsPage() {
             {sensors?.totalOperationsLast24h > 0 && ` · ${sensors.totalOperationsLast24h} operations (24h)`}
           </p>
         </div>
-        <Button size="sm" onClick={() => setShowAdd(true)}>+ Add GitHub Sensor</Button>
+        <Button size="sm" onClick={() => setAddStep('select')} data-tour="tour-add-sensor">+ Add sensor</Button>
       </div>
 
-      {/* Add Connection Form */}
-      {showAdd && (
+      {/* Step 1: Choose provider */}
+      {addStep === 'select' && (
         <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-medium text-text-primary mb-3">Add GitHub Sensor</h3>
+          <h3 className="text-sm font-medium text-text-primary mb-2">Add sensor</h3>
+          <p className="text-[10px] text-text-tertiary mb-3">Choose a source to connect. Sensors watch for events and create operations; they also let agents act through the Tool Gateway.</p>
+          <div className="grid gap-2">
+            {SENSOR_PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => p.available && setAddStep('github')}
+                disabled={!p.available}
+                className={`text-left rounded-lg border px-4 py-3 transition-colors ${
+                  p.available
+                    ? 'border-border hover:border-accent/50 hover:bg-surface-2'
+                    : 'border-border/50 opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[13px] font-medium text-text-primary">{p.label}</span>
+                    {!p.available && <span className="ml-2 text-[10px] text-text-tertiary">Coming soon</span>}
+                  </div>
+                  {p.available && <span className="text-[10px] text-accent">Select →</span>}
+                </div>
+                <p className="text-[11px] text-text-tertiary mt-1">{p.description}</p>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3">
+            <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: GitHub form */}
+      {addStep === 'github' && (
+        <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Add GitHub sensor</h3>
           <p className="text-[10px] text-text-tertiary mb-3">
-            A sensor connects to GitHub and monitors for events. It gives Wooblay both eyes (monitoring) and hands (agent actions via the Tool Gateway).
+            A GitHub sensor monitors repos for push, PR, and check run events. It gives Wooblay both eyes (monitoring) and hands (agent actions via the Tool Gateway).
           </p>
           <div className="space-y-3">
             <div>
@@ -148,16 +191,17 @@ export function SensorsPage() {
             </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => createMut.mutate()} disabled={!newConn.name || !newConn.credential || createMut.isPending}>
-                {createMut.isPending ? 'Creating...' : 'Create Sensor'}
+                {createMut.isPending ? 'Creating...' : 'Create sensor'}
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
+              <Button size="sm" variant="secondary" onClick={() => setAddStep('select')}>← Back</Button>
+              <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
             </div>
           </div>
         </div>
       )}
 
       {/* Sensor List */}
-      {sensorList.length === 0 && !showAdd && (
+      {sensorList.length === 0 && !addStep && (
         <EmptyState
           title="No sensors configured"
           description="Add a GitHub connection to start monitoring. Sensors detect events and create operations for your agents."

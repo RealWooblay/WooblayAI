@@ -575,7 +575,7 @@ export function CommandCenter() {
   return (
     <div className="h-full overflow-y-auto p-6 canvas-bg relative">
       <WeatherBackground weather={weather} />
-      <div className="max-w-4xl mx-auto space-y-5 relative z-10">
+      <div className="max-w-4xl mx-auto space-y-5 relative z-10" data-tour="tour-dashboard">
 
         {/* Header */}
         <div className="flex items-end justify-between">

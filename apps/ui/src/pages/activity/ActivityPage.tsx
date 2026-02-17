@@ -175,7 +175,7 @@ export function ActivityPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4">
+    <div className="max-w-5xl mx-auto space-y-4" data-tour="tour-activity">
       {/* ── Header + Export ───────────────────────────────────────────────── */}
       <div className="flex items-end justify-between">
         <div>

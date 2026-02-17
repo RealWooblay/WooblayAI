@@ -7,8 +7,9 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/client.js';
-import { getOrgScope, assertOrgAccess, withOrg } from '../middleware/org-scope.js';
+import { getOrgScope, withOrg } from '../middleware/org-scope.js';
 import { envelopeEncrypt } from '../services/vault.js';
+import { resolveGitHubToken } from '../services/github-app.js';
 
 export async function connectionRoutes(app: FastifyInstance): Promise<void> {
   // ── List connections ──────────────────────────────────────────────────
@@ -107,9 +108,10 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
 
     if (connection.provider === 'github') {
       try {
+        const token = await resolveGitHubToken(prisma, id);
         const res = await fetch('https://api.github.com/user', {
           headers: {
-            Authorization: `Bearer ${connection.credentialRef}`,
+            Authorization: `Bearer ${token}`,
             Accept: 'application/vnd.github+json',
           },
         });

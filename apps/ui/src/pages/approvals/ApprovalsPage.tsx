@@ -105,7 +105,7 @@ export function ApprovalsPage() {
   }, [items.length, selectedIdx]);
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto" data-tour="tour-approvals">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

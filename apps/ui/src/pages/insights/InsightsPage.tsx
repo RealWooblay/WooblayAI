@@ -20,7 +20,7 @@ export function InsightsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto" data-tour="tour-insights">
       <div className="mb-6">
         <h1 className="text-lg font-semibold text-text-primary">Insights</h1>
         <p className="text-xs text-text-tertiary mt-0.5">Last 30 days</p>

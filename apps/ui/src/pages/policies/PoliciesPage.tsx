@@ -268,7 +268,7 @@ export function PoliciesPage() {
   const enabledCount = rules.filter(r => r.enabled).length;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="max-w-4xl mx-auto space-y-5" data-tour="tour-policies">
 
       {/* ── Header + Agent Selector ─────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">

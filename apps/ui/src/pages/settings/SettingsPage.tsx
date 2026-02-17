@@ -64,7 +64,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className="max-w-2xl mx-auto space-y-4" data-tour="tour-settings">
       <h1 className="text-lg font-bold text-text-primary mb-1">Settings</h1>
       <p className="text-xs text-text-muted mb-6">Account, notifications, and preferences</p>
 
