@@ -6,6 +6,8 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
+import type { CostSummary } from '../types/budget.js';
+export type { CostSummary };
 
 /** Estimate cost for a single tool call. */
 export function estimateToolCallCost(
@@ -48,14 +50,6 @@ export function estimateAgentTurnCost(model: string): number {
   if (m.includes('gpt-4')) return 0.06;
   if (m.includes('gpt-3')) return 0.002;
   return 0.03; // default: Sonnet-class
-}
-
-export interface CostSummary {
-  totalCost: number;
-  costToday: number;
-  costThisWeek: number;
-  burnRatePerHour: number;
-  actionCount: number;
 }
 
 /** Compute cost summary for a given agent or instance. */

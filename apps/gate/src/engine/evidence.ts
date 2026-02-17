@@ -19,33 +19,8 @@ import { captureEnvironment, persistEnvironment } from './evidence-env.js';
 
 const execAsync = promisify(exec);
 
-// ── Types ───────────────────────────────────────────────────────────────
-
-export interface CIReplayInput {
-  runId: string;
-  repoUrl: string;
-  baseCommit: string;
-  headCommit: string;
-  testCommand: string;
-  setupCommand?: string;
-  environmentVars?: Record<string, string>;
-}
-
-interface TestRunResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  durationMs: number;
-}
-
-interface StructuredDiffResult {
-  baseCommit: string;
-  headCommit: string;
-  baseTestResult: TestRunResult;
-  headTestResult: TestRunResult;
-  newFailures: string[];
-  fixedTests: string[];
-}
+import type { CIReplayInput, TestRunResult, StructuredDiffResult } from '../types/evidence.js';
+export type { CIReplayInput };
 
 // ── Evidence Bundle Creation ────────────────────────────────────────────
 

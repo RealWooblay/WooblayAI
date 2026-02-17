@@ -17,22 +17,8 @@ import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { emitRunEvent } from './run-events.js';
 
-// ── Types ───────────────────────────────────────────────────────────────
-
-export type RollbackType = 'rollback:pr_revert' | 'rollback:capability_revoke' | 'rollback:config_revert';
-
-export interface RollbackInput {
-  originalProposalId: string;
-  runId: string;
-  type: RollbackType;
-  reason: string;
-  compensatingParams?: Record<string, unknown>;
-}
-
-export interface RollbackResult {
-  rollbackProposalId: string;
-  status: 'pending' | 'auto_executed';
-}
+import type { RollbackType, RollbackInput, RollbackResult } from '../types/rollback.js';
+export type { RollbackType, RollbackInput, RollbackResult };
 
 // ── Rollback Proposal Creation ──────────────────────────────────────────
 

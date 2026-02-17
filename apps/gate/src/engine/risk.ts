@@ -10,32 +10,10 @@
  */
 
 import { RiskTier } from '@wooblay/types';
+import { buildRiskClassificationPrompt } from '../prompts/risk-classification.js';
 
-// ── Business-context categories ─────────────────────────────────────────────
-
-export type BusinessCategory =
-  | 'code'           // creating/editing source files
-  | 'git'            // commits, pushes, PRs, branch ops
-  | 'packages'       // npm install, pip install, deps
-  | 'shell'          // general command execution
-  | 'files'          // file system ops (mkdir, cp, mv, read non-code)
-  | 'network'        // HTTP requests, API calls, web fetching
-  | 'secrets'        // accessing .env, credentials, API keys
-  | 'infra'          // deployment, server config, Docker, CI/CD
-  | 'communication'  // sending messages, emails, webhooks
-  | 'destructive'    // rm -rf, drop, format, irreversible
-  | 'data'           // database queries, data manipulation
-  | 'other';         // unknown/unclassified
-
-// ── AI Risk Classification ───────────────────────────────────────────────────
-
-export interface AIRiskResult {
-  riskTier: RiskTier;
-  category: BusinessCategory;
-  reasoning: string;
-  description: string;      // human-readable "what this does"
-  whyReview: string | null;  // human-readable "why this needs review" (null = no concern)
-}
+import type { BusinessCategory, AIRiskResult } from '../types/risk.js';
+export type { BusinessCategory, AIRiskResult };
 
 /**
  * AI-powered risk and category classification.
@@ -72,27 +50,7 @@ export async function classifyWithAI(
       messages: [
         {
           role: 'system',
-          content: `You are the AI security layer for an agent supervision platform. An AI agent is trying to execute a tool call. You must:
-
-1. CLASSIFY the risk:
-   - riskTier: "READ" (no side effects), "WRITE" (modifies state, accesses sensitive data, downloads), or "DESTRUCTIVE" (irreversible damage)
-   - category: one of: code, git, packages, shell, files, network, secrets, infra, communication, destructive, data, other
-
-2. DESCRIBE what this action does in plain English for a non-technical human. Be specific about WHAT it affects and WHY someone should care. Don't be generic — translate the technical action into its real-world impact.
-   Examples: "Reads the system password file containing encrypted passwords for all users" not "Reads a file"
-   "Installs 3 npm packages including a database driver" not "Runs a command"
-
-3. If this needs human review, explain WHY in one sentence a manager would understand. If it's safe/routine, set whyReview to null.
-
-Key classification rules:
-- Reading sensitive files (passwords, keys, credentials, system config) = WRITE + secrets
-- Downloading from the internet = at least WRITE + network  
-- Download + execute (pipe to shell) = DESTRUCTIVE
-- sudo, mass deletion, disk formatting = DESTRUCTIVE
-- Normal dev work (editing code, tests, git commit) = appropriate lower tier
-
-Respond JSON ONLY:
-{"riskTier":"...","category":"...","description":"...","reasoning":"...","whyReview":"...or null"}`,
+          content: buildRiskClassificationPrompt(),
         },
         {
           role: 'user',

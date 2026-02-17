@@ -6,24 +6,24 @@ import { motion, useInView } from 'framer-motion'
 const steps = [
   {
     number: '01',
-    title: 'Deploy & connect',
-    description: 'Deploy your agent in a private workspace and isolated execution environment (e.g. OpenClaw or your own). Connect GitHub, AWS, or other sources. Turn on the signals you care about.',
+    title: 'Connect your services & secrets',
+    description: 'Link any service your agents need — repos, cloud infrastructure, APIs, databases. Store credentials and API keys with fine-grained visibility: agent-accessible for fast testing loops, or exec-only for sensitive deploy keys the agent never touches.',
     color: 'text-white/60',
     borderColor: 'border-white/[0.08]',
     bgColor: 'bg-white/[0.02]',
   },
   {
     number: '02',
-    title: 'Proof',
-    description: 'Wooblay watches those signals and starts runs. Before any change runs, it gathers evidence—simulation, diff, rollback option—and puts a proposal in your inbox.',
+    title: 'Simulate before executing',
+    description: 'Every agent action passes through three security layers. Policies enforce scope boundaries. A pre-execution simulation proves the action does what it claims. Only then does it reach the secure execution environment.',
     color: 'text-amber-400/80',
     borderColor: 'border-amber-400/[0.15]',
     bgColor: 'bg-amber-400/[0.03]',
   },
   {
     number: '03',
-    title: 'Approve & execute',
-    description: 'You approve or deny. Approved actions run through the gateway—keys stay protected, the agent never sees them. Every run gets a signed receipt. You can verify and revoke.',
+    title: 'Execute anything, securely',
+    description: 'Approved actions run in ephemeral containers with injected credentials — the agent never sees them. Run any command: deploy, test endpoints, query databases, push code. Every execution produces a cryptographic receipt.',
     color: 'text-accent',
     borderColor: 'border-accent/[0.15]',
     bgColor: 'bg-accent/[0.03]',
@@ -85,7 +85,7 @@ export function HowItWorks() {
           className="text-center mt-10"
         >
           <p className="text-white/25 text-[13px] font-mono">
-            Private workspace · isolated execution env · key protection · gateway executes · signed receipt
+            Credential isolation · scope boundaries · simulation · ephemeral execution · signed receipts
           </p>
         </motion.div>
       </div>

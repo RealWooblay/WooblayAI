@@ -78,7 +78,7 @@ export function OperationsPage() {
       {active.length === 0 && resolved.length === 0 && (
         <EmptyState
           title="No active operations"
-          description="Configure sensors to start monitoring. Operations are created when sensors detect events."
+          description="Configure connections to start monitoring. Operations are created when connections detect events."
         />
       )}
 

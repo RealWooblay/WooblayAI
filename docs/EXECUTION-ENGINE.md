@@ -20,6 +20,27 @@ The credential (your GitHub PAT or GitHub App installation token) lives in the `
 
 ---
 
+## Sensor vs Gateway — one connection, two roles
+
+When you **Add sensor** (GitHub), you create a **Connection**. That single connection is used in two ways:
+
+| Role | What it does | Direction |
+|------|----------------|-----------|
+| **Sensor** | Receives webhooks from GitHub (PR opened, push, check_run). The sensor engine turns those into **Operations** (with a fixed intent per event type). | **Inbound**: GitHub → Wooblay |
+| **Gateway** | When the agent wants to create a PR, comment on a PR, or push a branch, the agent sends a **capability token** to the Tool Gateway. The gateway looks up an active **Connection** for your org, decrypts the stored credential, and calls the GitHub API. The agent never sees the token. | **Outbound**: Agent → Gateway → GitHub |
+
+So the **same credential** you add for the sensor is what the **agent uses** to make PRs or comments — through the gateway, not through the sensor. The sensor only observes and creates operations; it does not execute. Execution is via the Tool Gateway.
+
+**Where does intent (e.g. "qa") come from?** It is **not** set in the UI. It is **hardcoded in the sensor engine** by event type:
+
+- `pull_request` opened/synchronize (non-draft) → `intent: 'qa'`
+- Push to default branch → `intent: 'review'`
+- Check run failed (default branch or agent PR) → `intent: 'fix'`
+
+The UI only lets you configure which events/repos/branches to watch (sensor config); it does not let you choose or override the intent.
+
+---
+
 ## Two execution paths
 
 Wooblay has **two parallel paths** for how an agent interacts with external services:
@@ -276,50 +297,63 @@ Let's trace what happens when an agent needs to create a PR:
    - Gateway decrypts the Connection's credential → calls GitHub API → PR created
    - Result returned to agent
 
-### Scenario B: Via direct credentials (Access tab)
+### Scenario B: Agent-accessible secrets for API testing
 
-1. Same sensor → Operation → Run flow
-2. Agent has `GITHUB_TOKEN` in its environment (set via Access tab)
-3. Agent calls `gated_exec({ command: "git push origin fix/bug" })`
-   - Plugin → Gate → policy → ALLOW → runs `git push` locally
-   - `git` uses `GITHUB_TOKEN` from environment → push succeeds
-4. Agent calls `gated_exec({ command: 'curl -X POST https://api.github.com/repos/.../pulls -H "Authorization: Bearer $GITHUB_TOKEN" ...' })`
-   - Plugin → Gate → policy → ALLOW → runs curl locally
-   - Direct GitHub API call using the injected token
-5. **No Tool Gateway involved** — no capability token, no credential resolution, no post-action verification
+1. User adds an API key secret on Connections page: `MY_API_KEY` with mode `agent`
+2. On agent container start, `$MY_API_KEY` is injected as env var
+3. Agent calls `gated_web_fetch({ url: "https://api.example.com/health", headers: { "Authorization": "Bearer $MY_API_KEY" } })`
+   - Plugin resolves `$MY_API_KEY` from env → sends HTTP request with real token in header
+   - Policy evaluated before execution
+4. Agent calls `gated_exec({ command: 'curl -H "Authorization: Bearer $MY_API_KEY" https://api.example.com/data' })`
+   - Same policy check → runs locally with env var available
+5. **Fast path** — no ephemeral container overhead, but agent CAN see agent-accessible secrets
+
+### Scenario C: Generic secure execution (exec:run)
+
+1. Agent needs to read GCP logs but GCP credentials are `exec_only`
+2. Agent calls `structured_action({ action: "exec:run", params: { command: "gcloud logging read 'resource.type=cloud_run_revision' --limit=50", provider: "gcp", image: "google/cloud-sdk:slim" } })`
+3. Three-layer moat applies: scope check → simulation (if available) → ephemeral container
+4. Container starts with `GOOGLE_APPLICATION_CREDENTIALS` injected + all `exec_only` secrets from the GCP connection
+5. Command runs, output captured, container destroyed
+6. Agent receives stdout/stderr — never sees the GCP credentials
 
 ---
 
-## Supported Tool Gateway actions
+## Structured Actions (via Three-Layer Moat)
 
-The Gateway currently supports these GitHub actions:
+The agent can execute ANY command via `exec:run` in a secure ephemeral container. Additionally, these validated shortcuts exist with parameter validation and dry-run support:
 
-| Action | What it does |
-|--------|-------------|
-| `github:repo:get` | Get repo metadata |
-| `github:pr:list` | List pull requests |
-| `github:pr:get` | Get a specific PR |
-| `github:pr:create` | Create a new PR |
-| `github:pr:merge` | Merge a PR |
-| `github:pr:comment` | Comment on a PR |
-| `github:file:read` | Read a file from a repo |
-| `github:file:write` | Create/update a file (commits directly) |
-| `github:branch:create` | Create a branch |
-| `github:branch:list` | List branches |
-| `github:checks:list` | List check runs |
+**GitHub (provider: `github`)**
+- `git:push` — Push a branch to remote
+- `git:clone` — Clone a repository
+- `git:pull` — Pull from remote
+- `github:pr:create` — Create a pull request
+- `github:pr:comment` — Comment on a PR
+- `github:pr:merge` — Merge a PR
 
-Each action is executed by `dispatchAction()` in `services/github-gateway.ts`, which translates the structured params into the correct GitHub REST API call with proper auth headers.
+**AWS (provider: `aws`)**
+- `aws:s3:cp` — Copy files to/from S3
+- `aws:ecs:deploy` — Force new ECS deployment
+
+**GCP (provider: `gcp`)**
+- `gcp:cloudrun:deploy` — Deploy a Cloud Run service
+- `gcp:gcs:cp` — Copy files to/from GCS
+
+**Generic (any provider)**
+- `exec:run` — Run ANY command in a secure ephemeral container with provider credentials + exec_only secrets injected. Params: `{ command, provider, image, timeout, mountWorkspace }`.
+
+All actions are executed in ephemeral Docker containers via `engine/secure-exec.ts`, with credentials resolved from the vault and injected as environment variables. The agent never sees credentials.
 
 ---
 
 ## Security properties
 
-| Property | Gated tools (Path A) | Tool Gateway (Path B) |
-|----------|---------------------|----------------------|
-| Policy check before action | Yes (Gate) | Yes (capability token) |
-| Credential exposure to agent | If injected via Access tab | Never |
-| Audit trail | Hook logs to Gate | Gateway events + receipts |
-| Scope enforcement | Shell-level only | Action class + repo + TTL |
+| Property | Gated tools (in-agent) | Structured Action / exec:run (ephemeral) |
+|----------|------------------------|------------------------------------------|
+| Policy check before action | Yes (Gate) | Yes (capability token + scope + simulation) |
+| Credential exposure to agent | Agent-accessible secrets only (user-controlled) | Never (credentials injected into ephemeral container only) |
+| Audit trail | Hook logs to Gate | Gateway events + receipts + container ID |
+| Scope enforcement | Shell-level only | Action class + scope boundaries + repo + TTL |
 | Idempotency | No | Yes (SHA-256 cache) |
 | Post-action verification | No | Yes (reads back from API) |
 | Cost attribution | Heuristic | Per-action tracking |
@@ -331,19 +365,18 @@ Each action is executed by `dispatchAction()` in `services/github-gateway.ts`, w
 
 | File | Role |
 |------|------|
-| `packages/adapters/openclaw/plugin/index.ts` | Plugin that registers gated tools in OpenClaw |
-| `packages/adapters/openclaw/src/hooks/handler.ts` | Hook that logs all tool events to Gate (audit) |
-| `packages/adapters/openclaw/src/bridge/exec-approval-bridge.ts` | Bridges OpenClaw's native approval system with Gate |
-| `packages/adapters/openclaw/src/gate-client.ts` | HTTP client for Gate API (submit tool calls, check approvals) |
-| `packages/adapters/openclaw/src/approval-waiter.ts` | Polls Gate for approval resolution |
-| `apps/gate/src/routes/tool.ts` | `POST /api/tool/execute` — policy evaluation endpoint |
-| `apps/gate/src/routes/gateway.ts` | `POST /api/gateway/execute` — Tool Gateway endpoint |
-| `apps/gate/src/services/github-gateway.ts` | Executes GitHub API actions (PR create, file read, etc.) |
+| `packages/adapters/openclaw/plugin/index.ts` | Plugin: gated_exec, gated_write, gated_edit, gated_web_fetch (+ headers), structured_action (+ exec:run), list_secrets |
+| `apps/gate/src/routes/tool.ts` | `POST /api/tool/execute` — policy evaluation; `POST /api/tool/structured-execute` — three-layer moat endpoint |
+| `apps/gate/src/routes/gateway.ts` | `POST /api/gateway/execute` — Tool Gateway with capability tokens |
+| `apps/gate/src/engine/action-registry.ts` | Structured action definitions + generic exec:run |
+| `apps/gate/src/engine/secure-exec.ts` | Ephemeral container execution, credential + secrets injection |
+| `apps/gate/src/engine/scope.ts` | Scope boundary checking |
+| `apps/gate/src/engine/simulate.ts` | Pre-execution simulation (dry-run) |
+| `apps/gate/src/routes/connections.ts` | Connection CRUD, secrets CRUD, test endpoints |
+| `apps/gate/src/services/vault.ts` | Envelope encryption/decryption for credentials + secrets |
+| `apps/gate/src/services/workspace-runner.ts` | Agent container lifecycle, agent-accessible secret injection |
 | `apps/gate/src/services/github-app.ts` | Resolves GitHub tokens (App installation tokens or PAT) |
-| `apps/gate/src/services/vault.ts` | Envelope encryption/decryption for credentials |
 | `apps/gate/src/engine/capability.ts` | Mints, validates, revokes capability tokens |
 | `apps/gate/src/engine/policy.ts` | Priority-ordered policy rule evaluation |
-| `apps/gate/src/engine/verify.ts` | Post-action verification (reads back from GitHub API) |
+| `apps/gate/src/engine/verify.ts` | Post-action verification |
 | `docker/runtimes/openclaw/Dockerfile` | Agent container image (OpenClaw + Wooblay plugin) |
-| `docker/runtimes/openclaw/entrypoint.sh` | Container startup (config generation, identity seeding) |
-| `docker/runtimes/openclaw/exec-approvals.json` | Pre-baked: `ask: "always"`, `askFallback: "deny"` |

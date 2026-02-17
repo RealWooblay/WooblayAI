@@ -1,15 +1,12 @@
 /**
- * Tool Gateway routes.
+ * Tool Gateway routes — Three-Layer Secure Execution.
  *
  * The gateway is the ONLY path for agents to reach external services.
- * Agents send capability tokens + action requests; the gateway validates,
- * retrieves real credentials, executes, and returns results.
+ * Every action goes through the three-layer security moat:
  *
- * Features:
- * - Signed capability token verification (ed25519)
- * - Idempotency keys — retries return cached result, never double-execute
- * - Post-action verification
- * - Cost attribution
+ *   1. Policy Gate + Scope Boundaries — "Should this happen?"
+ *   2. Pre-execution Simulation       — "Will it do what it claims?"
+ *   3. Ephemeral Secure Execution     — "Execute safely, verify it worked"
  *
  * The agent NEVER sees the underlying credentials.
  */
@@ -18,13 +15,16 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/client.js';
 import { validateCapability } from '../engine/capability.js';
-import { executeGitHubAction, type GitHubAction } from '../services/github-gateway.js';
 import { persistEvent } from '../events/bus.js';
 import { verifyExecution } from '../engine/verify.js';
 import { emitRunEvent } from '../engine/run-events.js';
 import { redactSecrets } from '../services/vault.js';
 import { recordGatewayCost } from '../engine/cost-attribution.js';
 import { canonicalJson } from '@wooblay/crypto';
+import { getActionDefinition, listActions } from '../engine/action-registry.js';
+import { parseScopeBoundaries, checkScope } from '../engine/scope.js';
+import { simulateAction, supportsSimulation } from '../engine/simulate.js';
+import { executeSecureAction } from '../engine/secure-exec.js';
 
 // ── Idempotency ─────────────────────────────────────────────────────────
 
@@ -91,22 +91,27 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(existingKey.statusCode).send(JSON.parse(existingKey.responseBody));
     }
 
-    // 3. Determine provider from action class
-    const provider = body.action.split(':')[0];
-
-    if (provider !== 'github') {
-      return reply.code(400).send({ error: `Unsupported provider: ${provider}. Only GitHub is supported in MVP.` });
+    // ── LAYER 0: Action Registry validation ────────────────────────────
+    const actionDef = getActionDefinition(body.action);
+    if (!actionDef) {
+      const supported = listActions().map((a) => a.action).join(', ');
+      return reply.code(400).send({
+        error: `Unknown action: ${body.action}`,
+        supportedActions: supported,
+      });
     }
 
-    // 4. Find active connection for the provider — HARD org-scoped
-    //    If the run has an orgId, the connection MUST belong to the same org.
-    //    This prevents cross-org capability replay.
+    // For exec:run, the agent specifies which provider's credentials to use
+    const effectiveProvider = body.action === 'exec:run' && body.params.provider
+      ? String(body.params.provider)
+      : actionDef.provider;
+
+    // Find active connection for the provider — HARD org-scoped
     const orgFilter = runOrgId ? { orgId: runOrgId } : {};
     const connection = await prisma.connection.findFirst({
-      where: { provider, status: 'active', ...orgFilter },
+      where: { provider: effectiveProvider, status: 'active', ...orgFilter },
     });
 
-    // Double-check: if connection has an orgId, it must match the run's org
     if (connection && connection.orgId && runOrgId && connection.orgId !== runOrgId) {
       await persistEvent(prisma, {
         type: 'gateway.bypass_attempt',
@@ -118,10 +123,33 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (!connection) {
-      return reply.code(404).send({ error: `No active ${provider} connection found. Add one in Connections settings.` });
+      return reply.code(404).send({
+        error: `No active ${effectiveProvider} connection found. Add one on the Connections page.`,
+      });
     }
 
-    // 5. Validate scope constraints
+    // ── LAYER 1: Scope Boundaries ────────────────────────────────────
+    const scopeBoundaries = parseScopeBoundaries(connection.scopeBoundaries);
+    const scopeResult = checkScope(scopeBoundaries, body.action, body.params);
+
+    await emitRunEvent(prisma, capability.runId, 'scope_check', {
+      action: body.action,
+      allowed: scopeResult.allowed,
+      reason: scopeResult.reason,
+      connectionId: connection.id,
+    });
+
+    if (!scopeResult.allowed) {
+      const scopeError = {
+        error: 'Action blocked by scope boundary',
+        reason: scopeResult.reason,
+        action: body.action,
+      };
+      await cacheIdempotencyResult(idempotencyKey, capability.id, body.action, body.params, 403, scopeError);
+      return reply.code(403).send(scopeError);
+    }
+
+    // Also check capability-level scope (repo constraint from token)
     if (scope.repo) {
       const requestedRepo = `${body.params.owner}/${body.params.repo}`;
       if (scope.repo !== requestedRepo && scope.repo !== '*') {
@@ -131,21 +159,52 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // 6. Execute via GitHub gateway
-    const result = await executeGitHubAction(prisma, connection.id, {
-      action: body.action as GitHubAction,
-      params: body.params,
+    // ── LAYER 2: Pre-execution Simulation ────────────────────────────
+    let simulationResult = null;
+    if (supportsSimulation(body.action)) {
+      try {
+        simulationResult = await simulateAction(prisma, {
+          actionSpec: { action: body.action, params: body.params },
+          connectionId: connection.id,
+          runId: capability.runId,
+        });
+
+        if (!simulationResult.passed) {
+          const simError = {
+            error: 'Pre-execution simulation failed — action not executed',
+            simulation: {
+              strategy: simulationResult.strategy,
+              summary: simulationResult.summary,
+              details: simulationResult.details,
+              durationMs: simulationResult.durationMs,
+            },
+          };
+          await cacheIdempotencyResult(idempotencyKey, capability.id, body.action, body.params, 403, simError);
+          return reply.code(403).send(simError);
+        }
+      } catch (err: any) {
+        request.log.warn(err, 'Simulation failed (non-blocking)');
+      }
+    }
+
+    // ── LAYER 3: Ephemeral Secure Execution ──────────────────────────
+    const execResult = await executeSecureAction(prisma, {
+      actionSpec: { action: body.action, params: body.params },
+      connectionId: connection.id,
+      runId: capability.runId,
     });
 
-    // 7. Record actual cost attribution
+    // Record cost attribution
     await recordGatewayCost(prisma, capability.runId, body.action);
 
-    // 8. Emit gateway execution event on the run timeline
+    // Emit gateway execution event
     await emitRunEvent(prisma, capability.runId, 'gateway_exec', {
       capabilityId: capability.id,
       actionClass: body.action,
-      success: result.success,
-      error: result.error ? redactSecrets(result.error) : undefined,
+      success: execResult.success,
+      containerId: execResult.containerId,
+      durationMs: execResult.durationMs,
+      error: execResult.error ? redactSecrets(execResult.error) : undefined,
     });
 
     await persistEvent(prisma, {
@@ -154,23 +213,29 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
         capabilityId: capability.id,
         runId: capability.runId,
         actionClass: body.action,
-        success: result.success,
+        success: execResult.success,
+        containerId: execResult.containerId,
       },
     });
 
-    if (!result.success) {
+    if (!execResult.success) {
       const errorResponse = {
-        error: 'Gateway execution failed',
-        detail: redactSecrets(result.error ?? ''),
+        error: 'Secure execution failed',
+        detail: redactSecrets(execResult.error ?? ''),
+        containerId: execResult.containerId,
+        exitCode: execResult.exitCode,
+        stderr: redactSecrets(execResult.stderr.slice(0, 2000)),
+        simulation: simulationResult ? {
+          strategy: simulationResult.strategy,
+          passed: simulationResult.passed,
+          summary: simulationResult.summary,
+        } : undefined,
       };
-
-      // Cache the error response for idempotency
       await cacheIdempotencyResult(idempotencyKey, capability.id, body.action, body.params, 502, errorResponse);
-
       return reply.code(502).send(errorResponse);
     }
 
-    // 9. Post-action verification
+    // Post-action verification
     let verification = null;
     if (body.proposalId) {
       try {
@@ -180,7 +245,11 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
           capabilityId: capability.id,
           actionClass: body.action,
           params: body.params,
-          executionResult: result.data,
+          executionResult: {
+            stdout: execResult.stdout,
+            exitCode: execResult.exitCode,
+            containerId: execResult.containerId,
+          },
           connectionId: connection.id,
         });
       } catch (err: any) {
@@ -190,15 +259,26 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
 
     const successResponse = {
       success: true,
-      data: result.data,
+      data: {
+        stdout: execResult.stdout,
+        stderr: execResult.stderr,
+        exitCode: execResult.exitCode,
+        containerId: execResult.containerId,
+        durationMs: execResult.durationMs,
+        description: execResult.description,
+      },
+      simulation: simulationResult ? {
+        strategy: simulationResult.strategy,
+        passed: simulationResult.passed,
+        summary: simulationResult.summary,
+        durationMs: simulationResult.durationMs,
+      } : undefined,
       capabilityUsedCount: capability.usedCount + 1,
       capabilityMaxUses: capability.maxUses,
       verification: verification ?? undefined,
     };
 
-    // Cache the success response for idempotency
     await cacheIdempotencyResult(idempotencyKey, capability.id, body.action, body.params, 200, successResponse);
-
     return reply.send(successResponse);
   });
 

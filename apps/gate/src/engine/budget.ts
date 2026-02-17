@@ -9,12 +9,8 @@ import type { PrismaClient } from '@prisma/client';
 
 const DEFAULT_GLOBAL_BUDGET_CENTS = 100_00; // $100 global daily budget
 
-export interface BudgetCheck {
-  allowed: boolean;
-  reason?: string;
-  runBudgetRemaining: number;
-  globalBudgetRemaining: number;
-}
+import type { BudgetCheck } from '../types/budget.js';
+export type { BudgetCheck };
 
 /** Check if a run has budget remaining before executing an action. */
 export async function checkBudget(

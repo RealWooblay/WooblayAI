@@ -495,7 +495,9 @@ model Operation {
   summary           String?
   priority          String   @default("P2") // P0 | P1 | P2
   status            String   @default("open") // open | triaging | in_progress | resolved | closed
-  intent            String   @default("custom") // fix | qa | review | deploy | custom
+  intent            String   @default("custom") // fix | qa | review | deploy | custom | pending_classification
+  suggestedIntent   String?  // Sensor's best guess — router may override
+  eventContext      String?  // JSON — rich event context for AI router classification
   repoFullName      String?  // e.g. "owner/repo"
   branch            String?
   commitSha         String?
@@ -666,7 +668,7 @@ model RunEvent {
 model Connection {
   id                    String    @id @default(cuid())
   orgId                 String?   // Org isolation boundary
-  provider              String    // github (extensible later: aws, gcp, slack, custom)
+  provider              String    // github | aws | gcp (extensible: slack, custom)
   name                  String    // Human-readable name: "My GitHub Org"
   status                String    @default("active") // active | revoked | error
   authMode              String    @default("pat") // pat | github_app — GitHub App preferred
@@ -677,7 +679,9 @@ model Connection {
   repoAllowlist         String?   // JSON — ["owner/repo1", "owner/repo2"] or null for all
   scopes                String    // JSON — granted scopes (e.g. ["repo", "workflow"])
   metadata              String?   // JSON — provider-specific metadata
+  secrets               String?   // JSON — [{ key, encryptedValue, mode: "agent" | "exec_only" }]
   // ── Sensor fields ──────────────────────────────────────────────────────
+  scopeBoundaries       String?   // JSON — per-action scope boundaries (see engine/scope.ts)
   sensorEnabled         Boolean   @default(true)    // Is this connection acting as a sensor?
   sensorConfig          String?   // JSON — typed per provider (GitHubSensorConfig, etc.)
   webhookSecret         String?   // Per-connection webhook secret for signature verification

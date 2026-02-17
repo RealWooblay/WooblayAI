@@ -298,6 +298,32 @@ export function PoliciesPage() {
         )}
       </div>
 
+      {/* ── Three-Layer Security Summary ─────────────────────────────────── */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold text-emerald-400 font-mono">1</span>
+            <span className="text-[11px] font-medium text-emerald-400">Policy Gate</span>
+            <span className="text-[9px] text-emerald-400/60 ml-auto font-mono">this page</span>
+          </div>
+          <p className="text-[10px] text-text-tertiary">Rules + scope boundaries evaluate every action before anything else happens.</p>
+        </div>
+        <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold text-blue-400 font-mono">2</span>
+            <span className="text-[11px] font-medium text-blue-400">Simulation</span>
+          </div>
+          <p className="text-[10px] text-text-tertiary">Dry-run verification confirms expected outcome before real execution.</p>
+        </div>
+        <div className="bg-purple-500/5 border border-purple-500/15 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold text-purple-400 font-mono">3</span>
+            <span className="text-[11px] font-medium text-purple-400">Secure Execution</span>
+          </div>
+          <p className="text-[10px] text-text-tertiary">Ephemeral containers with scoped credentials. Agent never touches secrets.</p>
+        </div>
+      </div>
+
       {/* ── AI Supervisor Section ──────────────────────────────────────────── */}
       <div className={`rounded-xl border p-5 transition-all ${aiEnabled ? 'bg-accent/5 border-accent/25' : 'bg-surface-1 border-border'}`}>
         <div className="flex items-center justify-between mb-3">

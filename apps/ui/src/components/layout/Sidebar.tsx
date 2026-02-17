@@ -23,7 +23,7 @@ const NAV_ITEMS: ReadonlyArray<{
 }> = [
   { to: '/operations', label: 'Operations', icon: '◉', badge: 'operations', section: 'operate' },
   { to: '/approvals', label: 'Approvals', icon: '⬡', badge: 'approvals', section: 'operate' },
-  { to: '/sensors', label: 'Sensors', icon: '◈', section: 'configure' },
+  { to: '/connections', label: 'Connections', icon: '◈', section: 'configure' },
   { to: '/policies', label: 'Policies', icon: '◇', section: 'configure' },
   { to: '/insights', label: 'Insights', icon: '◈', section: 'observe' },
   { to: '/activity', label: 'Activity', icon: '◈', section: 'observe' },

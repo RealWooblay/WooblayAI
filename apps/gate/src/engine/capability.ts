@@ -23,6 +23,8 @@ import type { PrismaClient, Capability as PrismaCapability } from '@prisma/clien
 import { persistEvent } from '../events/bus.js';
 import { config } from '../config.js';
 import { sign, verify, canonicalJson } from '@wooblay/crypto';
+import type { KeyEntry, CapabilityClaims, MintCapabilityInput, ValidationResult } from '../types/capability.js';
+export type { CapabilityClaims, MintCapabilityInput, ValidationResult };
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -31,13 +33,6 @@ const DEFAULT_MAX_USES = 10;
 const TOKEN_AUD = 'wooblay:gateway';
 const TOKEN_VERSION = 1;
 const CLOCK_SKEW_SECONDS = 60; // ±60s tolerance
-
-// ── Key Registry ────────────────────────────────────────────────────────
-
-interface KeyEntry {
-  kid: string;
-  pub: string; // hex-encoded public key
-}
 
 /** Get all verification keys: current + previous (for rotation). */
 function getVerifyKeys(): KeyEntry[] {
@@ -67,31 +62,6 @@ function getVerifyKeys(): KeyEntry[] {
 }
 
 // ── Token Claims ────────────────────────────────────────────────────────
-
-export interface CapabilityClaims {
-  /** Token version */
-  v: number;
-  /** Audience — must be 'wooblay:gateway' */
-  aud: string;
-  /** Key ID — identifies which signing key was used */
-  kid: string;
-  /** Issued at (unix seconds) */
-  iat: number;
-  /** Expires at (unix seconds) */
-  exp: number;
-  /** Unique token ID (stored as capability.id in DB) */
-  jti: string;
-  /** Run this capability belongs to */
-  runId: string;
-  /** Workspace this capability is scoped to (optional) */
-  workspaceId: string | null;
-  /** Action class pattern this token authorizes */
-  actionClass: string;
-  /** SHA-256 of canonicalized scope JSON */
-  scopeHash: string;
-  /** SHA-256 of policy snapshot that authorized this (if present) */
-  policySnapshotHash: string | null;
-}
 
 /**
  * Encode claims into a signed token.
@@ -146,16 +116,6 @@ function hashJson(obj: unknown): string {
 }
 
 // ── Mint ────────────────────────────────────────────────────────────────
-
-export interface MintCapabilityInput {
-  runId: string;
-  workspaceId?: string;
-  actionClass: string;
-  scope: Record<string, unknown>;
-  policySnapshot?: Record<string, unknown>;
-  ttlMs?: number;
-  maxUses?: number;
-}
 
 export async function mintCapability(
   prisma: PrismaClient,
@@ -227,16 +187,6 @@ export async function mintCapability(
 }
 
 // ── Validate ────────────────────────────────────────────────────────────
-
-export interface ValidationResult {
-  valid: boolean;
-  reason?: string;
-  capability?: PrismaCapability;
-  scope?: Record<string, unknown>;
-  claims?: CapabilityClaims;
-  /** The orgId of the run this capability belongs to */
-  runOrgId?: string | null;
-}
 
 export async function validateCapability(
   prisma: PrismaClient,

@@ -21,6 +21,13 @@ import { createApproval } from '../services/approval.js';
 import { validateBody } from '../middleware/validate.js';
 import { describeToolCall, explainWhyFlagged } from '../engine/analysis.js';
 import { detectFlags } from '../engine/flags.js';
+import { getActionDefinition, listActions } from '../engine/action-registry.js';
+import { parseScopeBoundaries, checkScope } from '../engine/scope.js';
+import { simulateAction, supportsSimulation } from '../engine/simulate.js';
+import { executeSecureAction } from '../engine/secure-exec.js';
+import { emitRunEvent } from '../engine/run-events.js';
+import { redactSecrets } from '../services/vault.js';
+import { getOrgScope } from '../middleware/org-scope.js';
 
 /** Default decision trail when none is provided by the agent. */
 const defaultTrail: DecisionTrail = {
@@ -204,4 +211,114 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   );
+
+  /**
+   * POST /api/tool/structured-execute
+   *
+   * Called by the OpenClaw plugin's structured_action tool AFTER policy approval.
+   * Runs the full three-layer moat: scope check → simulation → secure execution.
+   * The agent never sees credentials — this endpoint resolves them from the vault.
+   */
+  app.post('/api/tool/structured-execute', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as {
+      action: string;
+      params: Record<string, unknown>;
+      agentPubkey?: string;
+      adapter?: string;
+    };
+
+    if (!body.action || !body.params) {
+      return reply.code(400).send({ error: 'action and params are required' });
+    }
+
+    // Validate action exists in registry
+    const actionDef = getActionDefinition(body.action);
+    if (!actionDef) {
+      const supported = listActions().map((a) => a.action).join(', ');
+      return reply.code(400).send({
+        error: `Unknown action: ${body.action}`,
+        supportedActions: supported,
+      });
+    }
+
+    // For exec:run, the provider comes from params (agent specifies which creds to use)
+    const effectiveProvider = body.action === 'exec:run' && body.params.provider
+      ? String(body.params.provider)
+      : actionDef.provider;
+
+    // Find connection for this provider in the caller's org
+    const org = getOrgScope(request);
+    const connection = await prisma.connection.findFirst({
+      where: { provider: effectiveProvider, status: 'active', ...org.filter },
+    });
+
+    if (!connection) {
+      return reply.code(404).send({
+        error: `No active ${effectiveProvider} connection found. Add one on the Connections page.`,
+      });
+    }
+
+    // Layer 1: Scope check
+    const scopeBoundaries = parseScopeBoundaries(connection.scopeBoundaries);
+    const scopeResult = checkScope(scopeBoundaries, body.action, body.params);
+    if (!scopeResult.allowed) {
+      return reply.code(403).send({
+        success: false,
+        error: 'Action blocked by scope boundary',
+        reason: scopeResult.reason,
+      });
+    }
+
+    // Layer 2: Simulation
+    let simulationResult = null;
+    // Use a synthetic run ID for agent-initiated actions (not tied to an operation run)
+    const syntheticRunId = `agent-${Date.now()}`;
+    if (supportsSimulation(body.action)) {
+      try {
+        simulationResult = await simulateAction(prisma, {
+          actionSpec: { action: body.action, params: body.params },
+          connectionId: connection.id,
+          runId: syntheticRunId,
+        });
+        if (!simulationResult.passed) {
+          return reply.code(403).send({
+            success: false,
+            error: 'Pre-execution simulation failed',
+            simulation: {
+              strategy: simulationResult.strategy,
+              summary: simulationResult.summary,
+              details: simulationResult.details,
+            },
+          });
+        }
+      } catch (err: any) {
+        request.log.warn(err, 'Simulation failed (non-blocking)');
+      }
+    }
+
+    // Layer 3: Secure execution
+    const execResult = await executeSecureAction(prisma, {
+      actionSpec: { action: body.action, params: body.params },
+      connectionId: connection.id,
+      runId: syntheticRunId,
+    });
+
+    return reply.send({
+      success: execResult.success,
+      data: {
+        stdout: execResult.stdout,
+        stderr: execResult.stderr,
+        exitCode: execResult.exitCode,
+        containerId: execResult.containerId,
+        durationMs: execResult.durationMs,
+        description: execResult.description,
+      },
+      simulation: simulationResult ? {
+        strategy: simulationResult.strategy,
+        passed: simulationResult.passed,
+        summary: simulationResult.summary,
+      } : undefined,
+      error: execResult.error ? redactSecrets(execResult.error) : undefined,
+    });
+  });
 }

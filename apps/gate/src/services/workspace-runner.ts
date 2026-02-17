@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { emitRunEvent } from '../engine/run-events.js';
+import { resolveAgentSecrets } from '../engine/secure-exec.js';
 
 const execAsync = promisify(exec);
 
@@ -23,6 +24,7 @@ const execAsync = promisify(exec);
 export interface WorkspaceConfig {
   runId: string;
   instanceId?: string;
+  orgId?: string;
   repoUrl?: string;
   commitSha?: string;
   baseImage?: string;
@@ -70,7 +72,18 @@ export async function createWorkspace(
       await ensureNetwork(config.gatewayHost);
     }
 
-    // 2. Create container on the dedicated network (or host for unrestricted)
+    // 2. Resolve agent-accessible secrets for env injection
+    let agentEnvFlags = '';
+    try {
+      const agentSecrets = await resolveAgentSecrets(prisma, config.orgId ?? null);
+      agentEnvFlags = Object.entries(agentSecrets)
+        .map(([k, v]) => `-e ${k}="${v.replace(/"/g, '\\"')}"`)
+        .join(' ');
+    } catch {
+      // Non-fatal: agent starts without secrets
+    }
+
+    // 3. Create container on the dedicated network (or host for unrestricted)
     const containerName = `wooblay-ws-${workspace.id.slice(0, 12)}`;
     const networkFlag = egressMode === 'gateway_only'
       ? `--network ${WOOBLAY_NETWORK}`
@@ -88,9 +101,10 @@ export async function createWorkspace(
       '--tmpfs /tmp:rw,noexec,nosuid,size=1g',
       '--tmpfs /workspace:rw,exec,size=5g',
       '-w /workspace',
+      agentEnvFlags,
       baseImage,
-      'sleep infinity', // Kept alive; agent runtime attaches to this
-    ].join(' ');
+      'sleep infinity',
+    ].filter(Boolean).join(' ');
 
     const { stdout: containerId } = await execAsync(createCmd, { timeout: 60_000 });
     const cid = containerId.trim();

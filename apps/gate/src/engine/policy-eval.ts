@@ -14,28 +14,8 @@ import { Decision } from '@wooblay/types';
 import type { RiskClass } from '@wooblay/types';
 import { checkBudget } from './budget.js';
 
-// ── Types ───────────────────────────────────────────────────────────────
-
-export interface ProposalPolicyInput {
-  runId: string;
-  actionClass: string;
-  toolName: string;
-  riskClass: RiskClass;
-  irreversible: boolean;
-  hasEvidence: boolean;
-  estimatedCostCents?: number;
-  instanceId?: string;
-}
-
-export interface ProposalPolicyDecision {
-  decision: 'auto_approve' | 'require_approval' | 'deny';
-  reason: string;
-  ruleId?: string;
-  policySnapshot: string; // JSON — frozen copy of the matching rule
-  requiredApproverRole?: string; // Minimum role: "admin" | "member"
-  requiresEvidence: boolean;
-  budgetCheck: { allowed: boolean; reason?: string };
-}
+import type { ProposalPolicyInput, ProposalPolicyDecision } from '../types/policy.js';
+export type { ProposalPolicyInput, ProposalPolicyDecision };
 
 // ── Evidence Requirements ───────────────────────────────────────────────
 

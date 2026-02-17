@@ -13,22 +13,8 @@
 
 import type { PrismaClient } from '@prisma/client';
 
-export interface TrustBreakdown {
-  score: number;
-  base: number;
-  approvedBonus: number;
-  autoAllowedBonus: number;
-  deniedPenalty: number;
-  criticalFlagPenalty: number;
-  highFlagPenalty: number;
-  totalActions: number;
-}
-
-export interface TrustResult {
-  score: number;
-  breakdown: TrustBreakdown;
-  trend: 'up' | 'down' | 'stable';
-}
+import type { TrustBreakdown, TrustResult } from '../types/trust.js';
+export type { TrustBreakdown, TrustResult };
 
 export async function computeTrustScore(
   prisma: PrismaClient,

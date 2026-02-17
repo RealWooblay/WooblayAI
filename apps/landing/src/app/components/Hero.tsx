@@ -30,21 +30,21 @@ export function Hero() {
       <div className="relative text-center px-6 max-w-4xl mx-auto">
         <FadeIn>
           <p className="text-accent/80 text-[13px] font-mono tracking-widest uppercase mb-6">
-            The gate between agents and the world
+            The secure execution environment for AI agents
           </p>
         </FadeIn>
 
         <FadeIn delay={0.04}>
           <h1 className="font-display text-[clamp(2.8rem,7vw,5.5rem)] font-bold tracking-[-0.04em] leading-[0.92]">
-            <span className="text-gradient">Agents act.</span>
+            <span className="text-gradient">Agents declare.</span>
             <br />
-            <span className="text-white/20">You decide.</span>
+            <span className="text-white/20">Wooblay executes.</span>
           </h1>
         </FadeIn>
 
         <FadeIn delay={0.08}>
           <p className="mt-7 text-white/50 text-[17px] sm:text-[19px] leading-relaxed max-w-2xl mx-auto">
-            Wooblay intercepts every agent action before it happens. Approve what&apos;s safe. Block what&apos;s not. Every decision cryptographically signed.
+            Three layers of security between your agents and the world: policy gates, pre-execution simulation, and ephemeral secure execution. Agents never touch credentials. Every action verified.
           </p>
         </FadeIn>
 

@@ -55,6 +55,7 @@ import { workspaceRunnerRoutes } from './routes/workspace-runner.js';
 // Route modules — platform mode only
 import { userRoutes } from './routes/users.js';
 import { syncRoutes } from './routes/sync.js';
+import { sseRoutes } from './routes/sse.js';
 
 /**
  * Build and configure the Fastify application.
@@ -68,7 +69,12 @@ export async function buildApp() {
   });
 
   // ── Global plugins ──────────────────────────────────────────────────
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Agent-Pubkey', 'X-Request-Signature'],
+  });
 
   // ── Middleware ───────────────────────────────────────────────────────
   // Rate limiting (all API routes)
@@ -114,6 +120,7 @@ export async function buildApp() {
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);
   await app.register(syncRoutes);
+  await app.register(sseRoutes);
 
   // ── Static UI ───────────────────────────────────────────────────────
   await registerStatic(app);

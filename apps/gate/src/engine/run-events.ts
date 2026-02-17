@@ -22,7 +22,13 @@ export type RunEventType =
   | 'capability'
   | 'error'
   | 'budget'
-  | 'rollback';
+  | 'rollback'
+  | 'secure_exec_start'
+  | 'secure_exec_complete'
+  | 'secure_exec_simulation'
+  | 'simulation_start'
+  | 'simulation_complete'
+  | 'scope_check';
 
 /**
  * Emit a run event with atomic sequence number allocation.

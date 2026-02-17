@@ -12,10 +12,10 @@ export function Closing() {
         <FadeIn>
           <div className="text-center mb-20">
             <p className="text-white/35 text-[14px] leading-relaxed max-w-lg mx-auto mb-2">
-              Built for people running 24/7 agents.
+              The secure execution environment for autonomous AI agents.
             </p>
             <p className="text-white/25 text-[13px] leading-relaxed max-w-lg mx-auto">
-              Works with OpenClaw today; more runtimes later.
+              Policy gates. Pre-execution simulation. Ephemeral secure containers. Two-mode secret management. Run any command securely. Works with OpenClaw today; more runtimes coming.
             </p>
           </div>
         </FadeIn>
@@ -25,15 +25,15 @@ export function Closing() {
           <div className="text-center">
             <h2 className="font-display text-[clamp(2rem,5vw,3.5rem)] font-bold tracking-[-0.03em] leading-[0.95]">
               <span className="text-gradient">
-                Powerful agents.
+                Full agent capability.
               </span>
               <br />
               <span className="text-white/18">
-                Accountable outcomes.
+                Zero credential exposure.
               </span>
             </h2>
             <p className="mt-6 text-white/40 text-[15px] max-w-lg mx-auto">
-              We&apos;re building the control plane. Follow along.
+              The first platform where agents declare intent and the platform executes securely. Follow along.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
               <a
@@ -55,13 +55,19 @@ export function Closing() {
         <FadeIn delay={0.15}>
           <div className="mt-28 pt-6 border-t border-white/[0.04]">
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-white/25 text-[11px] font-mono mb-6">
-              <span>Private workspace</span>
+              <span>Policy Gate</span>
               <span className="text-white/10">&middot;</span>
-              <span>Isolated execution env</span>
+              <span>Pre-execution Simulation</span>
               <span className="text-white/10">&middot;</span>
-              <span>Key protection · gateway executes</span>
+              <span>Ephemeral Secure Execution</span>
               <span className="text-white/10">&middot;</span>
-              <span>Signed receipt per run</span>
+              <span>Connection Secrets</span>
+              <span className="text-white/10">&middot;</span>
+              <span>Generic Secure Execution</span>
+              <span className="text-white/10">&middot;</span>
+              <span>Cryptographic Receipts</span>
+              <span className="text-white/10">&middot;</span>
+              <span>AI-Classified Routing</span>
             </div>
 
             <div className="flex justify-center items-center gap-6">

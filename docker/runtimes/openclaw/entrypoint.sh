@@ -23,15 +23,13 @@ else
 fi
 
 # ── GitHub Token ──────────────────────────────────────────────────────────
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-if [ -n "${GITHUB_TOKEN}" ]; then
-  echo "  GitHub:       Token set (${#GITHUB_TOKEN} chars)"
-  export GH_TOKEN="${GITHUB_TOKEN}"
-  export GITHUB_TOKEN="${GITHUB_TOKEN}"
-  git config --global credential.helper "!f() { echo \"username=token\"; echo \"password=${GITHUB_TOKEN}\"; }; f"
-else
-  echo "  GitHub:       not configured"
-fi
+# SECURITY: Credentials are NO LONGER injected into the agent container.
+# All credentialed actions (git push, API calls, deploys) are executed in
+# ephemeral Gate-controlled containers via the Secure Execution Engine.
+# The agent declares structured action requests → Gate executes them safely.
+echo "  GitHub:       Secure Execution (credentials managed by Gate)"
+echo "  AWS:          Secure Execution (credentials managed by Gate)"
+echo "  GCP:          Secure Execution (credentials managed by Gate)"
 
 # ── Build channels config JSON ────────────────────────────────────────────
 TELEGRAM_ENABLED="${TELEGRAM_ENABLED:-false}"
@@ -106,56 +104,16 @@ IDEOF
   echo "  Identity:     wrote IDENTITY.md"
 fi
 
-# ── AWS Credentials ──────────────────────────────────────────────────────
-AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
-AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
-AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-
-if [ -n "${AWS_ACCESS_KEY_ID}" ] && [ -n "${AWS_SECRET_ACCESS_KEY}" ]; then
-  mkdir -p /root/.aws
-  cat > /root/.aws/credentials << AWSCRED
-[default]
-aws_access_key_id = ${AWS_ACCESS_KEY_ID}
-aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
-AWSCRED
-  cat > /root/.aws/config << AWSCONF
-[default]
-region = ${AWS_DEFAULT_REGION}
-output = json
-AWSCONF
-  echo "  AWS:          configured (region: ${AWS_DEFAULT_REGION})"
-else
-  echo "  AWS:          not configured"
-fi
-
-# ── GCP Credentials ─────────────────────────────────────────────────────
-GCP_SERVICE_ACCOUNT_KEY="${GCP_SERVICE_ACCOUNT_KEY:-}"
-GCP_PROJECT_ID="${GCP_PROJECT_ID:-}"
-
-if [ -n "${GCP_SERVICE_ACCOUNT_KEY}" ]; then
-  echo "${GCP_SERVICE_ACCOUNT_KEY}" | base64 -d > /root/gcp-key.json 2>/dev/null || \
-    echo "${GCP_SERVICE_ACCOUNT_KEY}" > /root/gcp-key.json
-  export GOOGLE_APPLICATION_CREDENTIALS="/root/gcp-key.json"
-
-  if [ -n "${GCP_PROJECT_ID}" ]; then
-    export GCLOUD_PROJECT="${GCP_PROJECT_ID}"
-    export GOOGLE_CLOUD_PROJECT="${GCP_PROJECT_ID}"
-  fi
-
-  # Activate service account if gcloud CLI is available
-  if command -v gcloud &> /dev/null; then
-    gcloud auth activate-service-account --key-file=/root/gcp-key.json 2>/dev/null && \
-      echo "  GCP:          authenticated via gcloud (project: ${GCP_PROJECT_ID:-auto})" || \
-      echo "  GCP:          key file set but gcloud auth failed — GOOGLE_APPLICATION_CREDENTIALS is set"
-    if [ -n "${GCP_PROJECT_ID}" ]; then
-      gcloud config set project "${GCP_PROJECT_ID}" 2>/dev/null || true
-    fi
-  else
-    echo "  GCP:          key file set (GOOGLE_APPLICATION_CREDENTIALS) — no gcloud CLI"
-  fi
-else
-  echo "  GCP:          not configured"
-fi
+# ── Cloud Credentials ────────────────────────────────────────────────────
+# REMOVED: AWS and GCP credential injection
+# All cloud operations now go through the Secure Execution Engine:
+#   Agent calls gated_exec("aws:s3:cp", { source: "...", destination: "..." })
+#   → Gate resolves credentials from vault
+#   → Gate spawns ephemeral container with scoped credentials
+#   → Gate executes the command
+#   → Gate destroys container
+#   → Gate returns result to agent
+# The agent never has access to AWS/GCP credentials.
 
 # ── Generate OpenClaw config ──────────────────────────────────────────────
 echo "→ Writing OpenClaw config..."

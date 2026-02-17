@@ -67,10 +67,16 @@ export async function fetchApi<T = unknown>(
   if (getTokenFn) {
     try {
       const token = await getTokenFn();
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-    } catch {
-      // Token retrieval failed — proceed without auth (will get 401 from server)
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      } else {
+        console.warn('[wooblay] getToken() returned null — request will be unauthenticated:', path);
+      }
+    } catch (err) {
+      console.error('[wooblay] getToken() failed — request will be unauthenticated:', path, err);
     }
+  } else {
+    console.warn('[wooblay] No token function set — auth not initialized');
   }
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
@@ -723,7 +729,7 @@ export const getInsightsSummary = (days?: number) =>
 
 export const getConnections = () => fetchApi<any[]>('/api/connections');
 
-export const createConnection = (data: { provider: string; name: string; credential: string; scopes?: string[] }) =>
+export const createConnection = (data: { provider: string; name: string; credential: string; scopes?: string[]; metadata?: Record<string, unknown> }) =>
   fetchApi<any>('/api/connections', { method: 'POST', body: JSON.stringify(data) });
 
 export const revokeConnection = (id: string) =>
@@ -744,6 +750,38 @@ export const getWebhookUrl = (connectionId: string) =>
 
 export const initSensor = (connectionId: string) =>
   fetchApi<any>(`/api/connections/${connectionId}/sensor/init`, { method: 'POST', body: JSON.stringify({}) });
+
+// ── Scope Boundaries ────────────────────────────────────────────────────
+
+export const updateScopeBoundaries = (connectionId: string, scopeBoundaries: Record<string, { allowed: string[]; blocked: string[] }>) =>
+  fetchApi<any>(`/api/connections/${connectionId}/scope-boundaries`, {
+    method: 'PATCH',
+    body: JSON.stringify({ scopeBoundaries }),
+  });
+
+// ── Connection Secrets ───────────────────────────────────────────────────
+
+export const getConnectionSecrets = (connectionId: string) =>
+  fetchApi<{ secrets: { key: string; mode: string }[] }>(`/api/connections/${connectionId}/secrets`);
+
+export const setConnectionSecrets = (connectionId: string, secrets: { key: string; value: string; mode: 'agent' | 'exec_only' }[]) =>
+  fetchApi<any>(`/api/connections/${connectionId}/secrets`, {
+    method: 'PUT',
+    body: JSON.stringify({ secrets }),
+  });
+
+export const addConnectionSecret = (connectionId: string, secret: { key: string; value: string; mode: 'agent' | 'exec_only' }) =>
+  fetchApi<any>(`/api/connections/${connectionId}/secrets`, {
+    method: 'POST',
+    body: JSON.stringify(secret),
+  });
+
+export const deleteConnectionSecret = (connectionId: string, key: string) =>
+  fetchApi<any>(`/api/connections/${connectionId}/secrets/${key}`, { method: 'DELETE' });
+
+// ── Available Actions ───────────────────────────────────────────────────
+
+export const getAvailableActions = () => fetchApi<any[]>('/api/actions/available');
 
 // ── MVP: Budget ─────────────────────────────────────────────────────────
 

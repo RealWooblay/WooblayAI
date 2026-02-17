@@ -628,21 +628,68 @@ export function CommandCenter() {
           </Link>
         )}
 
-        {/* Empty State */}
+        {/* Empty State — Setup Checklist */}
         {isEmpty && !hasData && !deployOpen && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="font-mono text-text-tertiary text-xs leading-relaxed mb-6">
-              <div className="border border-border rounded-xl p-6 inline-block">
-                <div className="text-2xl mb-2" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o )</div>
-                <div className="text-text-secondary">hi there</div>
-                <div className="text-text-tertiary mt-1">no agents running</div>
-                <div className="text-text-tertiary">deploy one to start</div>
+          <div className="space-y-4">
+            {/* Welcome */}
+            <div className="text-center py-8">
+              <div className="font-mono text-2xl mb-3" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o )</div>
+              <h2 className="text-lg font-semibold text-text-primary font-mono">Welcome to Wooblay</h2>
+              <p className="text-xs text-text-secondary mt-1 max-w-md mx-auto">
+                The secure execution environment for AI agents. Set up your platform in 3 steps.
+              </p>
+            </div>
+
+            {/* Setup Checklist */}
+            <div className="bg-surface-1 border border-border rounded-xl p-5 max-w-lg mx-auto">
+              <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Setup Checklist</h3>
+              <div className="space-y-3">
+                <SetupStep
+                  number={1}
+                  title="Deploy an Agent"
+                  description="Start your first AI agent. It will run in an isolated container with full coding capabilities."
+                  done={false}
+                  action={() => setDeployOpen(true)}
+                  actionLabel="Deploy Agent"
+                />
+                <SetupStep
+                  number={2}
+                  title="Add a Connection"
+                  description="Link your services so Wooblay can detect events and execute actions securely."
+                  done={false}
+                  actionLabel="Add Connection"
+                  href="/connections"
+                />
+                <SetupStep
+                  number={3}
+                  title="Configure Policies"
+                  description="Set what your agents can do. Auto-allow safe actions, require approval for risky ones."
+                  done={false}
+                  actionLabel="Set Policies"
+                  href="/policies"
+                />
               </div>
             </div>
-            <button onClick={() => setDeployOpen(true)}
-              className="px-4 py-2 bg-accent text-white text-xs font-mono rounded-lg hover:bg-accent-bright transition-colors">
-              Deploy Your First Agent
-            </button>
+
+            {/* Security Preview */}
+            <div className="grid grid-cols-3 gap-3 max-w-lg mx-auto">
+              <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
+                <p className="text-[18px] font-bold text-emerald-400 font-mono">1</p>
+                <p className="text-[9px] text-text-tertiary mt-1">Policy Gate</p>
+              </div>
+              <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
+                <p className="text-[18px] font-bold text-blue-400 font-mono">2</p>
+                <p className="text-[9px] text-text-tertiary mt-1">Simulation</p>
+              </div>
+              <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
+                <p className="text-[18px] font-bold text-purple-400 font-mono">3</p>
+                <p className="text-[9px] text-text-tertiary mt-1">Secure Exec</p>
+              </div>
+            </div>
+
+            <p className="text-center text-[10px] text-text-muted max-w-sm mx-auto">
+              Every agent action flows through three layers of security. Agents declare intent — Wooblay executes safely. Credentials never touch the agent container.
+            </p>
           </div>
         )}
 
@@ -676,5 +723,43 @@ export function CommandCenter() {
         )}
       </div>
     </div>
+  );
+}
+
+function SetupStep({
+  number, title, description, done, action, actionLabel, href,
+}: {
+  number: number; title: string; description: string; done: boolean;
+  action?: () => void; actionLabel: string; href?: string;
+}) {
+  const content = (
+    <div className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${done ? 'opacity-50' : 'hover:bg-surface-2/50'}`}>
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+        done ? 'bg-emerald-500/15 text-emerald-400' : 'bg-accent/10 text-accent'
+      }`}>
+        {done ? (
+          <span className="text-[10px]">*</span>
+        ) : (
+          <span className="text-[10px] font-bold font-mono">{number}</span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[12px] font-medium text-text-primary font-mono">{title}</p>
+        <p className="text-[10px] text-text-tertiary mt-0.5">{description}</p>
+      </div>
+      {!done && (
+        <span className="text-[10px] text-accent font-mono shrink-0 mt-0.5">{actionLabel} →</span>
+      )}
+    </div>
+  );
+
+  if (href && !action) {
+    return <Link to={href}>{content}</Link>;
+  }
+
+  return (
+    <button onClick={action} className="w-full text-left">
+      {content}
+    </button>
   );
 }

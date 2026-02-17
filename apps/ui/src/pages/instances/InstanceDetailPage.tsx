@@ -23,6 +23,7 @@ import {
   readFile,
   writeFile,
   getFileDownloadUrl,
+  fetchApi,
   type FileEntry,
   type MissionData,
   type Instance,
@@ -364,267 +365,154 @@ function AgentNetwork({ mission, instances }: { mission?: MissionData; instances
   );
 }
 
-// ── Cloud Access Config ──────────────────────────────────────────────────────
+// ── Capabilities & Security View ──────────────────────────────────────────
 
-function CloudAccessSection({ instance }: { instance: Instance }) {
-  const qc = useQueryClient();
-  const config = instance.configJson ? JSON.parse(instance.configJson) : {};
-
-  const [githubToken, setGithubToken] = useState('');
-  const [showGithub, setShowGithub] = useState(false);
-  const [awsKey, setAwsKey] = useState('');
-  const [awsSecret, setAwsSecret] = useState('');
-  const [awsRegion, setAwsRegion] = useState(config.awsRegion ?? 'us-east-1');
-  const [gcpKey, setGcpKey] = useState('');
-  const [gcpProject, setGcpProject] = useState(config.gcpProjectId ?? '');
-  const [showAws, setShowAws] = useState(false);
-  const [showGcp, setShowGcp] = useState(false);
-
-  const riskWarning = (
-    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-6">
-      <div className="flex items-start gap-2">
-        <span className="text-amber-400 text-sm mt-0.5">⚠</span>
-        <div>
-          <p className="text-[12px] font-semibold text-amber-400 uppercase tracking-wider">
-            Direct Access — Bypasses Tool Gateway
-          </p>
-          <p className="text-[11px] text-text-secondary mt-1 leading-relaxed">
-            Credentials here are injected directly into the agent container.
-            They bypass scope restrictions, audit logging, capability tokens,
-            and automatic rotation.
-          </p>
-          <p className="text-[11px] text-accent mt-1">
-            Use the <a href="/sensors" className="underline hover:text-accent-bright">Sensors page</a> to configure gateway connections instead.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-
-  const hasGithub = !!(config.githubPat || instance.githubPat);
-  const hasAws = !!(config.awsAccessKeyId || config.awsConfigured);
-  const hasGcp = !!(config.gcpConfigured || config.gcpProjectId);
-
-  const githubMutation = useMutation({
-    mutationFn: () => updateInstance(instance.id, {
-      githubToken,
-    } as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['instance', instance.id] });
-      setShowGithub(false);
-      setGithubToken('');
-    },
+function CapabilitiesSection({ instance }: { instance: Instance }) {
+  const { data: availableActions, isLoading: actionsLoading } = useQuery({
+    queryKey: ['available-actions'],
+    queryFn: () => fetchApi<any[]>('/api/actions/available'),
+    refetchInterval: 30_000,
   });
 
-  const awsMutation = useMutation({
-    mutationFn: () => updateInstance(instance.id, {
-      awsAccessKeyId: awsKey,
-      awsSecretAccessKey: awsSecret,
-      awsRegion,
-    } as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['instance', instance.id] });
-      setShowAws(false);
-      setAwsKey(''); setAwsSecret('');
-    },
-  });
+  const supportedActions = (availableActions ?? []).map((a: any) => ({
+    action: a.action,
+    label: a.action.split(':').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' '),
+    provider: a.provider,
+    description: a.description,
+    connected: a.connected,
+  }));
 
-  const gcpMutation = useMutation({
-    mutationFn: () => updateInstance(instance.id, {
-      gcpServiceAccountKey: gcpKey,
-      gcpProjectId: gcpProject,
-    } as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['instance', instance.id] });
-      setShowGcp(false);
-      setGcpKey('');
-    },
-  });
-
-  const handleGcpFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      // Base64 encode the key file
-      const content = reader.result as string;
-      try {
-        JSON.parse(content); // validate it's JSON
-        setGcpKey(btoa(content));
-      } catch {
-        setGcpKey(content); // might already be base64
-      }
-    };
-    reader.readAsText(file);
-  }, []);
+  const providerColors: Record<string, string> = {
+    github: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    aws: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    gcp: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  };
 
   return (
     <div className="space-y-4">
-      {riskWarning}
-    <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-4">
-      <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Access Keys</h3>
-
-      {/* ── GitHub ──────────────────────────────────────────────────────── */}
-      <div className="space-y-2">
-        <button
-          onClick={() => setShowGithub(!showGithub)}
-          className="w-full flex items-center justify-between text-left group"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-text-primary font-medium">GitHub</span>
-            {hasGithub ? (
-              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">configured</span>
-            ) : (
-              <span className="text-[9px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded">not set</span>
-            )}
+      {/* Three-layer security model */}
+      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3">
+        <div className="flex items-start gap-2">
+          <span className="text-emerald-400 text-sm mt-0.5">*</span>
+          <div>
+            <p className="text-[12px] font-semibold text-emerald-400 uppercase tracking-wider">
+              Secure Execution Model
+            </p>
+            <p className="text-[11px] text-text-secondary mt-1 leading-relaxed">
+              This agent does not have direct access to credentials. All external actions
+              are executed in ephemeral containers controlled by the Wooblay Gate, with
+              credentials injected from the vault for each action individually.
+            </p>
           </div>
-          <span className="text-text-tertiary text-[10px] group-hover:text-text-secondary">{showGithub ? '▾' : '▸'}</span>
-        </button>
-
-        {showGithub && (
-          <div className="pl-4 space-y-2 animate-fade-in">
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Personal Access Token</label>
-              <input
-                type="password"
-                value={githubToken}
-                onChange={e => setGithubToken(e.target.value)}
-                placeholder={hasGithub ? 'set — enter to change' : 'ghp_... or github_pat_...'}
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-              />
-              <p className="text-[9px] text-text-tertiary font-mono mt-1">Used for git operations — hot-injected, no restart needed</p>
-            </div>
-            <button
-              onClick={() => githubMutation.mutate()}
-              disabled={!githubToken || githubMutation.isPending}
-              className="px-4 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 font-mono"
-            >
-              {githubMutation.isPending ? 'saving...' : 'save GitHub token'}
-            </button>
-          </div>
-        )}
+        </div>
       </div>
 
-      {/* ── AWS ─────────────────────────────────────────────────────────── */}
-      <div className="space-y-2 pt-2 border-t border-border/30">
-        <button
-          onClick={() => setShowAws(!showAws)}
-          className="w-full flex items-center justify-between text-left group"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-text-primary font-medium">AWS</span>
-            {hasAws ? (
-              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">configured</span>
-            ) : (
-              <span className="text-[9px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded">not set</span>
-            )}
+      {/* Security layers */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-surface-1 border border-border rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-5 h-5 rounded bg-emerald-500/15 flex items-center justify-center">
+              <span className="text-[10px] font-mono text-emerald-400">1</span>
+            </div>
+            <p className="text-[11px] font-medium text-text-primary font-mono">Policy Gate</p>
           </div>
-          <span className="text-text-tertiary text-[10px] group-hover:text-text-secondary">{showAws ? '▾' : '▸'}</span>
-        </button>
-
-        {showAws && (
-          <div className="pl-4 space-y-2 animate-fade-in">
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Access Key ID</label>
-              <input
-                type="password"
-                value={awsKey}
-                onChange={e => setAwsKey(e.target.value)}
-                placeholder="AKIA..."
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-              />
+          <p className="text-[10px] text-text-tertiary leading-relaxed">
+            Every action evaluated against org policies and scope boundaries.
+          </p>
+        </div>
+        <div className="bg-surface-1 border border-border rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-5 h-5 rounded bg-blue-500/15 flex items-center justify-center">
+              <span className="text-[10px] font-mono text-blue-400">2</span>
             </div>
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Secret Access Key</label>
-              <input
-                type="password"
-                value={awsSecret}
-                onChange={e => setAwsSecret(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-              />
-            </div>
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Region</label>
-              <input
-                value={awsRegion}
-                onChange={e => setAwsRegion(e.target.value)}
-                placeholder="us-east-1"
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-              />
-            </div>
-            <button
-              onClick={() => awsMutation.mutate()}
-              disabled={!awsKey || !awsSecret || awsMutation.isPending}
-              className="px-4 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 font-mono"
-            >
-              {awsMutation.isPending ? 'saving...' : 'save AWS credentials'}
-            </button>
+            <p className="text-[11px] font-medium text-text-primary font-mono">Simulation</p>
           </div>
-        )}
+          <p className="text-[10px] text-text-tertiary leading-relaxed">
+            Dry-run verification before real execution. Confirms expected outcome.
+          </p>
+        </div>
+        <div className="bg-surface-1 border border-border rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-5 h-5 rounded bg-purple-500/15 flex items-center justify-center">
+              <span className="text-[10px] font-mono text-purple-400">3</span>
+            </div>
+            <p className="text-[11px] font-medium text-text-primary font-mono">Secure Exec</p>
+          </div>
+          <p className="text-[10px] text-text-tertiary leading-relaxed">
+            Ephemeral container with scoped credentials. Destroyed after execution.
+          </p>
+        </div>
       </div>
 
-      {/* ── GCP ─────────────────────────────────────────────────────────── */}
-      <div className="space-y-2 pt-2 border-t border-border/30">
-        <button
-          onClick={() => setShowGcp(!showGcp)}
-          className="w-full flex items-center justify-between text-left group"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-text-primary font-medium">GCP</span>
-            {hasGcp ? (
-              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">configured</span>
-            ) : (
-              <span className="text-[9px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded">not set</span>
-            )}
-          </div>
-          <span className="text-text-tertiary text-[10px] group-hover:text-text-secondary">{showGcp ? '▾' : '▸'}</span>
-        </button>
+      {/* Available actions */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">
+          Available Secure Actions
+        </h3>
+        <p className="text-[10px] text-text-tertiary mb-4">
+          These actions are available through the Secure Execution Engine.
+          Each one runs in its own ephemeral container with credentials from the vault.
+          Configure connections on the <Link to="/connections" className="text-accent underline hover:text-accent-bright">Connections page</Link>.
+        </p>
 
-        {showGcp && (
-          <div className="pl-4 space-y-2 animate-fade-in">
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Service Account Key (JSON)</label>
-              <div className="flex gap-2">
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleGcpFileUpload}
-                  className="flex-1 bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono file:mr-2 file:px-2 file:py-0.5 file:rounded file:border-0 file:text-[10px] file:bg-surface-3 file:text-text-secondary file:cursor-pointer"
-                />
+        <div className="space-y-2">
+          {supportedActions.map((action) => (
+            <div key={action.action} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-surface-2/50 transition-colors">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${providerColors[action.provider] ?? ''}`}>
+                  {action.provider}
+                </span>
+                <div className="min-w-0">
+                  <span className="text-[11px] text-text-primary font-mono font-medium">{action.label}</span>
+                  <span className="text-[10px] text-text-tertiary ml-2">{action.description}</span>
+                </div>
               </div>
-              {gcpKey && (
-                <span className="text-[9px] text-emerald-400 font-mono">key loaded ({(gcpKey.length / 1024).toFixed(1)}KB)</span>
-              )}
-              <p className="text-[9px] text-text-tertiary font-mono mt-0.5">or paste base64-encoded key below</p>
-              <textarea
-                value={gcpKey}
-                onChange={e => setGcpKey(e.target.value)}
-                placeholder="paste base64-encoded service account key..."
-                rows={3}
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent resize-none"
-              />
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[9px] font-mono text-text-muted">{action.action}</span>
+                {action.connected ? (
+                  <span className="text-[8px] font-medium px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Ready</span>
+                ) : (
+                  <span className="text-[8px] font-medium px-1 py-0.5 rounded bg-zinc-500/15 text-zinc-400">No connection</span>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Project ID</label>
-              <input
-                value={gcpProject}
-                onChange={e => setGcpProject(e.target.value)}
-                placeholder="my-project-123"
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-              />
-            </div>
-            <button
-              onClick={() => gcpMutation.mutate()}
-              disabled={!gcpKey || gcpMutation.isPending}
-              className="px-4 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 font-mono"
-            >
-              {gcpMutation.isPending ? 'saving...' : 'save GCP credentials'}
-            </button>
-          </div>
-        )}
+          ))}
+          {actionsLoading && <div className="text-[10px] text-text-muted italic py-2">Loading actions...</div>}
+        </div>
       </div>
-    </div>
+
+      {/* How it works */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-3">
+          How It Works
+        </h3>
+        <div className="space-y-3 text-[11px] text-text-secondary font-mono leading-relaxed">
+          <div className="flex gap-3">
+            <span className="text-accent shrink-0 w-4">1.</span>
+            <span>Agent declares a structured action: <code className="text-accent bg-accent/10 px-1 rounded">git:push branch=feature-x</code></span>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-accent shrink-0 w-4">2.</span>
+            <span>Gate evaluates policy rules + scope boundaries for this connection</span>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-accent shrink-0 w-4">3.</span>
+            <span>If simulation is available, dry-run executes first to verify expected outcome</span>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-accent shrink-0 w-4">4.</span>
+            <span>Gate spawns an ephemeral Docker container with credentials from the vault</span>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-accent shrink-0 w-4">5.</span>
+            <span>Command executes in clean environment. Container is destroyed immediately after.</span>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-accent shrink-0 w-4">6.</span>
+            <span>Result returned to agent. Credentials never touch the agent container.</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1126,7 +1014,7 @@ export function InstanceDetailPage() {
     queryFn: () => getFlags({ dismissed: 'false', limit: '5' }),
     refetchInterval: 15_000,
   });
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'access' | 'workspace'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'capabilities' | 'workspace'>('overview');
   const qc = useQueryClient();
   const dismissMutation = useMutation({
     mutationFn: dismissFlag,
@@ -1199,7 +1087,7 @@ export function InstanceDetailPage() {
 
       {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
-        {(['overview', 'profile', 'access', 'workspace'] as const).map(tab => (
+        {(['overview', 'profile', 'capabilities', 'workspace'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1218,8 +1106,8 @@ export function InstanceDetailPage() {
         <WorkspaceTab instanceId={instance.id} isRunning={instance.status === 'running'} />
       ) : activeTab === 'profile' ? (
         <ProfileTab instanceId={instance.id} instance={instance} isRunning={instance.status === 'running'} />
-      ) : activeTab === 'access' ? (
-        <CloudAccessSection instance={instance} />
+      ) : activeTab === 'capabilities' ? (
+        <CapabilitiesSection instance={instance} />
       ) : (
       <>
       {/* ── At a Glance ───────────────────────────────────────────────────── */}

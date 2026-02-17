@@ -33,12 +33,20 @@ const PUBLIC_PATHS = [
   '/health',
   '/api/webhooks/clerk',
   '/api/tool/execute',
+  '/api/tool/structured-execute',
   '/api/sync/events',
+];
+
+/** Route prefixes that never require user auth (e.g. external webhooks). */
+const PUBLIC_PREFIXES = [
+  '/api/webhooks/github/',
 ];
 
 function isPublic(url: string): boolean {
   const path = url.split('?')[0];
-  return PUBLIC_PATHS.some((p) => path === p || path === p + '/');
+  if (PUBLIC_PATHS.some((p) => path === p || path === p + '/')) return true;
+  if (PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
+  return false;
 }
 
 // Use fp() so hooks apply globally, not just inside this encapsulated plugin

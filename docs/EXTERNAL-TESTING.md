@@ -15,7 +15,7 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 ## 2. Dashboard (home)
 
 - [ ] See list of agent instances (or empty state)
-- [ ] Sidebar: **Operations** (was Inbox), **Sensors** (was Connections)
+- [ ] Sidebar: **Operations**, **Connections**
 - [ ] **Deploy new agent**: open deploy form, fill name + model + API key, deploy
 - [ ] New agent appears in list with correct name/status
 - [ ] **Start** a stopped agent → status goes running
@@ -104,7 +104,7 @@ Use this list to test the app end-to-end or hand to friends. Tick off as you go.
 
 - [ ] **Operations** (`/operations`): list shows routing status (auto_routed / pending / unassigned); inline Approve / Assign / Dismiss
 - [ ] **Operation detail** (`/operations/:id`): routing section (assigned agent, confidence, AI reason), runs list, create run
-- [ ] **Sensors** (`/sensors`): connections listed as sensors; webhook URL and secret (copy); sensor config (events, branch filter, ignore drafts/bots)
+- [ ] **Connections** (`/connections`): dual-role cards (sensing + execution); webhook URL and secret (copy); sensor config; scope boundaries; available actions
 - [ ] Create manual operation from UI; optional: trigger GitHub webhook to `/api/webhooks/github/:connectionId` and see operation appear with correct org
 
 ## 10. Approvals (if you use gated actions)

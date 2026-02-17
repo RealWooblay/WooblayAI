@@ -13,19 +13,8 @@
 import type { PrismaClient } from '@prisma/client';
 import { emitRunEvent } from './run-events.js';
 
-// ── Types ───────────────────────────────────────────────────────────────
-
-export type CostCategory = 'llm_tokens' | 'compute_minutes' | 'api_calls' | 'gateway_calls';
-
-export interface CostEntry {
-  runId: string;
-  category: CostCategory;
-  description: string;
-  amountCents: number;
-  quantity?: number;
-  unit?: string;
-  metadata?: Record<string, unknown>;
-}
+import type { CostCategory, CostEntry, RunCostSummary } from '../types/budget.js';
+export type { CostCategory, CostEntry, RunCostSummary };
 
 // ── Pricing (MVP defaults) ──────────────────────────────────────────────
 
@@ -140,16 +129,10 @@ export async function recordGatewayCost(
 
 // ── Cost Summary ────────────────────────────────────────────────────────
 
-export interface CostSummary {
-  totalCents: number;
-  byCategory: Record<string, { totalCents: number; count: number }>;
-  topItems: { description: string; amountCents: number }[];
-}
-
 export async function getRunCostSummary(
   prisma: PrismaClient,
   runId: string,
-): Promise<CostSummary> {
+): Promise<RunCostSummary> {
   const costs = await prisma.runCost.findMany({
     where: { runId },
     orderBy: { amountCents: 'desc' },

@@ -280,6 +280,32 @@ export function ApprovalsPage() {
               {/* Expanded details */}
               {isExpanded && (
                 <div className="mt-4 pt-4 border-t border-border space-y-3 animate-slide-in-up">
+                  {/* Secure Execution Preview */}
+                  {tc?.toolName?.startsWith('structured_action') && (
+                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
+                      <h4 className="text-[10px] text-emerald-400 uppercase tracking-wider font-medium mb-2">
+                        Secure Execution Preview
+                      </h4>
+                      <p className="text-[10px] text-text-tertiary mb-2">
+                        This action will run in an ephemeral container. Credentials are injected from the vault and destroyed after execution.
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-[10px]">
+                        <div className="bg-surface-0 rounded px-2 py-1.5">
+                          <span className="text-text-muted block">Layer 1</span>
+                          <span className="text-text-primary font-medium">Policy + Scope</span>
+                        </div>
+                        <div className="bg-surface-0 rounded px-2 py-1.5">
+                          <span className="text-text-muted block">Layer 2</span>
+                          <span className="text-text-primary font-medium">Simulation</span>
+                        </div>
+                        <div className="bg-surface-0 rounded px-2 py-1.5">
+                          <span className="text-text-muted block">Layer 3</span>
+                          <span className="text-text-primary font-medium">Ephemeral Exec</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <h4 className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Full Arguments</h4>
                     <pre className="text-[11px] font-mono text-text-secondary bg-surface-0 rounded-lg p-3 overflow-x-auto max-h-40">

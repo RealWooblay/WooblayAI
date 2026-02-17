@@ -20,16 +20,8 @@ import type { PrismaClient } from '@prisma/client';
 
 const execAsync = promisify(exec);
 
-// ── Types ───────────────────────────────────────────────────────────────
-
-export interface EnvironmentManifest {
-  baseImageDigest: string | null;
-  osVersion: string | null;
-  toolchainVersions: Record<string, string>;
-  dependencyHash: string | null;
-  envVarHash: string | null;
-  cacheStrategy: string;
-}
+import type { EnvironmentManifest } from '../types/evidence.js';
+export type { EnvironmentManifest };
 
 // ── Capture Environment ─────────────────────────────────────────────────
 
