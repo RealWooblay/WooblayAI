@@ -28,7 +28,7 @@ export function SensorsPage() {
     refetchInterval: 15_000,
   });
 
-  const { data: connections, isLoading: connectionsLoading } = useQuery({
+  const { data: _connections, isLoading: connectionsLoading } = useQuery({
     queryKey: ['connections'],
     queryFn: getConnections,
     refetchInterval: 30_000,
