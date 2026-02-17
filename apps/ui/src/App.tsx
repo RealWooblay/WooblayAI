@@ -25,6 +25,8 @@ import { OnboardingPage } from './pages/onboarding/OnboardingPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
 import { PoliciesPage } from './pages/policies/PoliciesPage.tsx';
 import { ActivityPage } from './pages/activity/ActivityPage.tsx';
+import { SetupPage } from './pages/setup/SetupPage.tsx';
+import { NotificationsPage } from './pages/notifications/NotificationsPage.tsx';
 
 // Operation-first pages
 import { OperationsPage } from './pages/operations/OperationsPage.tsx';
@@ -135,8 +137,10 @@ function AuthenticatedApp() {
           <Route path="/incidents/:id" element={<RedirectIncidentToOperation />} />
           <Route path="/sensors" element={<Navigate to="/connections" replace />} />
 
-          {/* Existing */}
+          {/* Core pages */}
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/setup" element={<PageShell><SetupPage /></PageShell>} />
+          <Route path="/notifications" element={<PageShell><NotificationsPage /></PageShell>} />
           <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
           <Route path="/instances" element={<Navigate to="/" replace />} />
           <Route path="/instances/:id" element={<PageShell><InstanceDetailPage /></PageShell>} />

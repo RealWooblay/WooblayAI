@@ -285,7 +285,7 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       const response = await ai.chat.completions.create({
         model: config.OPENAI_MODEL,
         temperature: 0.2,
-        max_tokens: 1000,
+        max_tokens: 2500,
         messages: [
           {
             role: 'system',
@@ -323,7 +323,7 @@ Suggest policy optimizations.`,
         return reply.code(500).send({ error: 'AI returned invalid response' });
       }
 
-      const result = JSON.parse(jsonMatch[0]) as {
+      let result: {
         suggestions: Array<{
           action: string;
           matchCategory: string;
@@ -335,6 +335,31 @@ Suggest policy optimizations.`,
         }>;
         summary: string;
       };
+
+      try {
+        result = JSON.parse(jsonMatch[0]);
+      } catch {
+        // LLM response was likely truncated by max_tokens — attempt repair
+        let repaired = jsonMatch[0];
+        // Close any open strings
+        const quoteCount = (repaired.match(/"/g) || []).length;
+        if (quoteCount % 2 !== 0) repaired += '"';
+        // Close any open arrays/objects
+        const openBrackets = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
+        const openBraces = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
+        // Remove trailing comma before closing
+        repaired = repaired.replace(/,\s*$/, '');
+        for (let i = 0; i < openBrackets; i++) repaired += ']';
+        for (let i = 0; i < openBraces; i++) repaired += '}';
+        try {
+          result = JSON.parse(repaired);
+        } catch (e2: any) {
+          return reply.code(500).send({
+            error: 'AI returned malformed JSON',
+            detail: `Parse failed after repair attempt: ${e2.message}`,
+          });
+        }
+      }
 
       // Auto-apply if requested
       if (autoApply && result.suggestions.length > 0) {
@@ -399,6 +424,7 @@ Suggest policy optimizations.`,
       const settings = orgRecord?.settings ? JSON.parse(orgRecord.settings) : {};
       return reply.send({
         simulationThreshold: settings.simulationThreshold ?? 'high',
+        platformMode: settings.platformMode ?? 'firewall',
       });
     } catch (err) {
       request.log.error(err, 'Failed to get org settings');
@@ -416,13 +442,21 @@ Suggest policy optimizations.`,
         return reply.code(400).send({ error: 'No organization context' });
       }
 
-      const body = request.body as { simulationThreshold?: string };
+      const body = request.body as {
+        simulationThreshold?: string;
+        platformMode?: string;
+        unlockPassword?: string;
+      };
       const validThresholds = ['critical_only', 'high', 'medium', 'all'];
 
       if (body.simulationThreshold && !validThresholds.includes(body.simulationThreshold)) {
         return reply.code(400).send({
           error: `Invalid simulationThreshold. Must be one of: ${validThresholds.join(', ')}`,
         });
+      }
+
+      if (body.platformMode && !['firewall', 'full'].includes(body.platformMode)) {
+        return reply.code(400).send({ error: 'Invalid platformMode. Must be "firewall" or "full".' });
       }
 
       // Read existing settings and merge
@@ -435,6 +469,21 @@ Suggest policy optimizations.`,
       const updated = { ...existing };
       if (body.simulationThreshold) updated.simulationThreshold = body.simulationThreshold;
 
+      // Platform mode: Wooblay controls who gets Full Platform via env password (we give it to select customers)
+      if (body.platformMode === 'full') {
+        const unlockPassword = config.FULL_PLATFORM_UNLOCK_PASSWORD;
+        if (!unlockPassword) {
+          return reply.code(503).send({ error: 'Full Platform access is not configured. Contact Wooblay for access.' });
+        }
+        if (body.unlockPassword !== unlockPassword) {
+          return reply.code(403).send({ error: 'Incorrect platform password.' });
+        }
+        updated.platformMode = 'full';
+        delete updated.platformPassword; // no longer store any password in org
+      } else if (body.platformMode === 'firewall') {
+        updated.platformMode = 'firewall';
+      }
+
       await prisma.organization.update({
         where: { id: org.orgId },
         data: { settings: JSON.stringify(updated) },
@@ -442,6 +491,7 @@ Suggest policy optimizations.`,
 
       return reply.send({
         simulationThreshold: updated.simulationThreshold ?? 'high',
+        platformMode: updated.platformMode ?? 'firewall',
       });
     } catch (err) {
       request.log.error(err, 'Failed to update org settings');

@@ -73,4 +73,13 @@ export const config = {
 
   /** Master encryption key (hex-encoded, 32 bytes). Used in dev when KMS_KEY_ID is not set. */
   VAULT_MASTER_KEY: process.env['VAULT_MASTER_KEY'] ?? '',
+
+  /**
+   * Full Platform unlock password. Wooblay controls this and gives it to select customers.
+   * User enters it in Settings to unlock Full Platform mode (hosted agents, sensors, etc.).
+   * Default "WOBBLE" in development only; production must set env (e.g. FULL_PLATFORM_UNLOCK_PASSWORD=WOBBLE).
+   */
+  FULL_PLATFORM_UNLOCK_PASSWORD:
+    process.env['FULL_PLATFORM_UNLOCK_PASSWORD'] ??
+    (process.env['NODE_ENV'] === 'production' ? '' : 'WOBBLE'),
 } as const;

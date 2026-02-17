@@ -400,12 +400,13 @@ export const applyPreset = (name: string, instanceId?: string) =>
 
 export interface OrgPolicySettings {
   simulationThreshold: 'critical_only' | 'high' | 'medium' | 'all';
+  platformMode?: 'firewall' | 'full';
 }
 
 export const getOrgPolicySettings = () =>
   fetchApi<OrgPolicySettings>('/api/policies/settings');
 
-export const updateOrgPolicySettings = (body: Partial<OrgPolicySettings>) =>
+export const updateOrgPolicySettings = (body: Record<string, unknown>) =>
   fetchApi<OrgPolicySettings>('/api/policies/settings', { method: 'PUT', body: JSON.stringify(body) });
 
 // ---------------------------------------------------------------------------

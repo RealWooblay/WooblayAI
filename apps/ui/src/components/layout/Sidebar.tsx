@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useUser as useClerkUser, OrganizationSwitcher } from '@clerk/clerk-react';
-import { getApprovals, getOperations } from '../../api/client.ts';
+import { getApprovals, getOperations, getOrgPolicySettings } from '../../api/client.ts';
 import { useTourOptional } from '../../contexts/TourContext.tsx';
 import clsx from 'clsx';
 
@@ -13,22 +13,37 @@ function useSafeUser(): { user: any } {
   return useClerkUser();
 }
 
-const NAV_ITEMS: ReadonlyArray<{
+interface NavItem {
   to: string;
   label: string;
   icon: string;
   end?: boolean;
   badge?: 'approvals' | 'operations';
-  section?: string;
-}> = [
-  { to: '/operations', label: 'Operations', icon: '◉', badge: 'operations', section: 'operate' },
-  { to: '/approvals', label: 'Approvals', icon: '⬡', badge: 'approvals', section: 'operate' },
-  { to: '/connections', label: 'Connections', icon: '◈', section: 'configure' },
-  { to: '/policies', label: 'Policies', icon: '◇', section: 'configure' },
-  { to: '/insights', label: 'Insights', icon: '◈', section: 'observe' },
-  { to: '/activity', label: 'Activity', icon: '◈', section: 'observe' },
-  { to: '/', label: 'Dashboard', icon: '◎', end: true, section: 'observe' },
+  section: 'connect' | 'secure' | 'monitor' | 'platform';
+}
+
+const NAV_ITEMS: ReadonlyArray<NavItem> = [
+  // CONNECT — how users interact with the product
+  { to: '/setup', label: 'Setup', icon: '⚡', section: 'connect' },
+  { to: '/connections', label: 'Connections', icon: '◈', section: 'connect' },
+  // SECURE — the core product
+  { to: '/policies', label: 'Policies', icon: '◇', section: 'secure' },
+  { to: '/approvals', label: 'Approvals', icon: '⬡', badge: 'approvals', section: 'secure' },
+  // MONITOR — observe what's happening
+  { to: '/activity', label: 'Activity', icon: '◈', section: 'monitor' },
+  { to: '/notifications', label: 'Notifications', icon: '◈', section: 'monitor' },
+  { to: '/', label: 'Dashboard', icon: '◎', end: true, section: 'monitor' },
+  // PLATFORM — only in full platform mode
+  { to: '/operations', label: 'Operations', icon: '◉', badge: 'operations', section: 'platform' },
+  { to: '/insights', label: 'Insights', icon: '◈', section: 'platform' },
 ];
+
+const SECTION_LABELS: Record<string, string> = {
+  connect: 'CONNECT',
+  secure: 'SECURE',
+  monitor: 'MONITOR',
+  platform: 'PLATFORM',
+};
 
 export function Sidebar() {
   const location = useLocation();
@@ -51,15 +66,51 @@ export function Sidebar() {
     (i: any) => !['resolved', 'closed'].includes(i.status),
   ).length;
 
+  // Platform mode from org settings
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: getOrgPolicySettings,
+    staleTime: 60_000,
+  });
+  const platformMode = (orgSettings as any)?.platformMode ?? 'firewall';
+  const isFullPlatform = platformMode === 'full';
+
+  // Group nav items by section, filtering platform items when in firewall mode
+  const visibleItems = NAV_ITEMS.filter(
+    (item) => item.section !== 'platform' || isFullPlatform,
+  );
+
+  // Render items grouped by section
+  const sections = ['connect', 'secure', 'monitor', ...(isFullPlatform ? ['platform'] : [])];
+  const groupedSections = sections.map((section) => ({
+    key: section,
+    label: SECTION_LABELS[section],
+    items: visibleItems.filter((item) => item.section === section),
+  }));
+
   return (
     <aside className="w-[220px] h-full flex flex-col bg-surface-0 border-r border-border shrink-0 select-none">
       {/* Brand + Org Switcher */}
-      <div className="px-4 pt-5 pb-4">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-bold tracking-tight text-text-primary">
-            wooblay
-          </span>
-          <span className="text-[9px] text-accent-bright font-medium">beta</span>
+      <div className="px-4 pt-5 pb-3">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold tracking-tight text-text-primary">
+              wooblay
+            </span>
+            <span className="text-[9px] text-accent-bright font-medium">beta</span>
+          </div>
+          {/* Notification bell */}
+          <NavLink
+            to="/notifications"
+            className="relative p-1.5 rounded-lg hover:bg-surface-2 transition-colors"
+          >
+            <span className="text-[13px] text-text-muted">🔔</span>
+            {pendingCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] rounded-full bg-amber-500 text-[8px] font-bold text-black flex items-center justify-center px-0.5">
+                {pendingCount > 9 ? '9+' : pendingCount}
+              </span>
+            )}
+          </NavLink>
         </div>
         {HAS_CLERK && (
           <div className="mt-2 [&_.cl-organizationSwitcher-root]:w-full [&_.cl-organizationSwitcherTrigger]:w-full [&_.cl-organizationSwitcherTrigger]:justify-between">
@@ -89,49 +140,58 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 space-y-0.5">
-        {NAV_ITEMS.map((item) => {
-          const isActive = item.end
-            ? location.pathname === item.to
-            : location.pathname.startsWith(item.to);
+      {/* Navigation — sectioned */}
+      <nav className="flex-1 px-3 overflow-y-auto">
+        {groupedSections.map((section) => (
+          <div key={section.key} className="mb-3">
+            <p className="text-[9px] font-bold text-text-muted tracking-widest uppercase px-3 mb-1.5 mt-2">
+              {section.label}
+            </p>
+            <div className="space-y-0.5">
+              {section.items.map((item) => {
+                const isActive = item.end
+                  ? location.pathname === item.to
+                  : location.pathname.startsWith(item.to);
 
-          const badgeCount = item.badge === 'approvals' ? pendingCount
-            : item.badge === 'operations' ? activeOperations
-            : 0;
+                const badgeCount = item.badge === 'approvals' ? pendingCount
+                  : item.badge === 'operations' ? activeOperations
+                  : 0;
 
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end || undefined}
-              className={() =>
-                clsx(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all relative',
-                  isActive
-                    ? 'bg-accent-subtle text-accent-bright'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-2',
-                )
-              }
-            >
-              {isActive && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-accent" />
-              )}
-              <span className={clsx('text-[11px] w-5 text-center', isActive ? 'opacity-100' : 'opacity-40')}>
-                {item.icon}
-              </span>
-              <span className="flex-1">{item.label}</span>
-              {badgeCount > 0 && (
-                <span className={clsx(
-                  'min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center px-1 tabular-nums',
-                  item.badge === 'operations' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400',
-                )}>
-                  {badgeCount}
-                </span>
-              )}
-            </NavLink>
-          );
-        })}
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end || undefined}
+                    className={() =>
+                      clsx(
+                        'flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all relative',
+                        isActive
+                          ? 'bg-accent-subtle text-accent-bright'
+                          : 'text-text-secondary hover:text-text-primary hover:bg-surface-2',
+                      )
+                    }
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-accent" />
+                    )}
+                    <span className={clsx('text-[11px] w-5 text-center', isActive ? 'opacity-100' : 'opacity-40')}>
+                      {item.icon}
+                    </span>
+                    <span className="flex-1">{item.label}</span>
+                    {badgeCount > 0 && (
+                      <span className={clsx(
+                        'min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center px-1 tabular-nums',
+                        item.badge === 'operations' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400',
+                      )}>
+                        {badgeCount}
+                      </span>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Bottom: Tutorial + Settings + User */}

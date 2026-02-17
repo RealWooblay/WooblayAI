@@ -131,6 +131,22 @@ export async function buildApp() {
 import { prisma } from './db/client.js';
 
 async function start() {
+  // ── Pre-flight checks ────────────────────────────────────────────────
+  if (config.NODE_ENV === 'production' && !config.VAULT_MASTER_KEY) {
+    console.error(
+      '\n╔══════════════════════════════════════════════════════════════════╗\n' +
+      '║  FATAL: VAULT_MASTER_KEY is not set.                            ║\n' +
+      '║                                                                  ║\n' +
+      '║  Connections and credential encryption require this env var.     ║\n' +
+      '║  Generate one:                                                   ║\n' +
+      '║    node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"  ║\n' +
+      '║                                                                  ║\n' +
+      '║  Add it to your deployment environment variables.                ║\n' +
+      '╚══════════════════════════════════════════════════════════════════╝\n',
+    );
+    process.exit(1);
+  }
+
   const app = await buildApp();
 
   // Seed default policies if the table is empty

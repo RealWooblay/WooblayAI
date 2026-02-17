@@ -21,6 +21,8 @@ import {
   deleteInstance,
   updateInstance,
   getInstanceLogs,
+  getOrgPolicySettings,
+  getApiKeys,
   type Instance,
   type MissionData,
   type CreateInstanceRequest,
@@ -530,9 +532,127 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
   );
 }
 
+// ── Firewall Dashboard (firewall mode) ───────────────────────────────────────
+
+function FirewallDashboard() {
+  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats, refetchInterval: 5_000 });
+  const { data: approvals } = useQuery({ queryKey: ['approvals', 'pending'], queryFn: getApprovals, refetchInterval: 5_000 });
+  const { data: apiKeys = [] } = useQuery({ queryKey: ['api-keys'], queryFn: getApiKeys });
+
+  const pending = approvals ?? [];
+  const totalActions = stats?.totalToolCalls ?? 0;
+  const pendingApprovals = stats?.pendingApprovals ?? 0;
+  const deniedActions = stats?.byDecision?.DENY ?? 0;
+
+  return (
+    <div className="h-full overflow-y-auto p-6 canvas-bg relative">
+      <div className="max-w-3xl mx-auto space-y-5 relative z-10">
+        {/* Header */}
+        <div>
+          <h1 className="text-lg font-bold text-text-primary font-mono">&gt; wooblay gate</h1>
+          <p className="text-xs text-text-muted mt-1">
+            AI agent firewall — policy enforcement, credential isolation, secure execution.
+          </p>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-4 gap-3">
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Actions Today</p>
+            <p className="text-2xl font-bold font-mono text-text-primary">{totalActions}</p>
+          </div>
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Pending Review</p>
+            <p className="text-2xl font-bold font-mono text-amber-400">{pendingApprovals}</p>
+          </div>
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Blocked</p>
+            <p className="text-2xl font-bold font-mono text-red-400">{deniedActions}</p>
+          </div>
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">API Keys</p>
+            <p className="text-2xl font-bold font-mono text-accent-bright">{apiKeys.length}</p>
+          </div>
+        </div>
+
+        {/* Pending approvals alert */}
+        {pending.length > 0 && (
+          <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400">⬡</span>
+                <p className="text-sm font-medium text-amber-400">
+                  {pending.length} action{pending.length !== 1 ? 's' : ''} awaiting approval
+                </p>
+              </div>
+              <Link to="/approvals" className="text-xs text-amber-400 hover:text-amber-300 font-medium">
+                Review &rarr;
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-3 gap-3">
+          <Link to="/setup" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Setup &rarr;</p>
+            <p className="text-[10px] text-text-muted">Create API keys and connect your agents</p>
+          </Link>
+          <Link to="/connections" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Connections &rarr;</p>
+            <p className="text-[10px] text-text-muted">Manage credential vault</p>
+          </Link>
+          <Link to="/policies" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Policies &rarr;</p>
+            <p className="text-[10px] text-text-muted">Configure allow/deny rules</p>
+          </Link>
+        </div>
+
+        {/* No keys state */}
+        {apiKeys.length === 0 && (
+          <div className="bg-surface-1 border border-dashed border-border rounded-xl p-6 text-center">
+            <p className="text-sm text-text-secondary mb-2">No API keys yet</p>
+            <p className="text-xs text-text-muted mb-4">Create your first API key to connect an external agent to Wooblay.</p>
+            <Link to="/setup">
+              <Button size="sm">Go to Setup</Button>
+            </Link>
+          </div>
+        )}
+
+        {/* Activity link */}
+        <div className="flex justify-between items-center pt-2">
+          <Link to="/activity" className="text-xs text-text-muted hover:text-accent transition-colors">
+            View full activity log &rarr;
+          </Link>
+          <Link to="/notifications" className="text-xs text-text-muted hover:text-accent transition-colors">
+            Configure alerts &rarr;
+          </Link>
+        </div>
+      </div>
+      <div className="scanline-overlay pointer-events-none" />
+    </div>
+  );
+}
+
 // ── Main Dashboard ───────────────────────────────────────────────────────────
 
 export function CommandCenter() {
+  // Check platform mode
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: getOrgPolicySettings,
+    staleTime: 60_000,
+  });
+  const platformMode = (orgSettings as any)?.platformMode ?? 'firewall';
+
+  if (platformMode === 'firewall') {
+    return <FirewallDashboard />;
+  }
+
+  return <FullPlatformDashboard />;
+}
+
+function FullPlatformDashboard() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats, refetchInterval: 5_000 });
   const { data: instances, isLoading: loadingInstances } = useQuery({ queryKey: ['instances'], queryFn: getInstances, refetchInterval: 5_000 });
   const { data: approvals } = useQuery({ queryKey: ['approvals', 'pending'], queryFn: getApprovals, refetchInterval: 5_000 });
