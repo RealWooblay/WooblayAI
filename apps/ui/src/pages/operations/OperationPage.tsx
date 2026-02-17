@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import {
   getOperation,
@@ -400,7 +400,7 @@ function IntentBadge({ intent, suggestedIntent }: { intent: string; suggestedInt
   );
 }
 
-function SecuritySummary({ operation }: { operation: any }) {
+function SecuritySummary({ operation: _operation }: { operation: any }) {
   return (
     <div className="grid grid-cols-3 gap-3 mb-6">
       <div className="bg-surface-1 border border-border rounded-lg p-3">

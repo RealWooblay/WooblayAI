@@ -6,7 +6,7 @@
  * Hybrid Identity: base role → agent-evolved SOUL.md tracking.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -367,7 +367,7 @@ function AgentNetwork({ mission, instances }: { mission?: MissionData; instances
 
 // ── Capabilities & Security View ──────────────────────────────────────────
 
-function CapabilitiesSection({ instance }: { instance: Instance }) {
+function CapabilitiesSection({ instance: _instance }: { instance: Instance }) {
   const { data: availableActions, isLoading: actionsLoading } = useQuery({
     queryKey: ['available-actions'],
     queryFn: () => fetchApi<any[]>('/api/actions/available'),

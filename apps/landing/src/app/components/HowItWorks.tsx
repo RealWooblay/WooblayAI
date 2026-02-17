@@ -6,8 +6,8 @@ import { motion, useInView } from 'framer-motion'
 const steps = [
   {
     number: '01',
-    title: 'Connect your services & secrets',
-    description: 'Link any service your agents need — repos, cloud infrastructure, APIs, databases. Store credentials and API keys with fine-grained visibility: agent-accessible for fast testing loops, or exec-only for sensitive deploy keys the agent never touches.',
+    title: 'You decide',
+    description: 'Sensors connect to your services. You decide what your agent can do.',
     color: 'text-white/60',
     borderColor: 'border-white/[0.08]',
     bgColor: 'bg-white/[0.02]',
@@ -15,15 +15,15 @@ const steps = [
   {
     number: '02',
     title: 'Simulate before executing',
-    description: 'Every agent action passes through three security layers. Policies enforce scope boundaries. A pre-execution simulation proves the action does what it claims. Only then does it reach the secure execution environment.',
+    description: 'Every agent action is intercepted, pre-executed in a sandbox and evaluated against your policies.',
     color: 'text-amber-400/80',
     borderColor: 'border-amber-400/[0.15]',
     bgColor: 'bg-amber-400/[0.03]',
   },
   {
     number: '03',
-    title: 'Execute anything, securely',
-    description: 'Approved actions run in ephemeral containers with injected credentials — the agent never sees them. Run any command: deploy, test endpoints, query databases, push code. Every execution produces a cryptographic receipt.',
+    title: 'Execute securely',
+    description: 'Agents never receive raw credentials. Outcomes are verified and recorded with cryptographic receipts.',
     color: 'text-accent',
     borderColor: 'border-accent/[0.15]',
     bgColor: 'bg-accent/[0.03]',
@@ -44,10 +44,10 @@ export function HowItWorks() {
           className="text-center mb-16"
         >
           <p className="text-accent/60 text-[12px] font-mono tracking-widest uppercase mb-4">
-            Core idea
+            Your autonomous agent
           </p>
           <h2 className="font-display text-[clamp(1.8rem,4vw,2.8rem)] font-bold tracking-tight text-white">
-            Control plane.
+            Controlled by you.
           </h2>
         </motion.div>
 
