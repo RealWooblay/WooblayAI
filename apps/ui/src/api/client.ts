@@ -50,6 +50,7 @@ export class ApiError extends Error {
 export async function fetchApi<T = unknown>(
   path: string,
   init?: RequestInit,
+  _retried = false,
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string> ?? {}),
@@ -81,6 +82,11 @@ export async function fetchApi<T = unknown>(
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const res = await fetch(url, { ...init, headers, credentials: 'include' });
+
+  // On 401, retry once with a forced-fresh token (handles stale session token)
+  if (res.status === 401 && !_retried && getTokenFn) {
+    return fetchApi<T>(path, init, true);
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');

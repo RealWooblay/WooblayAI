@@ -1,112 +1,101 @@
 /**
- * Renders the tutorial overlay: dimmed background, highlight around target element, modal with content and Next/Back.
+ * Tour overlay — spotlight highlight, progress bar, minimal card.
+ * Re-measures target on navigation, scroll, and resize.
  */
 
 import { useEffect, useState, useLayoutEffect } from 'react';
-import { useTour, TOUR_STEPS } from '../../contexts/TourContext.tsx';
+import { useTour } from '../../contexts/TourContext.tsx';
 
-const HIGHLIGHT_PADDING = 8;
+const PAD = 10;
 
 export function TourOverlay() {
-  const { isActive, step, stepIndex, nextStep, prevStep, closeTour, setTourCompleted } = useTour();
-  const [highlightRect, setHighlightRect] = useState<DOMRect | null>(null);
+  const { isActive, step, stepIndex, totalSteps, nextStep, prevStep, closeTour, setTourCompleted } = useTour();
+  const [rect, setRect] = useState<DOMRect | null>(null);
 
-  // After route + render, find target and measure
+  // Measure after route + render
   useLayoutEffect(() => {
-    if (!isActive || !step?.target) {
-      setHighlightRect(null);
-      return;
-    }
-    const el = document.querySelector(`[data-tour="${step.target}"]`);
-    if (!el) {
-      setHighlightRect(null);
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    setHighlightRect(new DOMRect(rect.left - HIGHLIGHT_PADDING, rect.top - HIGHLIGHT_PADDING, rect.width + HIGHLIGHT_PADDING * 2, rect.height + HIGHLIGHT_PADDING * 2));
-  }, [isActive, step?.path, step?.target, stepIndex]);
+    if (!isActive || !step?.target) { setRect(null); return; }
+    // Small delay to let React render the new page
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-tour="${step.target}"]`);
+      if (!el) { setRect(null); return; }
+      const r = el.getBoundingClientRect();
+      setRect(new DOMRect(r.left - PAD, r.top - PAD, r.width + PAD * 2, r.height + PAD * 2));
+    }, 120);
+    return () => clearTimeout(t);
+  }, [isActive, step?.path, step?.target, step?.action, stepIndex]);
 
-  // Re-measure on scroll/resize
+  // Live re-measure on scroll/resize
   useEffect(() => {
     if (!isActive || !step?.target) return;
-    const el = document.querySelector(`[data-tour="${step.target}"]`);
-    if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setHighlightRect(new DOMRect(rect.left - HIGHLIGHT_PADDING, rect.top - HIGHLIGHT_PADDING, rect.width + HIGHLIGHT_PADDING * 2, rect.height + HIGHLIGHT_PADDING * 2));
+    const measure = () => {
+      const el = document.querySelector(`[data-tour="${step.target}"]`);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setRect(new DOMRect(r.left - PAD, r.top - PAD, r.width + PAD * 2, r.height + PAD * 2));
     };
-    const ro = new ResizeObserver(update);
+    const ro = new ResizeObserver(measure);
     ro.observe(document.documentElement);
-    window.addEventListener('scroll', update, true);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('scroll', update, true);
-    };
+    window.addEventListener('scroll', measure, true);
+    return () => { ro.disconnect(); window.removeEventListener('scroll', measure, true); };
   }, [isActive, step?.target, stepIndex]);
 
   if (!isActive || !step) return null;
 
   const isFirst = stepIndex === 0;
-  const isLastStep = stepIndex === TOUR_STEPS.length - 1;
+  const isLast = stepIndex === totalSteps - 1;
+  const pct = ((stepIndex + 1) / totalSteps) * 100;
 
   return (
     <div className="fixed inset-0 z-[9999] pointer-events-auto">
-      {/* Dimmed backdrop when no target; otherwise spotlight cutout is the only overlay */}
-      {!highlightRect && <div className="absolute inset-0 bg-black/50" aria-hidden />}
+      {!rect && <div className="absolute inset-0 bg-black/60" aria-hidden />}
 
-      {/* Spotlight: transparent box with huge box-shadow = dimmed everywhere except the hole */}
-      {highlightRect && (
+      {rect && (
         <div
-          className="absolute rounded-lg border-2 border-accent bg-transparent"
+          className="absolute rounded-xl border-2 border-accent/80 bg-transparent transition-all duration-300 ease-out"
           style={{
-            left: highlightRect.left,
-            top: highlightRect.top,
-            width: highlightRect.width,
-            height: highlightRect.height,
-            boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)',
+            left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6), 0 0 30px 4px rgba(99,102,241,0.15)',
           }}
         />
       )}
 
-      {/* Modal card — bottom center */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md px-4">
-        <div className="bg-surface-1 border border-border rounded-xl shadow-xl p-5 space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-wider">
-              {stepIndex + 1} of {TOUR_STEPS.length}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                closeTour();
-                setTourCompleted();
-              }}
-              className="text-[11px] text-text-tertiary hover:text-text-primary"
-            >
-              Skip tour
-            </button>
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-[420px] px-4">
+        <div className="bg-surface-1 border border-accent/20 rounded-2xl shadow-2xl overflow-hidden"
+          style={{ boxShadow: '0 0 40px 8px rgba(99,102,241,0.08), 0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+          {/* Progress */}
+          <div className="h-[3px] bg-surface-2">
+            <div className="h-full bg-gradient-to-r from-accent to-accent-bright transition-all duration-300 ease-out rounded-full" style={{ width: `${pct}%` }} />
           </div>
-          <h3 className="text-base font-semibold text-text-primary">{step.title}</h3>
-          <p className="text-sm text-text-secondary leading-relaxed">{step.content}</p>
-          <div className="flex items-center justify-between pt-2">
-            <button
-              type="button"
-              onClick={prevStep}
-              disabled={isFirst}
-              className="text-sm font-medium text-accent hover:text-accent-bright disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              ← Back
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (isLastStep) setTourCompleted();
-                nextStep();
-              }}
-              className="px-4 py-2 rounded-lg bg-accent hover:bg-accent-bright text-white text-sm font-medium"
-            >
-              {isLastStep ? 'Finish' : 'Next →'}
-            </button>
+
+          <div className="p-5 space-y-3">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-mono text-accent/70 font-medium tabular-nums">{stepIndex + 1}/{totalSteps}</span>
+                <h3 className="text-[15px] font-semibold text-text-primary leading-tight">{step.title}</h3>
+              </div>
+              <button type="button" onClick={() => { closeTour(); setTourCompleted(); }}
+                className="text-[10px] text-text-muted hover:text-text-secondary font-mono transition-colors">
+                skip
+              </button>
+            </div>
+
+            {/* Body */}
+            <p className="text-[13px] text-text-secondary leading-relaxed">{step.content}</p>
+
+            {/* Nav */}
+            <div className="flex items-center justify-between pt-2">
+              <button type="button" onClick={prevStep} disabled={isFirst}
+                className="text-[12px] font-mono text-text-tertiary hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors">
+                \u2190 back
+              </button>
+              <button type="button"
+                onClick={() => { if (isLast) setTourCompleted(); nextStep(); }}
+                className="px-5 py-2 rounded-lg bg-accent hover:bg-accent-bright text-white text-[12px] font-mono font-medium transition-colors shadow-lg shadow-accent/20">
+                {isLast ? 'done \u2713' : 'next \u2192'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

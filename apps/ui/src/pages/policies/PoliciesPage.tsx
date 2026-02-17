@@ -461,7 +461,7 @@ export function PoliciesPage() {
       </div>
 
       {/* ── Active Policy Summary ──────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5">
+      <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-policy-summary">
         <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3 font-mono">What your agent can do</h2>
         {summary.length === 0 ? (
           <div className="text-center py-6">

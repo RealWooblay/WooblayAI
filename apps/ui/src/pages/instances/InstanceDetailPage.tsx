@@ -6,7 +6,7 @@
  * Hybrid Identity: base role → agent-evolved SOUL.md tracking.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -23,12 +23,16 @@ import {
   readFile,
   writeFile,
   getFileDownloadUrl,
-  fetchApi,
+  getConnections,
+  getConnectionSecrets,
+  addConnectionSecret,
+  deleteConnectionSecret,
   type FileEntry,
   type MissionData,
   type Instance,
 } from '../../api/client.ts';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
+import { useTourOptional } from '../../contexts/TourContext.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -365,153 +369,344 @@ function AgentNetwork({ mission, instances }: { mission?: MissionData; instances
   );
 }
 
-// ── Capabilities & Security View ──────────────────────────────────────────
+// ── Instance Mini-Tour — auto-triggers on first visit ────────────────────────
+
+const INSTANCE_TOUR_KEY = 'wooblay-instance-tour-seen';
+
+interface MiniTourStep {
+  target: string;
+  title: string;
+  content: string;
+  tab?: 'overview' | 'profile' | 'security' | 'workspace';
+}
+
+const INSTANCE_TOUR_STEPS: MiniTourStep[] = [
+  {
+    target: 'tour-instance-header',
+    title: 'Meet your agent',
+    content: 'Name, status, trust weather, and role. This is your agent\u2019s home base.',
+  },
+  {
+    target: 'tour-tab-overview',
+    tab: 'overview',
+    title: 'Overview',
+    content: 'Trust score, cost, contribution graph, and a live feed of every action.',
+  },
+  {
+    target: 'tour-tab-profile',
+    tab: 'profile',
+    title: 'Profile',
+    content: 'Edit the agent\u2019s name, role, and goal inline. This shapes how it behaves.',
+  },
+  {
+    target: 'tour-tab-security',
+    tab: 'security',
+    title: 'Security',
+    content: 'Add API keys the agent can use directly, or view exec-only secrets it can\u2019t touch.',
+  },
+  {
+    target: 'tour-agent-keys',
+    tab: 'security',
+    title: 'Agent API keys',
+    content: 'Keys here are fully visible to the agent as env vars. Only add what you trust it with.',
+  },
+  {
+    target: 'tour-tab-workspace',
+    tab: 'workspace',
+    title: 'Workspace',
+    content: 'Live file browser into the container. See what the agent is building right now.',
+  },
+];
+
+function InstanceMiniTour({ setActiveTab }: { setActiveTab: (t: 'overview' | 'profile' | 'security' | 'workspace') => void }) {
+  const mainTour = useTourOptional();
+  const [active, setActive] = useState(false);
+  const [idx, setIdx] = useState(0);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  // Auto-trigger on first visit (unless main tour is running)
+  useEffect(() => {
+    if (mainTour?.isActive) return;
+    try {
+      if (localStorage.getItem(INSTANCE_TOUR_KEY)) return;
+    } catch { /* ignore */ }
+    const t = setTimeout(() => setActive(true), 600);
+    return () => clearTimeout(t);
+  }, [mainTour?.isActive]);
+
+  const step = active ? INSTANCE_TOUR_STEPS[idx] : null;
+
+  // Switch tab when step changes
+  useEffect(() => {
+    if (step?.tab) setActiveTab(step.tab);
+  }, [step, setActiveTab]);
+
+  // Measure target
+  useEffect(() => {
+    if (!step) { setRect(null); return; }
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-tour="${step.target}"]`);
+      if (!el) { setRect(null); return; }
+      const r = el.getBoundingClientRect();
+      const pad = 10;
+      setRect(new DOMRect(r.left - pad, r.top - pad, r.width + pad * 2, r.height + pad * 2));
+    }, 150);
+    return () => clearTimeout(t);
+  }, [step, idx]);
+
+  // Re-measure on scroll/resize
+  useEffect(() => {
+    if (!step) return;
+    const measure = () => {
+      const el = document.querySelector(`[data-tour="${step.target}"]`);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const pad = 10;
+      setRect(new DOMRect(r.left - pad, r.top - pad, r.width + pad * 2, r.height + pad * 2));
+    };
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => { window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure); };
+  }, [step, idx]);
+
+  const finish = useCallback(() => {
+    setActive(false);
+    try { localStorage.setItem(INSTANCE_TOUR_KEY, 'true'); } catch { /* ignore */ }
+  }, []);
+
+  if (!active || !step) return null;
+
+  const total = INSTANCE_TOUR_STEPS.length;
+  const pct = ((idx + 1) / total) * 100;
+
+  return (
+    <div className="fixed inset-0 z-[9998] pointer-events-auto">
+      {!rect && <div className="absolute inset-0 bg-black/60" aria-hidden />}
+      {rect && (
+        <div className="absolute rounded-xl border-2 border-accent/80 bg-transparent transition-all duration-300 ease-out"
+          style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6), 0 0 30px 4px rgba(99,102,241,0.15)' }} />
+      )}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-[420px] px-4">
+        <div className="bg-surface-1 border border-accent/20 rounded-2xl shadow-2xl overflow-hidden"
+          style={{ boxShadow: '0 0 40px 8px rgba(99,102,241,0.08), 0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+          <div className="h-[3px] bg-surface-2">
+            <div className="h-full bg-gradient-to-r from-accent to-accent-bright transition-all duration-300 ease-out rounded-full" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-mono text-accent/70 font-medium tabular-nums">{idx + 1}/{total}</span>
+                <h3 className="text-[15px] font-semibold text-text-primary leading-tight">{step.title}</h3>
+              </div>
+              <button type="button" onClick={finish}
+                className="text-[10px] text-text-muted hover:text-text-secondary font-mono transition-colors">skip</button>
+            </div>
+            <p className="text-[13px] text-text-secondary leading-relaxed">{step.content}</p>
+            <div className="flex items-center justify-between pt-2">
+              <button type="button" onClick={() => idx > 0 && setIdx(idx - 1)} disabled={idx === 0}
+                className="text-[12px] font-mono text-text-tertiary hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors">
+                {'\u2190'} back
+              </button>
+              <button type="button"
+                onClick={() => idx < total - 1 ? setIdx(idx + 1) : finish()}
+                className="px-5 py-2 rounded-lg bg-accent hover:bg-accent-bright text-white text-[12px] font-mono font-medium transition-colors shadow-lg shadow-accent/20">
+                {idx === total - 1 ? 'got it \u2713' : 'next \u2192'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Security Tab — Agent-accessible keys + exec-only summary ─────────────────
 
 function CapabilitiesSection({ instance: _instance }: { instance: Instance }) {
-  const { data: availableActions, isLoading: actionsLoading } = useQuery({
-    queryKey: ['available-actions'],
-    queryFn: () => fetchApi<any[]>('/api/actions/available'),
-    refetchInterval: 30_000,
+  const qc = useQueryClient();
+  const { data: connections } = useQuery({ queryKey: ['connections'], queryFn: getConnections });
+  const activeConns = (connections ?? []).filter((c: any) => c.status === 'active');
+
+  const [selectedConnId, setSelectedConnId] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+
+  // Auto-select first connection
+  if (!selectedConnId && activeConns.length > 0) {
+    setSelectedConnId(activeConns[0].id);
+  }
+
+  const { data: secretsData } = useQuery({
+    queryKey: ['conn-secrets', selectedConnId],
+    queryFn: () => getConnectionSecrets(selectedConnId!),
+    enabled: !!selectedConnId,
   });
 
-  const supportedActions = (availableActions ?? []).map((a: any) => ({
-    action: a.action,
-    label: a.action.split(':').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' '),
-    provider: a.provider,
-    description: a.description,
-    connected: a.connected,
-  }));
+  const allSecrets = secretsData?.secrets ?? [];
+  const agentSecrets = allSecrets.filter((s: any) => s.mode === 'agent');
+  const execSecrets = allSecrets.filter((s: any) => s.mode === 'exec_only');
 
-  const providerColors: Record<string, string> = {
-    github: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-    aws: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
-    gcp: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  };
+  const addMut = useMutation({
+    mutationFn: () => addConnectionSecret(selectedConnId!, { key: newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'), value: newValue, mode: 'agent' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['conn-secrets', selectedConnId] }); setNewKey(''); setNewValue(''); },
+  });
+
+  const delMut = useMutation({
+    mutationFn: (key: string) => deleteConnectionSecret(selectedConnId!, key),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conn-secrets', selectedConnId] }),
+  });
 
   return (
     <div className="space-y-4">
-      {/* Three-layer security model */}
-      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3">
-        <div className="flex items-start gap-2">
-          <span className="text-emerald-400 text-sm mt-0.5">*</span>
-          <div>
-            <p className="text-[12px] font-semibold text-emerald-400 uppercase tracking-wider">
-              Secure Execution Model
-            </p>
-            <p className="text-[11px] text-text-secondary mt-1 leading-relaxed">
-              This agent does not have direct access to credentials. All external actions
-              are executed in ephemeral containers controlled by the Wooblay Gate, with
-              credentials injected from the vault for each action individually.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Security layers */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-surface-1 border border-border rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-5 h-5 rounded bg-emerald-500/15 flex items-center justify-center">
-              <span className="text-[10px] font-mono text-emerald-400">1</span>
-            </div>
-            <p className="text-[11px] font-medium text-text-primary font-mono">Policy Gate</p>
-          </div>
-          <p className="text-[10px] text-text-tertiary leading-relaxed">
-            Every action evaluated against org policies and scope boundaries.
-          </p>
-        </div>
-        <div className="bg-surface-1 border border-border rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-5 h-5 rounded bg-blue-500/15 flex items-center justify-center">
-              <span className="text-[10px] font-mono text-blue-400">2</span>
-            </div>
-            <p className="text-[11px] font-medium text-text-primary font-mono">Simulation</p>
-          </div>
-          <p className="text-[10px] text-text-tertiary leading-relaxed">
-            Dry-run verification before real execution. Confirms expected outcome.
-          </p>
-        </div>
-        <div className="bg-surface-1 border border-border rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-5 h-5 rounded bg-purple-500/15 flex items-center justify-center">
-              <span className="text-[10px] font-mono text-purple-400">3</span>
-            </div>
-            <p className="text-[11px] font-medium text-text-primary font-mono">Secure Exec</p>
-          </div>
-          <p className="text-[10px] text-text-tertiary leading-relaxed">
-            Ephemeral container with scoped credentials. Destroyed after execution.
-          </p>
-        </div>
-      </div>
-
-      {/* Available actions */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5">
-        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">
-          Available Secure Actions
+      {/* Agent-Accessible API Keys */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-agent-keys">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-1">
+          Agent API Keys
         </h3>
-        <p className="text-[10px] text-text-tertiary mb-4">
-          These actions are available through the Secure Execution Engine.
-          Each one runs in its own ephemeral container with credentials from the vault.
-          Configure connections on the <Link to="/connections" className="text-accent underline hover:text-accent-bright">Connections page</Link>.
+        <p className="text-[10px] text-text-muted mb-4">
+          Injected as environment variables ($KEY_NAME) into the agent container.
         </p>
 
-        <div className="space-y-2">
-          {supportedActions.map((action) => (
-            <div key={action.action} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-surface-2/50 transition-colors">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${providerColors[action.provider] ?? ''}`}>
-                  {action.provider}
-                </span>
-                <div className="min-w-0">
-                  <span className="text-[11px] text-text-primary font-mono font-medium">{action.label}</span>
-                  <span className="text-[10px] text-text-tertiary ml-2">{action.description}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[9px] font-mono text-text-muted">{action.action}</span>
-                {action.connected ? (
-                  <span className="text-[8px] font-medium px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Ready</span>
-                ) : (
-                  <span className="text-[8px] font-medium px-1 py-0.5 rounded bg-zinc-500/15 text-zinc-400">No connection</span>
-                )}
-              </div>
-            </div>
-          ))}
-          {actionsLoading && <div className="text-[10px] text-text-muted italic py-2">Loading actions...</div>}
+        {/* Warning */}
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
+          <p className="text-[11px] text-amber-400 font-medium mb-1">
+            These keys are fully visible to the agent.
+          </p>
+          <p className="text-[10px] text-amber-400/70">
+            The agent can read, use, and potentially exfiltrate these credentials. Only add keys here if you
+            trust the agent with direct access. For sensitive credentials, use{' '}
+            <Link to="/connections" className="underline hover:text-amber-300">exec-only secrets</Link>{' '}
+            on the Connections page instead — the agent never sees those.
+          </p>
         </div>
+
+        {activeConns.length === 0 ? (
+          <div className="text-center py-6">
+            <p className="text-[12px] text-text-muted mb-2">No connections yet</p>
+            <Link to="/connections" className="text-[11px] text-accent hover:text-accent-bright font-mono">
+              + Add connection
+            </Link>
+          </div>
+        ) : (
+          <>
+            {/* Connection picker */}
+            <div className="flex gap-2 mb-4 flex-wrap">
+              {activeConns.map((c: any) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedConnId(c.id)}
+                  className={`text-[11px] font-mono px-3 py-1.5 rounded-lg border transition-colors ${
+                    selectedConnId === c.id
+                      ? 'bg-accent/15 border-accent/30 text-accent'
+                      : 'bg-surface-2/50 border-border text-text-secondary hover:border-border-bright'
+                  }`}
+                >
+                  {c.name}
+                  <span className="text-text-muted ml-1.5">{c.provider}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Existing agent-accessible keys */}
+            {agentSecrets.length > 0 && (
+              <div className="space-y-1.5 mb-4">
+                {agentSecrets.map((s: any) => (
+                  <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-2/50 group">
+                    <div className="flex items-center gap-3">
+                      <code className="text-[11px] text-text-primary font-mono">{s.key}</code>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20">
+                        agent env
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => delMut.mutate(s.key)}
+                      className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
+                    >
+                      remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add key form */}
+            <div className="flex gap-2 items-end">
+              <div className="flex-1 min-w-0">
+                <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Key</label>
+                <input
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                  placeholder="GITHUB_TOKEN"
+                  className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Value</label>
+                <input
+                  type="password"
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  placeholder="ghp_..."
+                  className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                />
+              </div>
+              <button
+                onClick={() => addMut.mutate()}
+                disabled={!newKey.trim() || !newValue.trim() || addMut.isPending}
+                className="shrink-0 px-3 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors"
+              >
+                {addMut.isPending ? '...' : 'Add'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* How it works */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5">
-        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-3">
-          How It Works
-        </h3>
-        <div className="space-y-3 text-[11px] text-text-secondary font-mono leading-relaxed">
-          <div className="flex gap-3">
-            <span className="text-accent shrink-0 w-4">1.</span>
-            <span>Agent declares a structured action: <code className="text-accent bg-accent/10 px-1 rounded">git:push branch=feature-x</code></span>
+      {/* Exec-only summary (read-only, managed on Connections) */}
+      {execSecrets.length > 0 && (
+        <div className="bg-surface-1 border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
+              Exec-Only Secrets
+            </h3>
+            <Link to="/connections" className="text-[10px] text-accent hover:text-accent-bright font-mono">
+              Manage &rarr;
+            </Link>
           </div>
-          <div className="flex gap-3">
-            <span className="text-accent shrink-0 w-4">2.</span>
-            <span>Gate evaluates policy rules + scope boundaries for this connection</span>
+          <div className="space-y-1.5">
+            {execSecrets.map((s: any) => (
+              <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-2/50">
+                <div className="flex items-center gap-3">
+                  <code className="text-[11px] text-text-primary font-mono">{s.key}</code>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+                    exec only
+                  </span>
+                </div>
+                <span className="text-[10px] text-text-muted font-mono">••••••</span>
+              </div>
+            ))}
           </div>
-          <div className="flex gap-3">
-            <span className="text-accent shrink-0 w-4">3.</span>
-            <span>If simulation is available, dry-run executes first to verify expected outcome</span>
-          </div>
-          <div className="flex gap-3">
-            <span className="text-accent shrink-0 w-4">4.</span>
-            <span>Gate spawns an ephemeral Docker container with credentials from the vault</span>
-          </div>
-          <div className="flex gap-3">
-            <span className="text-accent shrink-0 w-4">5.</span>
-            <span>Command executes in clean environment. Container is destroyed immediately after.</span>
-          </div>
-          <div className="flex gap-3">
-            <span className="text-accent shrink-0 w-4">6.</span>
-            <span>Result returned to agent. Credentials never touch the agent container.</span>
-          </div>
+          <p className="text-[9px] text-text-muted mt-3 font-mono">
+            These are only injected during secure execution. The agent never sees them.
+          </p>
         </div>
+      )}
+
+      {/* Quick links */}
+      <div className="flex gap-3">
+        <Link to="/connections" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Connections</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Manage exec-only secrets &amp; services <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+        </Link>
+        <Link to="/policies" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Policies</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Define what actions need approval <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+        </Link>
+        <Link to="/activity" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Activity</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Full audit trail <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+        </Link>
       </div>
     </div>
   );
@@ -1014,7 +1209,19 @@ export function InstanceDetailPage() {
     queryFn: () => getFlags({ dismissed: 'false', limit: '5' }),
     refetchInterval: 15_000,
   });
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'capabilities' | 'workspace'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'security' | 'workspace'>('overview');
+
+  // Listen for tour tab-switch events
+  const handleTourTab = useCallback((e: Event) => {
+    const tab = (e as CustomEvent).type.replace('tour:tab:', '') as typeof activeTab;
+    if (['overview', 'profile', 'security', 'workspace'].includes(tab)) setActiveTab(tab);
+  }, []);
+  useEffect(() => {
+    const tabs = ['tour:tab:overview', 'tour:tab:profile', 'tour:tab:security', 'tour:tab:workspace'];
+    tabs.forEach(t => window.addEventListener(t, handleTourTab));
+    return () => tabs.forEach(t => window.removeEventListener(t, handleTourTab));
+  }, [handleTourTab]);
+
   const qc = useQueryClient();
   const dismissMutation = useMutation({
     mutationFn: dismissFlag,
@@ -1050,6 +1257,7 @@ export function InstanceDetailPage() {
   return (
     <div className="relative">
       <WeatherBackground weather={weather} />
+      <InstanceMiniTour setActiveTab={setActiveTab} />
 
       <div className="max-w-5xl mx-auto space-y-5 relative z-10">
       <Link to="/" className="text-xs text-text-tertiary hover:text-text-secondary transition-colors font-mono inline-flex items-center gap-1.5">
@@ -1057,7 +1265,7 @@ export function InstanceDetailPage() {
       </Link>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl p-6">
+      <div className="bg-surface-1 border border-border rounded-xl p-6" data-tour="tour-instance-header">
         <div className="flex items-center gap-6">
           {/* Face — clean, well-padded */}
           <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
@@ -1087,10 +1295,11 @@ export function InstanceDetailPage() {
 
       {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
-        {(['overview', 'profile', 'capabilities', 'workspace'] as const).map(tab => (
+        {(['overview', 'profile', 'security', 'workspace'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
+            data-tour={`tour-tab-${tab}`}
             className={`px-5 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors ${
               activeTab === tab
                 ? 'bg-accent/10 text-accent font-medium'
@@ -1106,7 +1315,7 @@ export function InstanceDetailPage() {
         <WorkspaceTab instanceId={instance.id} isRunning={instance.status === 'running'} />
       ) : activeTab === 'profile' ? (
         <ProfileTab instanceId={instance.id} instance={instance} isRunning={instance.status === 'running'} />
-      ) : activeTab === 'capabilities' ? (
+      ) : activeTab === 'security' ? (
         <CapabilitiesSection instance={instance} />
       ) : (
       <>

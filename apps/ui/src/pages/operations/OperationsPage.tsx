@@ -83,7 +83,7 @@ export function OperationsPage() {
       )}
 
       {active.length > 0 && (
-        <div className="space-y-2 mb-8">
+        <div className="space-y-2 mb-8" data-tour="tour-operations-list">
           {active.map((op: any) => (
             <OperationRow
               key={op.id}

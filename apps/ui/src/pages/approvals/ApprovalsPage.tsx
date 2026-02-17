@@ -149,7 +149,7 @@ export function ApprovalsPage() {
       )}
 
       {/* Cards */}
-      <div className="space-y-3">
+      <div className="space-y-3" data-tour="tour-approval-cards">
         {items.map((item, idx) => {
           const tc = item.toolCall;
           const isSelected = idx === selectedIdx;

@@ -84,10 +84,12 @@ export const clerkAuthPlugin = fp(async function clerkAuthPluginInner(app: Fasti
       }
 
       if (!token) {
-        // Clerk sets a __session cookie in the browser
+        // Clerk v5 (Core 2) sets a __session cookie; older versions may use __clerk_db_jwt
         const cookies = request.cookies;
         if (cookies?.['__session']) {
           token = cookies['__session'];
+        } else if (cookies?.['__clerk_db_jwt']) {
+          token = cookies['__clerk_db_jwt'];
         }
       }
 

@@ -145,7 +145,7 @@ export function SettingsPage() {
       )}
 
       {/* Webhook Notifications */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5">
+      <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-webhooks">
         <h2 className="text-sm font-semibold text-text-primary mb-1">Notifications</h2>
         <p className="text-xs text-text-muted mb-4">
           Receive alerts via Slack, Discord, or any webhook endpoint.

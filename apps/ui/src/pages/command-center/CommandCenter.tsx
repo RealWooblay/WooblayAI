@@ -596,6 +596,7 @@ export function CommandCenter() {
             )}
           </div>
           <button onClick={() => setDeployOpen(!deployOpen)}
+            data-tour="tour-deploy"
             className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
               deployOpen ? 'bg-accent/10 text-accent' : 'bg-accent text-white hover:bg-accent-bright'
             }`}>

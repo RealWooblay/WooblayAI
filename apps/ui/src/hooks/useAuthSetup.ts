@@ -13,5 +13,10 @@ export function useAuthSetup() {
   const { getToken } = useAuth();
   // Must be synchronous — useEffect would run AFTER the first render,
   // causing API calls to fire without the token.
-  setGetTokenFn(() => getToken());
+  // Force skipCache on retry (Clerk v5 may cache an expired token briefly).
+  setGetTokenFn(async () => {
+    const token = await getToken();
+    if (token) return token;
+    return getToken({ skipCache: true });
+  });
 }

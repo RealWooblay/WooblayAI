@@ -28,7 +28,7 @@ export function InsightsPage() {
 
       {/* Summary Cards */}
       {summary && (
-        <div className="grid grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-4 gap-4 mb-8" data-tour="tour-insights-metrics">
           <SummaryCard
             label="Incidents"
             value={summary.incidents.total}

@@ -434,7 +434,7 @@ export function ActivityPage() {
       </div>
 
       {/* ── Action Log ────────────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
+      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden" data-tour="tour-activity-log">
         <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
           <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Action Log</h2>
           {activity && <span className="text-[10px] text-text-tertiary">{activity.total} total</span>}

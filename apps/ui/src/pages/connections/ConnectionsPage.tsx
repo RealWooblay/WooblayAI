@@ -667,7 +667,6 @@ function SecretsEditor({ connectionId }: { connectionId: string }) {
   const qc = useQueryClient();
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
-  const [newMode, setNewMode] = useState<'agent' | 'exec_only'>('agent');
 
   const { data: secretsData, isLoading } = useQuery({
     queryKey: ['connection-secrets', connectionId],
@@ -690,11 +689,13 @@ function SecretsEditor({ connectionId }: { connectionId: string }) {
   });
 
   const existing = secretsData?.secrets ?? [];
+  const execSecrets = existing.filter((s: any) => s.mode === 'exec_only');
+  const agentSecrets = existing.filter((s: any) => s.mode === 'agent');
 
   const handleAdd = () => {
     if (!newKey.trim() || !newValue.trim()) return;
     const normalizedKey = newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-    addMut.mutate({ key: normalizedKey, value: newValue, mode: newMode });
+    addMut.mutate({ key: normalizedKey, value: newValue, mode: 'exec_only' });
     setNewKey('');
     setNewValue('');
   };
@@ -702,11 +703,10 @@ function SecretsEditor({ connectionId }: { connectionId: string }) {
   return (
     <div className="space-y-3">
       <div>
-        <h4 className="text-[11px] font-medium text-text-secondary">Connection Secrets</h4>
+        <h4 className="text-[11px] font-medium text-text-secondary">Exec-Only Secrets</h4>
         <p className="text-[10px] text-text-tertiary mt-1">
-          Add API keys, tokens, and credentials. <strong>Agent-accessible</strong> secrets are injected as environment variables ($KEY_NAME) into the agent
-          — use for API testing and lightweight ops. <strong>Secure exec only</strong> secrets are only available inside ephemeral containers via structured_action
-          — use for deploy credentials and sensitive tokens.
+          Credentials injected only into ephemeral secure execution containers. The agent never sees these values
+          — use for deploy keys, database passwords, and sensitive tokens.
         </p>
       </div>
 
@@ -714,19 +714,15 @@ function SecretsEditor({ connectionId }: { connectionId: string }) {
         <Spinner size="sm" />
       ) : (
         <>
-          {existing.length > 0 && (
+          {execSecrets.length > 0 && (
             <div className="space-y-1.5">
-              {existing.map((s: any) => (
+              {execSecrets.map((s: any) => (
                 <div key={s.key} className="flex items-center gap-2 bg-surface-2 border border-border rounded-lg px-3 py-2">
                   <code className="text-[11px] font-mono text-accent flex-1">{s.key}</code>
-                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
-                    s.mode === 'agent'
-                      ? 'bg-blue-500/15 text-blue-400'
-                      : 'bg-amber-500/15 text-amber-400'
-                  }`}>
-                    {s.mode === 'agent' ? 'AGENT' : 'EXEC ONLY'}
+                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
+                    EXEC ONLY
                   </span>
-                  <span className="text-[10px] text-text-muted font-mono">********</span>
+                  <span className="text-[10px] text-text-muted font-mono">••••••</span>
                   <button
                     onClick={() => deleteMut.mutate(s.key)}
                     className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
@@ -746,7 +742,7 @@ function SecretsEditor({ connectionId }: { connectionId: string }) {
                   type="text"
                   value={newKey}
                   onChange={(e) => setNewKey(e.target.value)}
-                  placeholder="MY_API_KEY"
+                  placeholder="DEPLOY_KEY"
                   className="w-full bg-surface-1 border border-border rounded px-2 py-1 text-[11px] text-text-primary font-mono placeholder:text-text-muted focus:border-accent focus:outline-none"
                 />
               </div>
@@ -761,34 +757,29 @@ function SecretsEditor({ connectionId }: { connectionId: string }) {
                 />
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name={`mode-${connectionId}`}
-                  checked={newMode === 'agent'}
-                  onChange={() => setNewMode('agent')}
-                  className="accent-accent"
-                />
-                <span className="text-[10px] text-text-secondary">Agent-accessible</span>
-                <span className="text-[9px] text-text-tertiary">(env var)</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name={`mode-${connectionId}`}
-                  checked={newMode === 'exec_only'}
-                  onChange={() => setNewMode('exec_only')}
-                  className="accent-accent"
-                />
-                <span className="text-[10px] text-text-secondary">Secure exec only</span>
-                <span className="text-[9px] text-text-tertiary">(ephemeral containers)</span>
-              </label>
-            </div>
             <Button size="xs" onClick={handleAdd} disabled={!newKey.trim() || !newValue.trim() || addMut.isPending}>
-              {addMut.isPending ? 'Adding...' : 'Add Secret'}
+              {addMut.isPending ? 'Adding...' : 'Add Exec-Only Secret'}
             </Button>
           </div>
+
+          {/* Show agent keys as read-only reference */}
+          {agentSecrets.length > 0 && (
+            <div className="mt-2 pt-3 border-t border-border/50">
+              <p className="text-[10px] text-text-muted mb-2">
+                Agent-accessible keys (managed from agent detail page):
+              </p>
+              <div className="space-y-1">
+                {agentSecrets.map((s: any) => (
+                  <div key={s.key} className="flex items-center gap-2 px-3 py-1.5 rounded bg-surface-2/30">
+                    <code className="text-[10px] font-mono text-text-secondary">{s.key}</code>
+                    <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      agent env
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
