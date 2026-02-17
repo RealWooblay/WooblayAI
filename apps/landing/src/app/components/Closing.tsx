@@ -8,20 +8,8 @@ export function Closing() {
       <div className="absolute inset-0 bg-gradient-to-t from-accent/[0.04] via-transparent to-transparent" />
 
       <div className="relative max-w-3xl mx-auto px-6 lg:px-8">
-        {/* The WHY */}
-        <FadeIn>
-          <div className="text-center mb-20">
-            <p className="text-white/35 text-[14px] leading-relaxed max-w-lg mx-auto mb-2">
-              The secure execution environment for autonomous AI agents.
-            </p>
-            <p className="text-white/25 text-[13px] leading-relaxed max-w-lg mx-auto">
-              Policy gates. Pre-execution simulation. Ephemeral secure containers. Two-mode secret management. Run any command securely. Works with OpenClaw today; more runtimes coming.
-            </p>
-          </div>
-        </FadeIn>
-
         {/* CTA */}
-        <FadeIn delay={0.08}>
+        <FadeIn>
           <div className="text-center">
             <h2 className="font-display text-[clamp(2rem,5vw,3.5rem)] font-bold tracking-[-0.03em] leading-[0.95]">
               <span className="text-gradient">
@@ -29,11 +17,11 @@ export function Closing() {
               </span>
               <br />
               <span className="text-white/18">
-                Zero credential exposure.
+                Zero blind trust.
               </span>
             </h2>
             <p className="mt-6 text-white/40 text-[15px] max-w-lg mx-auto">
-              The first platform where agents declare intent and the platform executes securely. Follow along.
+              Your agents keep their power. You keep control. Every action verified, every credential protected, every decision recorded.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
               <a
@@ -51,35 +39,27 @@ export function Closing() {
           </div>
         </FadeIn>
 
-        {/* Footer strip */}
-        <FadeIn delay={0.15}>
+        {/* Footer */}
+        <FadeIn delay={0.12}>
           <div className="mt-28 pt-6 border-t border-white/[0.04]">
-            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-white/25 text-[11px] font-mono mb-6">
-              <span>Policy Gate</span>
-              <span className="text-white/10">&middot;</span>
-              <span>Pre-execution Simulation</span>
-              <span className="text-white/10">&middot;</span>
-              <span>Ephemeral Secure Execution</span>
-              <span className="text-white/10">&middot;</span>
-              <span>Connection Secrets</span>
-              <span className="text-white/10">&middot;</span>
-              <span>Generic Secure Execution</span>
-              <span className="text-white/10">&middot;</span>
-              <span>Cryptographic Receipts</span>
-              <span className="text-white/10">&middot;</span>
-              <span>AI-Classified Routing</span>
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-white/20 text-[11px] font-mono mb-6">
+              <span>Policy gate</span>
+              <span className="text-white/8">&middot;</span>
+              <span>Simulation</span>
+              <span className="text-white/8">&middot;</span>
+              <span>Secure execution</span>
+              <span className="text-white/8">&middot;</span>
+              <span>Audit trail</span>
+              <span className="text-white/8">&middot;</span>
+              <span>Runtime-agnostic</span>
             </div>
 
             <div className="flex justify-center items-center gap-6">
               <div className="flex items-center gap-2">
                 <div className="w-5 h-5 rounded bg-accent/15 border border-accent/20 flex items-center justify-center">
-                  <span className="text-accent text-[8px] font-bold font-display">
-                    W
-                  </span>
+                  <span className="text-accent text-[8px] font-bold font-display">W</span>
                 </div>
-                <span className="font-display text-[13px] text-white/35">
-                  Wooblay
-                </span>
+                <span className="font-display text-[13px] text-white/35">Wooblay</span>
               </div>
               <span className="text-white/10">|</span>
               <a

@@ -32,6 +32,7 @@ import {
   type Instance,
 } from '../../api/client.ts';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
+import { InstanceMiniTour } from '../../components/tour/InstanceMiniTour.tsx';
 import { useTourOptional } from '../../contexts/TourContext.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
@@ -1473,6 +1474,8 @@ export function InstanceDetailPage() {
       )}
 
       </div>
+
+      <InstanceMiniTour activeTab={activeTab} onSwitchTab={setActiveTab} />
     </div>
   );
 }
