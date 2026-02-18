@@ -19,7 +19,7 @@ interface NavItem {
   icon: string;
   end?: boolean;
   badge?: 'approvals' | 'operations';
-  section: 'connect' | 'secure' | 'monitor' | 'platform';
+  section: 'agents' | 'connect' | 'secure' | 'monitor' | 'platform';
 }
 
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
