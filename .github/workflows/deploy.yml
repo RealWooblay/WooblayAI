@@ -103,6 +103,8 @@ jobs:
               \"grep -q '^FULL_PLATFORM_UNLOCK_PASSWORD=' .env || echo 'FULL_PLATFORM_UNLOCK_PASSWORD=${{ secrets.FULL_PLATFORM_UNLOCK_PASSWORD }}' >> .env\",
               \"sed -i 's|FULL_PLATFORM_UNLOCK_PASSWORD=.*|FULL_PLATFORM_UNLOCK_PASSWORD=${{ secrets.FULL_PLATFORM_UNLOCK_PASSWORD }}|' .env\",
               \"grep -q 'env_file:' docker-compose.yml || { cp docker-compose.yml dc.bak && awk '/^    environment:/{print \\\"    env_file:\\\"; print \\\"      - .env\\\"}1' dc.bak > docker-compose.yml && rm dc.bak; }\",
+              \"docker compose down || true\",
+              \"docker image prune -af || true\",
               \"docker compose pull gate\",
               \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest\",
               \"docker compose up -d --force-recreate\",
