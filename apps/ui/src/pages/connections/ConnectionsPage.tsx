@@ -581,7 +581,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-[13px] font-medium text-text-primary">{conn.name}</p>
-                      <ConnectionStatusBadge status={conn.status} />
+                      {!credentialsOnly && <ConnectionStatusBadge status={conn.status} />}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       {!credentialsOnly && isFullPlatform && isSensingCapable && (
@@ -590,10 +590,18 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                           Sensing: {sensing.enabled ? 'Active' : 'Off'}
                         </span>
                       )}
-                      <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
-                        }`}>
-                        {credentialsOnly ? (conn.status === 'active' ? 'Active' : 'Inactive') : `Execution: ${conn.status === 'active' ? 'Active' : 'Inactive'}`}
-                      </span>
+                      {!credentialsOnly && (
+                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
+                          }`}>
+                          Execution: {conn.status === 'active' ? 'Active' : 'Inactive'}
+                        </span>
+                      )}
+                      {credentialsOnly && (
+                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
+                          }`}>
+                          {conn.status === 'active' ? 'Active' : 'Inactive'}
+                        </span>
+                      )}
                       {!credentialsOnly && isFullPlatform && sensorData && sensorData.operationsLast24h > 0 && (
                         <span className="text-[9px] text-text-tertiary">{sensorData.operationsLast24h} ops (24h)</span>
                       )}

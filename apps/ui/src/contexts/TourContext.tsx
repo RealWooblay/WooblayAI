@@ -121,9 +121,9 @@ function buildSteps(firstInstanceId: string | null): TourStep[] {
       content: 'Flagged actions wait here. Review context and simulation, then approve or deny. Create rules from decisions to automate next time.',
     },
     {
-      path: '/activity',
-      target: 'tour-activity-log',
-      title: 'Activity',
+      path: '/audit',
+      target: 'tour-audit-log',
+      title: 'Audit',
       content: 'Full audit trail: every action and decision, signed and hash-chained. Filter by agent, tool, or risk.',
     },
     {

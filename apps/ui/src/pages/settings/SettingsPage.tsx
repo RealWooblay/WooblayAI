@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import { useUser as useClerkUser, useClerk as useClerkInstance, OrganizationProfile } from '@clerk/clerk-react';
+import { useUser as useClerkUser, useClerk as useClerkInstance } from '@clerk/clerk-react';
 
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 function useUser() {
@@ -20,12 +20,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../components/common/Button.tsx';
 import { getOrgPolicySettings, updateOrgPolicySettings } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
+import { useTheme, type ThemeId } from '../../contexts/ThemeContext.tsx';
+
+const APPEARANCES: { id: ThemeId; label: string }[] = [
+  { id: 'dark', label: 'Dark' },
+  { id: 'light', label: 'Light' },
+  { id: 'system', label: 'System' },
+];
 
 export function SettingsPage() {
   const { user } = useUser();
   const { signOut } = useClerk();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { theme, setTheme } = useTheme();
 
   // Platform mode
   const { data: orgSettings } = useQuery({
@@ -109,46 +117,29 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* Organization */}
-      {HAS_CLERK && (
-        <div className="bg-surface-1 border border-border rounded-xl p-5 overflow-hidden">
-          <h2 className="text-sm font-semibold text-text-primary mb-1">Organization</h2>
-          <p className="text-xs text-text-muted mb-4">
-            Invite team members, manage roles, and configure your organization.
-          </p>
-          <div className="clerk-org-embed [&_.cl-organizationProfile-root]:w-full [&_.cl-card]:bg-transparent [&_.cl-card]:shadow-none [&_.cl-card]:border-0 [&_.cl-card]:p-0 [&_.cl-navbar]:hidden [&_.cl-pageScrollBox]:p-0 [&_.cl-profilePage]:p-0 [&_.cl-headerTitle]:text-inherit [&_.cl-headerSubtitle]:text-inherit [&_.cl-profileSectionTitle]:text-inherit [&_.cl-profileSectionContent]:text-inherit [&_.cl-tableHead]:text-inherit [&_.cl-tableCell]:text-inherit [&_.cl-badge]:text-inherit [&_.cl-breadcrumbs]:text-inherit [&_.cl-breadcrumbsItem]:text-inherit">
-            <OrganizationProfile
-              appearance={{
-                elements: {
-                  rootBox: 'w-full max-w-full',
-                  card: 'bg-transparent shadow-none border-0 w-full p-0 m-0',
-                  navbar: 'hidden',
-                  pageScrollBox: 'p-0',
-                  page: 'gap-4',
-                  profilePage: 'p-0',
-                  profileSection: 'gap-2',
-                  headerTitle: 'text-[#e4e4e7]',
-                  headerSubtitle: 'text-[#a1a1aa]',
-                  profileSectionTitle: 'text-[#e4e4e7]',
-                  profileSectionTitleText: 'text-[#e4e4e7]',
-                  profileSectionContent: 'text-[#e4e4e7]',
-                  profileSectionPrimaryButton: 'text-[#e4e4e7]',
-                  tableHead: 'text-[#a1a1aa]',
-                  tableCell: 'text-[#e4e4e7]',
-                  badge: 'text-[#e4e4e7]',
-                  breadcrumbs: 'text-[#a1a1aa]',
-                  breadcrumbsItem: 'text-[#a1a1aa]',
-                  breadcrumbsItemDivider: 'text-[#52525b]',
-                  formFieldInput: 'bg-[#1a1a1e] border-white/10 text-[#e4e4e7]',
-                  formFieldLabel: 'text-[#a1a1aa]',
-                  tagInputContainer: 'bg-[#1a1a1e] border-white/10 text-[#e4e4e7]',
-                  membersPageInviteButton: 'bg-indigo-500 hover:bg-indigo-600',
-                },
-              }}
-            />
-          </div>
+      {/* Appearance */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-text-primary mb-1">Appearance</h2>
+        <p className="text-xs text-text-muted mb-4">
+          Choose how Wooblay looks. System follows your device preference.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {APPEARANCES.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTheme(id)}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                theme === id
+                  ? 'bg-accent text-white'
+                  : 'bg-surface-2 text-text-secondary hover:text-text-primary hover:bg-surface-3'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       {/* Platform Mode */}
       <div className="bg-surface-1 border border-border rounded-xl p-5">
@@ -168,7 +159,7 @@ export function SettingsPage() {
               <p className="text-[10px] text-text-muted">
                 {platformMode === 'full'
                   ? 'All features visible: agents, sensors, operations, insights'
-                  : 'Focused on API gateway: setup, connections, policies, activity'}
+                  : 'Focused on API gateway: setup, connections, policies, audit'}
               </p>
             </div>
           </div>

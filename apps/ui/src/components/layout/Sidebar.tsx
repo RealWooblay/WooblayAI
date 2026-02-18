@@ -22,22 +22,23 @@ interface NavItem {
   section: 'agents' | 'connect' | 'secure' | 'monitor' | 'platform';
 }
 
+// Order reflects UX priority: highest (Agents, Gateway, Approvals) → high middle (Credentials, Policies) → lower (Sensors, Notifications, Insights, Audit). Operations is decision-heavy like Approvals.
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
-  // AGENTS — only in full platform mode (above Setup)
-  { to: '/', label: 'Agents', icon: '◎', end: true, section: 'agents' },
-  // CONNECT
-  { to: '/setup', label: 'Setup', icon: '⚡', section: 'connect' },
+  // AGENTS — only in full platform mode
+  { to: '/', label: 'Dashboard', icon: '◎', end: true, section: 'agents' },
+  // CONNECT — Gateway first (highest), then Credentials, Sensors (lower)
+  { to: '/setup', label: 'Gateway', icon: '⚡', section: 'connect' },
   { to: '/credentials', label: 'Credentials', icon: '🔑', section: 'connect' },
   { to: '/sensors', label: 'Sensors', icon: '◈', section: 'connect' },
-  // SECURE
-  { to: '/policies', label: 'Policies', icon: '◇', section: 'secure' },
+  // SECURE — Approvals first (yes/no decisions), then Policies
   { to: '/approvals', label: 'Approvals', icon: '⬡', badge: 'approvals', section: 'secure' },
-  // MONITOR
-  { to: '/activity', label: 'Activity', icon: '◈', section: 'monitor' },
-  { to: '/notifications', label: 'Notifications', icon: '◈', section: 'monitor' },
-  // PLATFORM — only in full platform mode
+  { to: '/policies', label: 'Policies', icon: '◇', section: 'secure' },
+  // PLATFORM — Operations (yes/no), then Insights (lower)
   { to: '/operations', label: 'Operations', icon: '◉', badge: 'operations', section: 'platform' },
   { to: '/insights', label: 'Insights', icon: '◈', section: 'platform' },
+  // MONITOR — Notifications then Audit (lowest attention)
+  { to: '/notifications', label: 'Notifications', icon: '◈', section: 'monitor' },
+  { to: '/audit', label: 'Audit', icon: '◈', section: 'monitor' },
 ];
 
 const SECTION_LABELS: Record<string, string> = {
@@ -85,12 +86,13 @@ export function Sidebar() {
     return true;
   });
 
+  // Section order: Agents → Connect → Secure (Approvals/Policies) → Platform (Operations/Insights) → Monitor (Notifications/Audit) — priority top to bottom
   const sections = [
     ...(isFullPlatform ? ['agents'] : []),
     'connect',
     'secure',
-    'monitor',
     ...(isFullPlatform ? ['platform'] : []),
+    'monitor',
   ];
   const groupedSections = sections.map((section) => ({
     key: section,

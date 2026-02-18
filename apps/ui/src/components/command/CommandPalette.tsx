@@ -36,7 +36,7 @@ export function CommandPalette() {
 
     // Navigation
     items.push(
-      { id: 'nav-home', label: 'Agents', description: 'Overview', icon: '◉', action: () => navigate('/'), category: 'Navigate' },
+      { id: 'nav-home', label: 'Dashboard', description: 'Agents overview', icon: '◉', action: () => navigate('/'), category: 'Navigate' },
       { id: 'nav-instances', label: 'Instances', description: 'Deploy & manage', icon: '◎', action: () => navigate('/instances'), category: 'Navigate' },
       { id: 'nav-approvals', label: 'Approvals', description: `${approvals?.length ?? 0} pending`, icon: '⬡', action: () => navigate('/approvals'), category: 'Navigate' },
       { id: 'nav-settings', label: 'Settings', description: 'Account', icon: '⚙', action: () => navigate('/settings'), category: 'Navigate' },

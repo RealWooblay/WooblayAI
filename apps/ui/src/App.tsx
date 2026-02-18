@@ -148,8 +148,8 @@ function AuthenticatedApp() {
           <Route path="/instances/:id" element={<PageShell><InstanceDetailPage /></PageShell>} />
           <Route path="/settings" element={<PageShell><SettingsPage /></PageShell>} />
           <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
-          <Route path="/activity" element={<PageShell><ActivityPage /></PageShell>} />
-          <Route path="/audit" element={<Navigate to="/activity" replace />} />
+          <Route path="/audit" element={<PageShell><ActivityPage /></PageShell>} />
+          <Route path="/activity" element={<Navigate to="/audit" replace />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/operations" replace />} />

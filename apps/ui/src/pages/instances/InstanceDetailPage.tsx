@@ -646,8 +646,8 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
           <p className="text-[11px] font-medium text-text-primary">Policies</p>
           <p className="text-[10px] text-text-muted mt-0.5">Define what actions need approval <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
         </Link>
-        <Link to="/activity" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
-          <p className="text-[11px] font-medium text-text-primary">Activity</p>
+        <Link to="/audit" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Audit</p>
           <p className="text-[10px] text-text-muted mt-0.5">Full audit trail <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
         </Link>
       </div>
@@ -1330,7 +1330,7 @@ export function InstanceDetailPage() {
                   <p className="text-sm text-red-300 font-medium">{flag.title}</p>
                   <p className="text-xs text-red-400/70 mt-1 truncate">{flag.description?.split('\n')[0]}</p>
                   <div className="flex items-center gap-4 mt-2.5">
-                    <Link to="/activity" className="text-[11px] text-red-300 font-medium hover:text-red-200 font-mono">view activity →</Link>
+                    <Link to="/audit" className="text-[11px] text-red-300 font-medium hover:text-red-200 font-mono">view audit →</Link>
                     <button onClick={() => dismissMutation.mutate(flag.id)} className="text-[11px] text-red-400/30 hover:text-red-400/70 font-mono">dismiss</button>
                   </div>
                 </div>
@@ -1343,7 +1343,7 @@ export function InstanceDetailPage() {
       {/* ── Activity Over Time ─────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Activity · Last 7 Days</h2>
+          <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Audit · Last 7 Days</h2>
           {summary && (
             <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
               <span>denial rate: {summary.denialRate ?? '—'}</span>
@@ -1391,11 +1391,11 @@ export function InstanceDetailPage() {
       {/* ── Agent Network ─────────────────────────────────────────────────── */}
       <AgentNetwork mission={mission} instances={allInstances ?? []} />
 
-      {/* ── Recent Activity ───────────────────────────────────────────────── */}
+      {/* ── Recent audit ────────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Recent Activity</h3>
-          <Link to="/activity" className="text-[11px] text-accent hover:text-accent-bright font-mono">all →</Link>
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Recent audit</h3>
+          <Link to="/audit" className="text-[11px] text-accent hover:text-accent-bright font-mono">all →</Link>
         </div>
         {!activity?.data?.length ? (
           <div className="p-10 text-center font-mono">

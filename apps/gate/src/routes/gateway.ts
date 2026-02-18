@@ -480,7 +480,7 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
       : [];
 
     return reply.send({
-      providers: connections.map((c) => ({ provider: c.provider, name: c.name })),
+      providers: connections.map((c: { provider: string; name: string }) => ({ provider: c.provider, name: c.name })),
       usage: {
         endpoint: 'POST /api/gateway/execute',
         auth: 'Authorization: Bearer <your-api-key>',

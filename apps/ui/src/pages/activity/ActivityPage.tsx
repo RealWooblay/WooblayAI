@@ -1,5 +1,5 @@
 /**
- * Activity — Unified activity log + compliance audit on one page.
+ * Audit — Unified audit log and compliance view.
  *
  * Top:    Chain integrity banner + session stats + export buttons
  * Middle: Anomaly flags (if any)
@@ -175,12 +175,12 @@ export function ActivityPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4" data-tour="tour-activity">
+    <div className="max-w-5xl mx-auto space-y-4" data-tour="tour-audit">
       {/* ── Header + Export ───────────────────────────────────────────────── */}
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-text-primary">Activity</h1>
-          <p className="text-sm text-text-muted mt-0.5">Agent actions, AI detections, and compliance</p>
+          <h1 className="text-xl font-semibold text-text-primary">Audit</h1>
+          <p className="text-sm text-text-muted mt-0.5">Tamper-evident log of every agent action, AI detections, and chain verification</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -433,20 +433,20 @@ export function ActivityPage() {
         </select>
       </div>
 
-      {/* ── Action Log ────────────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden" data-tour="tour-activity-log">
+      {/* ── Audit Log ─────────────────────────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden" data-tour="tour-audit-log">
         <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
-          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Action Log</h2>
-          {activity && <span className="text-[10px] text-text-tertiary">{activity.total} total</span>}
+          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Audit log</h2>
+          {activity && <span className="text-[10px] text-text-tertiary">{activity.total} records</span>}
         </div>
 
         {isLoading ? (
-          <div className="p-8 text-center text-text-muted text-sm animate-pulse">Loading activity...</div>
+          <div className="p-8 text-center text-text-muted text-sm animate-pulse">Loading audit log…</div>
         ) : !activity?.data.length ? (
           <div className="p-12 text-center">
             <div className="font-mono text-3xl opacity-10 mb-3">_</div>
-            <p className="text-sm text-text-muted">No activity recorded yet.</p>
-            <p className="text-xs text-text-muted mt-1">Agent actions will appear here once your agent starts working.</p>
+            <p className="text-sm text-text-muted">No audit records yet.</p>
+            <p className="text-xs text-text-muted mt-1">Every gated action will appear here with a cryptographic receipt.</p>
           </div>
         ) : (
           <div className="divide-y divide-border">

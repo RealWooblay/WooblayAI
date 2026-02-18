@@ -625,10 +625,10 @@ function FirewallDashboard() {
           </div>
         )}
 
-        {/* Activity link */}
+        {/* Audit link */}
         <div className="flex justify-between items-center pt-2">
-          <Link to="/activity" className="text-xs text-text-muted hover:text-accent transition-colors">
-            View full activity log &rarr;
+          <Link to="/audit" className="text-xs text-text-muted hover:text-accent transition-colors">
+            View full audit log &rarr;
           </Link>
           <Link to="/notifications" className="text-xs text-text-muted hover:text-accent transition-colors">
             Configure alerts &rarr;
@@ -735,7 +735,7 @@ function FullPlatformDashboard() {
 
         {/* Critical Flags */}
         {criticalFlags.length > 0 && (
-          <Link to="/activity" className="block p-3 rounded-xl bg-red-500/8 border border-red-500/20 hover:border-red-500/30 transition-colors">
+          <Link to="/audit" className="block p-3 rounded-xl bg-red-500/8 border border-red-500/20 hover:border-red-500/30 transition-colors">
             <div className="flex items-center gap-3">
               <span className="font-mono text-red-400 text-xs font-bold">[!]</span>
               <span className="text-xs text-red-300">{criticalFlags.length} anomal{criticalFlags.length !== 1 ? 'ies' : 'y'} detected</span>
@@ -844,7 +844,7 @@ function FullPlatformDashboard() {
         {/* Quick Nav */}
         {hasData && running.length > 0 && (
           <div className="pt-3 border-t border-border/30 flex items-center gap-6">
-            <Link to="/activity" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">activity →</Link>
+            <Link to="/audit" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">audit →</Link>
             <Link to="/policies" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">policies →</Link>
           </div>
         )}
