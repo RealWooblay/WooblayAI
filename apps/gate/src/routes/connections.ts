@@ -9,7 +9,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/client.js';
-import { getOrgScope, withOrg } from '../middleware/org-scope.js';
+import { resolveOrgIdForRequest } from '../middleware/org-resolve.js';
 import { envelopeEncrypt, envelopeDecrypt, isEncrypted } from '../services/vault.js';
 import { resolveGitHubToken } from '../services/github-app.js';
 import { parseScopeBoundaries, describeScopeBoundaries } from '../engine/scope.js';
@@ -18,19 +18,9 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
   // ── List connections (with dual-role info) ───────────────────────────
   app.get('/api/connections', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const org = getOrgScope(request);
-
-      // Fall back to first org if JWT has no org_id (personal workspace)
-      if (!org.orgId) {
-        const fallback = await prisma.organization.findFirst({ select: { id: true } });
-        if (fallback) {
-          (org as any).orgId = fallback.id;
-          (org as any).filter = { orgId: fallback.id };
-        }
-      }
-
+      const orgId = await resolveOrgIdForRequest(prisma, request);
       const connections = await prisma.connection.findMany({
-        where: { ...org.filter },
+        where: orgId ? { orgId } : {},
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -92,16 +82,7 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: `Unsupported provider: ${body.provider}. Supported: ${SUPPORTED_PROVIDERS.join(', ')}` });
       }
 
-      const org = getOrgScope(request);
-
-      // Fall back to first org if JWT has no org_id (personal workspace)
-      if (!org.orgId) {
-        const fallback = await prisma.organization.findFirst({ select: { id: true } });
-        if (fallback) {
-          (org as any).orgId = fallback.id;
-          (org as any).filter = { orgId: fallback.id };
-        }
-      }
+      const orgId = await resolveOrgIdForRequest(prisma, request);
 
       // Build credential + metadata based on provider
       let encryptedCred: string;
@@ -130,13 +111,14 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const connection = await prisma.connection.create({
-        data: withOrg(org, {
+        data: {
+          ...(orgId ? { orgId } : {}),
           provider: body.provider,
           name: body.name,
           credentialRef: encryptedCred,
           scopes: JSON.stringify(body.scopes ?? (body.provider === 'github' ? ['repo'] : ['*'])),
           metadata,
-        }),
+        },
       });
 
       return reply.code(201).send({
@@ -409,9 +391,9 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
 
   /** List all secret names + modes across all connections in the org (for agent tools) */
   app.get('/api/connections/secrets/names', async (request: FastifyRequest, reply: FastifyReply) => {
-    const org = getOrgScope(request);
+    const orgId = await resolveOrgIdForRequest(prisma, request);
     const connections = await prisma.connection.findMany({
-      where: { ...org.filter, status: 'active' },
+      where: { ...(orgId ? { orgId } : {}), status: 'active' },
       select: { id: true, provider: true, name: true, secrets: true },
     });
 
@@ -433,10 +415,9 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Connected providers (replaces hardcoded action list) ────────────
   app.get('/api/connections/providers', async (request: FastifyRequest, reply: FastifyReply) => {
-    const org = getOrgScope(request);
-
+    const orgId = await resolveOrgIdForRequest(prisma, request);
     const connections = await prisma.connection.findMany({
-      where: { ...org.filter, status: 'active' },
+      where: { ...(orgId ? { orgId } : {}), status: 'active' },
       select: {
         id: true,
         provider: true,

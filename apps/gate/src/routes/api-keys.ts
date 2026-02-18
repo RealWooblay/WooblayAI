@@ -11,7 +11,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/client.js';
-import { getOrgScope } from '../middleware/org-scope.js';
+import { resolveOrgIdForRequest } from '../middleware/org-resolve.js';
 import { persistEvent } from '../events/bus.js';
 
 const KEY_PREFIX = 'wbl_ak_';
@@ -30,12 +30,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
    * Returns metadata only (never the key itself).
    */
   app.get('/api/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
-    const org = getOrgScope(request);
-    let orgId = org.orgId;
-    if (!orgId) {
-      const fallback = await prisma.organization.findFirst({ select: { id: true } });
-      orgId = fallback?.id ?? null;
-    }
+    const orgId = await resolveOrgIdForRequest(prisma, request);
     if (!orgId) {
       return reply.code(403).send({ error: 'Organization required to manage API keys' });
     }
@@ -63,12 +58,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
    * Returns the plaintext key ONCE. After this, only the prefix is available.
    */
   app.post('/api/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
-    const org = getOrgScope(request);
-    let orgId = org.orgId;
-    if (!orgId) {
-      const fallback = await prisma.organization.findFirst({ select: { id: true } });
-      orgId = fallback?.id ?? null;
-    }
+    const orgId = await resolveOrgIdForRequest(prisma, request);
     if (!orgId) {
       return reply.code(403).send({ error: 'Organization required to create API keys' });
     }
@@ -120,12 +110,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
    * DELETE /api/api-keys/:id — revoke an API key.
    */
   app.delete('/api/api-keys/:id', async (request: FastifyRequest, reply: FastifyReply) => {
-    const org = getOrgScope(request);
-    let orgId = org.orgId;
-    if (!orgId) {
-      const fallback = await prisma.organization.findFirst({ select: { id: true } });
-      orgId = fallback?.id ?? null;
-    }
+    const orgId = await resolveOrgIdForRequest(prisma, request);
     if (!orgId) {
       return reply.code(403).send({ error: 'Organization required' });
     }

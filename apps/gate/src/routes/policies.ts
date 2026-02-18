@@ -11,7 +11,7 @@ import { isAIEnabled } from '../services/ai-supervisor.js';
 import OpenAI from 'openai';
 import { config } from '../config.js';
 import { buildPolicyOptimizerPrompt } from '../prompts/policy-optimizer.js';
-import { getOrgScope } from '../middleware/org-scope.js';
+import { resolveOrgIdForRequest } from '../middleware/org-resolve.js';
 
 export async function policyRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -411,21 +411,7 @@ Suggest policy optimizations.`,
    */
   app.get('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const org = getOrgScope(request);
-      let orgId = org.orgId;
-
-      // Resolve org when JWT has no org_id: use User's org from DB, then any org
-      if (!orgId) {
-        const clerkUserId = (request as any).clerkUserId as string | undefined;
-        if (clerkUserId) {
-          const user = await prisma.user.findUnique({ where: { clerkId: clerkUserId }, select: { orgId: true } });
-          orgId = user?.orgId ?? null;
-        }
-        if (!orgId) {
-          const fallback = await prisma.organization.findFirst({ select: { id: true } });
-          orgId = fallback?.id ?? null;
-        }
-      }
+      const orgId = await resolveOrgIdForRequest(prisma, request);
       if (!orgId) {
         return reply.send({ simulationThreshold: 'high', platformMode: 'firewall' });
       }
@@ -451,21 +437,7 @@ Suggest policy optimizations.`,
    */
   app.put('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const org = getOrgScope(request);
-      let orgId = org.orgId;
-
-      // Resolve org when JWT has no org_id: use User's org from DB, then any org
-      if (!orgId) {
-        const clerkUserId = (request as any).clerkUserId as string | undefined;
-        if (clerkUserId) {
-          const user = await prisma.user.findUnique({ where: { clerkId: clerkUserId }, select: { orgId: true } });
-          orgId = user?.orgId ?? null;
-        }
-        if (!orgId) {
-          const fallback = await prisma.organization.findFirst({ select: { id: true } });
-          orgId = fallback?.id ?? null;
-        }
-      }
+      const orgId = await resolveOrgIdForRequest(prisma, request);
       if (!orgId) {
         return reply.code(400).send({ error: 'No organization found. Create one in your account settings.' });
       }
