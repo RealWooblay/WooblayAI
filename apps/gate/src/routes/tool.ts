@@ -207,8 +207,26 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
                     },
                   });
                 }
-              } catch (err) {
-                request.log.warn(err, 'Simulation failed (non-blocking, allowing through)');
+              } catch (err: any) {
+                request.log.error(err, 'Simulation failed — blocking action (fail-closed)');
+                const receipt = await createReceipt(prisma, {
+                  toolCallId: toolCall.id,
+                  agentPubkey: body.agentPubkey,
+                  toolName: body.toolName,
+                  riskTier,
+                  policyDecision: 'DENY',
+                  policyRuleId: policyDecision.ruleId ?? null,
+                  decisionTrail,
+                });
+                return reply.code(200).send({
+                  decision: 'DENY',
+                  toolCallId: toolCall.id,
+                  receiptId: receipt.id,
+                  reason: 'Simulation failed (timeout or error). Action blocked for safety.',
+                  description,
+                  whyFlagged: err?.message ?? 'Simulation failed',
+                  riskTier,
+                });
               }
             }
 
@@ -359,7 +377,12 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
         });
       }
     } catch (err: any) {
-      request.log.warn(err, 'Simulation failed (non-blocking, allowing through)');
+      request.log.error(err, 'Simulation failed — blocking action (fail-closed)');
+      return reply.code(503).send({
+        success: false,
+        error: 'Simulation failed (timeout or error). Action blocked for safety.',
+        detail: err?.message ?? 'Simulation failed',
+      });
     }
 
     // Layer 3: Secure execution

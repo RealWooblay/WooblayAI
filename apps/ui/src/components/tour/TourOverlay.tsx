@@ -48,21 +48,21 @@ export function TourOverlay() {
 
   return (
     <div className="fixed inset-0 z-[9999] pointer-events-auto">
-      {!rect && <div className="absolute inset-0 bg-black/60" aria-hidden />}
+      {!rect && <div className="absolute inset-0 bg-black/30" aria-hidden />}
 
       {rect && (
         <div
-          className="absolute rounded-xl border-2 border-accent/80 bg-transparent transition-all duration-300 ease-out"
+          className="absolute rounded-xl border-2 border-accent/70 bg-transparent transition-all duration-300 ease-out"
           style={{
             left: rect.left, top: rect.top, width: rect.width, height: rect.height,
-            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6), 0 0 30px 4px rgba(99,102,241,0.15)',
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.28), 0 0 24px 2px rgba(99,102,241,0.12)',
           }}
         />
       )}
 
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-[420px] px-4">
-        <div className="bg-surface-1 border border-accent/20 rounded-2xl shadow-2xl overflow-hidden"
-          style={{ boxShadow: '0 0 40px 8px rgba(99,102,241,0.08), 0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+        <div className="bg-surface-1 border border-border rounded-2xl overflow-hidden shadow-xl"
+          style={{ boxShadow: '0 0 24px 4px rgba(99,102,241,0.06), 0 16px 40px -12px rgba(0,0,0,0.25)' }}>
           {/* Progress */}
           <div className="h-[3px] bg-surface-2">
             <div className="h-full bg-gradient-to-r from-accent to-accent-bright transition-all duration-300 ease-out rounded-full" style={{ width: `${pct}%` }} />

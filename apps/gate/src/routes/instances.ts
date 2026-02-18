@@ -610,12 +610,17 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       }
 
       ensureAgentStateDir(dir);
+      // Remove any existing container (stopped or old) so compose can create fresh
+      const containerName = `wooblay-agent-${instance.name}`;
+      try {
+        execSync(`docker rm -f "${containerName}" 2>/dev/null || true`, { timeout: 10_000, stdio: 'pipe' });
+      } catch { /* ignore */ }
       execSync(`cd "${dir}" && docker compose up -d`, { timeout: 30_000, stdio: 'pipe' });
 
       let containerId: string | null = null;
       try {
         containerId = execSync(
-          `docker ps -q --filter "name=wooblay-agent-${instance.name}"`,
+          `docker ps -q --filter "name=${containerName}"`,
           { timeout: 5000, stdio: 'pipe' },
         ).toString().trim() || null;
       } catch { }

@@ -24,18 +24,18 @@ export interface TourStep {
 /** Build steps dynamically — includes real instance walkthrough if one exists */
 function buildSteps(firstInstanceId: string | null): TourStep[] {
   const steps: TourStep[] = [
-    // ── Command Center ──
+    // ── Agents (Command Center) ──
     {
       path: '/',
-      target: 'tour-dashboard',
-      title: 'This is your control plane',
-      content: 'Every agent you deploy appears here as a live card \u2014 trust score, cost, and actions streaming in real time.',
+      target: 'tour-agents',
+      title: 'Agents',
+      content: 'Deployed agents show here with status, trust score, and cost. Start, stop, or open one to configure it.',
     },
     {
       path: '/',
       target: 'tour-deploy',
-      title: 'Deploy any runtime',
-      content: 'Wooblay doesn\u2019t care what agent framework you use. OpenClaw, LangChain, CrewAI, AutoGen, or your own custom runtime. Hit the Gate endpoint and it\u2019s secured.',
+      title: 'Deploy an agent',
+      content: 'Click to deploy a new agent. Any runtime works \u2014 OpenClaw, LangChain, or custom. The Gate secures every action.',
     },
   ];
 
@@ -90,7 +90,7 @@ function buildSteps(firstInstanceId: string | null): TourStep[] {
       path: '/',
       target: 'tour-deploy',
       title: 'Deploy your first agent',
-      content: 'Click here to deploy. Once it\u2019s running, click its card \u2014 you\u2019ll get a guided walkthrough of the agent detail page automatically.',
+      content: 'Use the button above to deploy. When it\u2019s running, open its card for a short walkthrough of the agent page.',
     });
   }
 
@@ -100,43 +100,43 @@ function buildSteps(firstInstanceId: string | null): TourStep[] {
       path: '/credentials',
       target: 'tour-add-credential',
       title: 'Credentials',
-      content: 'Link GitHub, AWS, GCP, or anything else. Exec-only secrets here are never seen by the agent \u2014 they only appear inside ephemeral secure containers.',
+      content: 'Add GitHub, AWS, or GCP. Secrets stay in the vault and are only injected into short-lived execution containers \u2014 agents never see them.',
     },
     {
       path: '/policies',
       target: 'tour-policy-summary',
-      title: 'Set your guardrails',
-      content: 'Agents are unrestricted by default. Policies let you auto-allow safe actions, require human approval for risky ones, or block entire categories.',
+      title: 'Policies',
+      content: 'Global rules for all agents: auto-allow, require approval, or block. Category and risk-based. Presets and AI suggestions available.',
     },
     {
       path: '/operations',
       target: 'tour-operations-list',
-      title: 'Live operations',
-      content: 'Work items stream in from connections or get created manually. Each one routes to the right agent \u2014 auto, approval-required, or your call.',
+      title: 'Operations',
+      content: 'Work items from sensors or manual creation. Each is routed to an agent; you can auto-route or assign manually.',
     },
     {
       path: '/approvals',
       target: 'tour-approval-cards',
-      title: 'Human in the loop',
-      content: 'When an action gets flagged, it lands here with full context and simulation results. Approve to execute securely. Deny to stop it cold.',
+      title: 'Approvals',
+      content: 'Flagged actions wait here. Review context and simulation, then approve or deny. Create rules from decisions to automate next time.',
     },
     {
       path: '/activity',
       target: 'tour-activity-log',
-      title: 'Complete audit trail',
-      content: 'Every action, decision, and execution \u2014 cryptographically signed and hash-chained. Filter by agent, risk, or date.',
+      title: 'Activity',
+      content: 'Full audit trail: every action and decision, signed and hash-chained. Filter by agent, tool, or risk.',
     },
     {
       path: '/insights',
       target: 'tour-insights-metrics',
-      title: 'Performance at a glance',
-      content: 'Incidents, runs, proposals, and intervention rate. See how your agents are performing and where to tighten (or loosen) your policies.',
+      title: 'Insights',
+      content: 'Trust trends, cost breakdowns, and contribution metrics. See how agents perform and where to adjust policies.',
     },
     {
       path: '/settings',
       target: 'tour-webhooks',
-      title: 'Stay in the loop',
-      content: 'Send alerts to Slack, Discord, or any HTTP endpoint. Get notified the moment an action needs your attention or trust drops.',
+      title: 'Settings',
+      content: 'Webhooks for approvals and alerts. Notify Slack, Discord, or any HTTP endpoint when attention is needed.',
     },
   );
 

@@ -125,7 +125,7 @@ export function SensorsPage() {
         <div>
           <h1 className="text-lg font-semibold text-text-primary">Sensors</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
-            Configure which events create operations. Use the same credential as in Credentials, or add a new one per sensor — your choice.
+            Sensors use existing credentials. Add a credential in Credentials first; then enable and configure sensing here for each connection that supports it.
           </p>
         </div>
         <Link to="/credentials">

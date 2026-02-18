@@ -340,7 +340,14 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(403).send(simError);
       }
     } catch (err: any) {
-      request.log.warn(err, 'Simulation failed (non-blocking, allowing through)');
+      request.log.error(err, 'Simulation failed — blocking action (fail-closed)');
+      const errMsg = err?.message ?? 'Simulation failed';
+      const simError = {
+        error: 'Simulation failed (timeout or error). Action blocked for safety.',
+        detail: errMsg,
+      };
+      await cacheIdempotencyResult(idempotencyKey, auth.callerId, body.action, body.params, 503, simError);
+      return reply.code(503).send(simError);
     }
 
     // ── LAYER 3: Ephemeral Secure Execution ──────────────────────────

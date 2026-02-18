@@ -109,18 +109,6 @@ export function Sidebar() {
             </span>
             <span className="text-[9px] text-accent-bright font-medium">beta</span>
           </div>
-          {/* Notification bell */}
-          <NavLink
-            to="/notifications"
-            className="relative p-1.5 rounded-lg hover:bg-surface-2 transition-colors"
-          >
-            <span className="text-[13px] text-text-muted">🔔</span>
-            {pendingCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] rounded-full bg-amber-500 text-[8px] font-bold text-black flex items-center justify-center px-0.5">
-                {pendingCount > 9 ? '9+' : pendingCount}
-              </span>
-            )}
-          </NavLink>
         </div>
         {HAS_CLERK && (
           <div className="mt-2 [&_.cl-organizationSwitcher-root]:w-full [&_.cl-organizationSwitcherTrigger]:w-full [&_.cl-organizationSwitcherTrigger]:justify-between">

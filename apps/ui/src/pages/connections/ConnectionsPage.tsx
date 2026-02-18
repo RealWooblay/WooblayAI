@@ -358,9 +358,9 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
       {/* Step 1: Choose type */}
       {addStep === 'select' && (
         <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-medium text-text-primary mb-2">Add connection</h3>
+          <h3 className="text-sm font-medium text-text-primary mb-2">{credentialsOnly ? 'Add credential' : 'Add connection'}</h3>
           <p className="text-[10px] text-text-tertiary mb-3">
-            Choose a service to connect. Your credential is encrypted and never exposed to agents — it's only used inside ephemeral execution containers.
+            {credentialsOnly ? 'Choose a service. Your credential is encrypted and only used inside ephemeral execution containers.' : 'Choose a service to connect. Your credential is encrypted and never exposed to agents — it\'s only used inside ephemeral execution containers.'}
           </p>
           <div className="grid gap-2">
             {CONNECTION_TYPES.map((t) => (
@@ -376,7 +376,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-medium text-text-primary">{t.label}</span>
                     <div className="flex gap-1">
-                      {isFullPlatform && t.hasSensing && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">SENSING</span>}
+                      {!credentialsOnly && isFullPlatform && t.hasSensing && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">SENSING</span>}
                       {t.hasExecution && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">EXECUTION</span>}
                     </div>
                     {!t.available && <span className="text-[10px] text-text-tertiary">Coming soon</span>}
@@ -398,9 +398,11 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
         <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
           <h3 className="text-sm font-medium text-text-primary mb-3">Connect GitHub</h3>
           <p className="text-[10px] text-text-tertiary mb-3">
-            {isFullPlatform
-              ? <>One key, two roles. Your PAT enables both <strong>sensing</strong> (webhook events create operations) and <strong>secure execution</strong> (agents execute git push, create PRs via ephemeral containers).</>
-              : <>Your PAT powers <strong>secure execution</strong> — agents execute git push, create PRs via ephemeral containers. Credentials are encrypted and never exposed.</>}
+            {credentialsOnly
+              ? <>Your PAT powers <strong>secure execution</strong> — agents execute git push, create PRs via ephemeral containers. Credentials are encrypted and never exposed.</>
+              : isFullPlatform
+                ? <>One key, two roles. Your PAT enables both <strong>sensing</strong> (webhook events create operations) and <strong>secure execution</strong> (agents execute git push, create PRs via ephemeral containers).</>
+                : <>Your PAT powers <strong>secure execution</strong> — agents execute git push, create PRs via ephemeral containers. Credentials are encrypted and never exposed.</>}
           </p>
           <div className="space-y-3">
             <div>
@@ -590,7 +592,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                       )}
                       <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
                         }`}>
-                        Execution: {conn.status === 'active' ? 'Active' : 'Inactive'}
+                        {credentialsOnly ? (conn.status === 'active' ? 'Active' : 'Inactive') : `Execution: ${conn.status === 'active' ? 'Active' : 'Inactive'}`}
                       </span>
                       {!credentialsOnly && isFullPlatform && sensorData && sensorData.operationsLast24h > 0 && (
                         <span className="text-[9px] text-text-tertiary">{sensorData.operationsLast24h} ops (24h)</span>

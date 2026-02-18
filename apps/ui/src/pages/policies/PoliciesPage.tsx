@@ -1,17 +1,14 @@
 /**
- * Policies — Per-Agent, AI-Driven, Transparent
+ * Policies — Global guardrails for all agents.
  *
- * Pick an agent → see/edit its policies.
- * Shared among sub-agents of the same instance.
- * Monitor-only mode available (AI detection, zero blocking).
+ * Rules apply org-wide. Monitor-only mode available (AI detection, zero blocking).
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getPolicies,
   getPresets,
-  getInstances,
   createPolicy,
   updatePolicy,
   deletePolicy,
@@ -100,24 +97,11 @@ export function PoliciesPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  // ── Instance selector ───────────────────────────────────────────────────
-  const { data: instances = [] } = useQuery({ queryKey: ['instances'], queryFn: getInstances });
-  const [selectedInstanceId, setSelectedInstanceId] = useState<string | undefined>(undefined);
-
-  // Auto-select first running instance
-  useEffect(() => {
-    if (!selectedInstanceId && instances.length > 0) {
-      const running = instances.find(i => i.status === 'running');
-      setSelectedInstanceId(running?.id ?? instances[0]?.id);
-    }
-  }, [instances, selectedInstanceId]);
-
-  const selectedInstance = instances.find(i => i.id === selectedInstanceId);
-  const policyKey = ['policies', selectedInstanceId ?? 'global'];
+  const policyKey = ['policies'];
 
   const { data: rules = [], isLoading } = useQuery({
     queryKey: policyKey,
-    queryFn: () => getPolicies(selectedInstanceId),
+    queryFn: () => getPolicies(),
   });
   const { data: presets = [] } = useQuery({ queryKey: ['presets'], queryFn: getPresets });
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -131,7 +115,7 @@ export function PoliciesPage() {
   const [rulePromptLoading, setRulePromptLoading] = useState(false);
 
   const presetMutation = useMutation({
-    mutationFn: (id: string) => applyPreset(id, selectedInstanceId),
+    mutationFn: (id: string) => applyPreset(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: policyKey });
       setPresetConfirm(null);
@@ -169,7 +153,7 @@ export function PoliciesPage() {
   const runAI = async () => {
     setAiLoading(true);
     try {
-      const data = await optimizePolicies(false, selectedInstanceId);
+      const data = await optimizePolicies(false);
       setAiSuggestions(data.suggestions);
       setAiSummary(data.summary);
       setAiRole(data.agentRole);
@@ -192,7 +176,7 @@ export function PoliciesPage() {
     setRulePromptLoading(true);
     try {
       // Use the AI optimize endpoint with the prompt as context
-      const data = await optimizePolicies(false, selectedInstanceId, rulePrompt.trim());
+      const data = await optimizePolicies(false, undefined, rulePrompt.trim());
       if (data.suggestions?.length > 0) {
         // Apply each suggestion as a new rule
         for (const s of data.suggestions) {
@@ -203,7 +187,6 @@ export function PoliciesPage() {
             matchCategory: s.matchCategory,
             source: 'ai-learned',
             description: s.description,
-            instanceId: selectedInstanceId,
           });
         }
         qc.invalidateQueries({ queryKey: policyKey });
@@ -242,7 +225,6 @@ export function PoliciesPage() {
         matchCategory: s.matchCategory,
         source: 'ai-learned',
         description: s.description,
-        instanceId: selectedInstanceId,
       }),
     onSuccess: (_data, s) => {
       // Remove the applied suggestion from the list
@@ -268,7 +250,6 @@ export function PoliciesPage() {
           matchCategory: s.matchCategory,
           source: 'ai-learned',
           description: s.description,
-          instanceId: selectedInstanceId,
         });
         applied++;
       } catch { /* skip individual failures */ }
@@ -289,32 +270,14 @@ export function PoliciesPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-5" data-tour="tour-policies">
 
-      {/* ── Header + Agent Selector ─────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-bold text-text-primary font-mono">
-            <span className="text-accent">[</span> policies <span className="text-accent">]</span>
-          </h1>
-          <p className="text-xs text-text-secondary mt-1">
-            {enabledCount} rules for <span className="text-text-primary font-medium">{selectedInstance?.name ?? 'global default'}</span>
-          </p>
-        </div>
-        {instances.length > 0 && (
-          <div className="shrink-0">
-            <label className="text-[9px] text-text-tertiary uppercase tracking-wider font-mono block mb-1">Agent</label>
-            <select
-              value={selectedInstanceId ?? ''}
-              onChange={e => { setSelectedInstanceId(e.target.value || undefined); setAiEnabled(false); setAiSuggestions([]); }}
-              className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent min-w-[160px]"
-            >
-              {instances.map(inst => (
-                <option key={inst.id} value={inst.id}>
-                  {inst.name} {inst.status === 'running' ? '●' : '○'}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div>
+        <h1 className="text-lg font-bold text-text-primary font-mono">
+          <span className="text-accent">[</span> policies <span className="text-accent">]</span>
+        </h1>
+        <p className="text-xs text-text-secondary mt-1">
+          {enabledCount} rule{enabledCount !== 1 ? 's' : ''} — apply to all agents in this org
+        </p>
       </div>
 
       {/* ── Three-Layer Security Summary ─────────────────────────────────── */}
@@ -525,7 +488,7 @@ export function PoliciesPage() {
         {summary.length === 0 ? (
           <div className="text-center py-6">
             <pre className="text-text-tertiary text-xs font-mono mb-3">{`  ( ?_? ) no rules set  `}</pre>
-            <p className="text-xs text-text-secondary mb-2">No policy rules — the agent operates in <span className="text-text-primary font-medium">monitor-only mode</span>.</p>
+            <p className="text-xs text-text-secondary mb-2">No policy rules — all agents operate in <span className="text-text-primary font-medium">monitor-only mode</span>.</p>
             <p className="text-[10px] text-text-tertiary leading-relaxed max-w-md mx-auto">
               All actions are allowed and logged. AI anomaly detection still runs on every action.
               To enforce approvals or blocks, apply a preset or use AI to generate rules.
