@@ -104,11 +104,15 @@ jobs:
               \"sed -i 's|FULL_PLATFORM_UNLOCK_PASSWORD=.*|FULL_PLATFORM_UNLOCK_PASSWORD=${{ secrets.FULL_PLATFORM_UNLOCK_PASSWORD }}|' .env\",
               \"sed -i 's|OPENAI_API_KEY:.*|OPENAI_API_KEY: \\\"${{ secrets.OPENAI_API_KEY }}\\\"|' docker-compose.yml\",
               \"sed -i 's|OPENAI_MODEL:.*|OPENAI_MODEL: \\\"gpt-4.1-mini\\\"|' docker-compose.yml\",
+              \"grep -q 'VAULT_MASTER_KEY:' docker-compose.yml && sed -i 's|VAULT_MASTER_KEY:.*|VAULT_MASTER_KEY: \\\"${{ secrets.VAULT_MASTER_KEY }}\\\"|' docker-compose.yml || sed -i '/OPENAI_MODEL:/a\\      VAULT_MASTER_KEY: \\\"${{ secrets.VAULT_MASTER_KEY }}\\\"' docker-compose.yml\",
+              \"grep -q 'FULL_PLATFORM_UNLOCK_PASSWORD:' docker-compose.yml && sed -i 's|FULL_PLATFORM_UNLOCK_PASSWORD:.*|FULL_PLATFORM_UNLOCK_PASSWORD: \\\"${{ secrets.FULL_PLATFORM_UNLOCK_PASSWORD }}\\\"|' docker-compose.yml || sed -i '/VAULT_MASTER_KEY:/a\\      FULL_PLATFORM_UNLOCK_PASSWORD: \\\"${{ secrets.FULL_PLATFORM_UNLOCK_PASSWORD }}\\\"' docker-compose.yml\",
+              \"grep -q 'env_file:' docker-compose.yml || sed -i '/environment:/i\\    env_file:\\n      - .env' docker-compose.yml\",
               \"docker compose pull gate\",
               \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest\",
               \"docker compose up -d --force-recreate\",
-              \"sleep 15\",
-              \"curl -sf http://localhost:4800/health || exit 1\",
+              \"sleep 30\",
+              \"docker logs wooblay-gate 2>&1 | tail -30\",
+              \"curl -sf http://localhost:4800/health || { echo 'Health check failed — dumping gate logs:'; docker logs wooblay-gate 2>&1 | tail -80; exit 1; }\",
               \"echo DEPLOY_SUCCESS\"
             ],\"executionTimeout\":[\"300\"]}" \
             --query "Command.CommandId" \
