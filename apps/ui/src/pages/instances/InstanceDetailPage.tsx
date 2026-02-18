@@ -16,6 +16,7 @@ import {
   getInstanceContributions,
   getInstanceCost,
   updateInstance,
+  restartInstance,
   getActivity,
   getFlags,
   dismissFlag,
@@ -791,18 +792,21 @@ function ProfileTab({ instanceId, instance, isRunning }: { instanceId: string; i
         ].join('\n');
 
         await writeFile(instanceId, '/root/clawd/IDENTITY.md', identityMd);
+
+        // Restart so the agent picks up the new role/goal (SOUL is read at startup)
+        await restartInstance(instanceId);
       }
     },
     onSuccess: () => {
       setStructDirty(false);
       setSoulDirty(false);
       setIdentityDirty(false);
-      setSaveStatus('Profile saved — SOUL.md + IDENTITY.md updated');
+      setSaveStatus('Profile saved — agent restarting to apply new role/goal');
       qc.invalidateQueries({ queryKey: ['instance', instanceId] });
       qc.invalidateQueries({ queryKey: ['instances'] });
       qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/SOUL.md'] });
       qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/IDENTITY.md'] });
-      setTimeout(() => setSaveStatus(null), 2500);
+      setTimeout(() => setSaveStatus(null), 4000);
     },
     onError: () => setSaveStatus('Failed to save profile'),
   });
