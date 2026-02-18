@@ -114,7 +114,8 @@ export function EventRulesEditor({ connectionId, sensorConfig }: { connectionId:
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button
-                    className={`w-8 h-4 rounded-full relative transition-colors ${isEnabled ? 'bg-accent' : 'bg-surface-3'}`}
+                    type="button"
+                    className={`relative h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${isEnabled ? 'bg-accent' : 'bg-surface-3'}`}
                     onClick={() => {
                       if (idx < 0) {
                         ensureRule();
@@ -123,7 +124,7 @@ export function EventRulesEditor({ connectionId, sensorConfig }: { connectionId:
                       }
                     }}
                   >
-                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${isEnabled ? 'left-4' : 'left-0.5'}`} />
+                    <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${isEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
                   </button>
                   <div>
                     <span className="text-[11px] font-medium text-text-primary">{evt.label}</span>
@@ -614,9 +615,9 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleSensorMut.mutate({ id: conn.id, enabled: !sensing.enabled }); }}
                       title={sensing.enabled ? 'Pause sensing' : 'Enable sensing'}
-                      className={`relative w-9 h-5 rounded-full transition-colors ${sensing.enabled ? 'bg-accent' : 'bg-surface-3'}`}
+                      className={`relative h-6 w-11 shrink-0 rounded-full p-1 transition-colors ${sensing.enabled ? 'bg-accent' : 'bg-surface-3'}`}
                     >
-                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${sensing.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                      <span className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${sensing.enabled ? 'translate-x-3' : 'translate-x-0'}`} />
                     </button>
                   )}
                   <Button size="xs" variant="secondary" onClick={(e) => { e.stopPropagation(); testMut.mutate(conn.id); }}>

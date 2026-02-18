@@ -617,13 +617,21 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       } catch { /* ignore */ }
       execSync(`cd "${dir}" && docker compose up -d`, { timeout: 30_000, stdio: 'pipe' });
 
+      // Poll for container to appear (compose up -d returns before container is in docker ps)
       let containerId: string | null = null;
-      try {
-        containerId = execSync(
-          `docker ps -q --filter "name=${containerName}"`,
-          { timeout: 5000, stdio: 'pipe' },
-        ).toString().trim() || null;
-      } catch { }
+      for (let attempt = 0; attempt < 15; attempt++) {
+        try {
+          const out = execSync(
+            `docker ps -q --filter "name=^${containerName}$"`,
+            { timeout: 5000, stdio: 'pipe' },
+          ).toString().trim();
+          if (out) {
+            containerId = out.split('\n')[0] ?? null;
+            break;
+          }
+        } catch { }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
 
       await prisma.instance.update({
         where: { id },

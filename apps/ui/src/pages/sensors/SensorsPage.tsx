@@ -128,8 +128,11 @@ export function SensorsPage() {
             Sensors use existing credentials. Add a credential in Credentials first; then enable and configure sensing here for each connection that supports it.
           </p>
         </div>
-        <Link to="/credentials">
-          <Button size="sm" variant="secondary">+ Add credential</Button>
+        <Link
+          to="/credentials"
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-150 px-3 py-1.5 text-xs whitespace-nowrap bg-indigo-600 text-white hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0 shadow-sm shadow-indigo-500/20"
+        >
+          + Add credential
         </Link>
       </div>
 
@@ -166,14 +169,17 @@ export function SensorsPage() {
                   </div>
                   <div className="flex gap-2 items-center">
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleSensorMut.mutate({ id: conn.id, enabled: !sensing.enabled });
                       }}
                       title={sensing.enabled ? 'Pause sensing' : 'Enable sensing'}
-                      className={`relative w-9 h-5 rounded-full transition-colors ${sensing.enabled ? 'bg-accent' : 'bg-surface-3'}`}
+                      className={`relative h-6 w-11 shrink-0 rounded-full p-1 transition-colors ${sensing.enabled ? 'bg-accent' : 'bg-surface-3'}`}
                     >
-                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${sensing.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                      <span
+                        className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${sensing.enabled ? 'translate-x-3' : 'translate-x-0'}`}
+                      />
                     </button>
                     <span className="text-[10px] text-text-muted">{expandedId === conn.id ? '▲' : '▼'}</span>
                   </div>
