@@ -19,6 +19,16 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/connections', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const org = getOrgScope(request);
+
+      // Fall back to first org if JWT has no org_id (personal workspace)
+      if (!org.orgId) {
+        const fallback = await prisma.organization.findFirst({ select: { id: true } });
+        if (fallback) {
+          (org as any).orgId = fallback.id;
+          (org as any).filter = { orgId: fallback.id };
+        }
+      }
+
       const connections = await prisma.connection.findMany({
         where: { ...org.filter },
         orderBy: { createdAt: 'desc' },
@@ -83,6 +93,15 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const org = getOrgScope(request);
+
+      // Fall back to first org if JWT has no org_id (personal workspace)
+      if (!org.orgId) {
+        const fallback = await prisma.organization.findFirst({ select: { id: true } });
+        if (fallback) {
+          (org as any).orgId = fallback.id;
+          (org as any).filter = { orgId: fallback.id };
+        }
+      }
 
       // Build credential + metadata based on provider
       let encryptedCred: string;

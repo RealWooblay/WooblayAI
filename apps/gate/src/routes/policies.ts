@@ -412,12 +412,19 @@ Suggest policy optimizations.`,
   app.get('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const org = getOrgScope(request);
-      if (!org.orgId) {
-        return reply.send({ simulationThreshold: 'high' });
+      let orgId = org.orgId;
+
+      // Fall back to first available org if JWT has no org_id (personal workspace)
+      if (!orgId) {
+        const fallback = await prisma.organization.findFirst({ select: { id: true } });
+        orgId = fallback?.id ?? null;
+      }
+      if (!orgId) {
+        return reply.send({ simulationThreshold: 'high', platformMode: 'firewall' });
       }
 
       const orgRecord = await prisma.organization.findUnique({
-        where: { id: org.orgId },
+        where: { id: orgId },
         select: { settings: true },
       });
 
@@ -438,8 +445,15 @@ Suggest policy optimizations.`,
   app.put('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const org = getOrgScope(request);
-      if (!org.orgId) {
-        return reply.code(400).send({ error: 'No organization context' });
+      let orgId = org.orgId;
+
+      // Fall back to first available org if JWT has no org_id (personal workspace)
+      if (!orgId) {
+        const fallback = await prisma.organization.findFirst({ select: { id: true } });
+        orgId = fallback?.id ?? null;
+      }
+      if (!orgId) {
+        return reply.code(400).send({ error: 'No organization found. Create one in your account settings.' });
       }
 
       const body = request.body as {
@@ -461,7 +475,7 @@ Suggest policy optimizations.`,
 
       // Read existing settings and merge
       const orgRecord = await prisma.organization.findUnique({
-        where: { id: org.orgId },
+        where: { id: orgId },
         select: { settings: true },
       });
 
@@ -479,13 +493,13 @@ Suggest policy optimizations.`,
           return reply.code(403).send({ error: 'Incorrect platform password.' });
         }
         updated.platformMode = 'full';
-        delete updated.platformPassword; // no longer store any password in org
+        delete updated.platformPassword;
       } else if (body.platformMode === 'firewall') {
         updated.platformMode = 'firewall';
       }
 
       await prisma.organization.update({
-        where: { id: org.orgId },
+        where: { id: orgId },
         data: { settings: JSON.stringify(updated) },
       });
 

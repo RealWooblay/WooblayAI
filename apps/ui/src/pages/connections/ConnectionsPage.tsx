@@ -13,6 +13,7 @@ import {
   getConnectionSecrets,
   addConnectionSecret,
   deleteConnectionSecret,
+  getOrgPolicySettings,
 } from '../../api/client.ts';
 import { Spinner } from '../../components/common/Spinner.tsx';
 import { Button } from '../../components/common/Button.tsx';
@@ -295,10 +296,18 @@ export function ConnectionsPage() {
     refetchInterval: 15_000,
   });
 
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: getOrgPolicySettings,
+    staleTime: 60_000,
+  });
+  const isFullPlatform = (orgSettings as any)?.platformMode === 'full';
+
   const { data: sensors } = useQuery({
     queryKey: ['sensors-status'],
     queryFn: getSensorsStatus,
     refetchInterval: 15_000,
+    enabled: isFullPlatform,
   });
 
   const createMut = useMutation({
@@ -396,7 +405,9 @@ export function ConnectionsPage() {
         <div>
           <h1 className="text-lg font-semibold text-text-primary">Connections</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
-            Manage your service integrations. Each connection powers both sensing (inbound events) and secure execution (agent actions).
+            {isFullPlatform
+              ? 'Manage your service integrations. Each connection powers both sensing (inbound events) and secure execution (agent actions).'
+              : 'Manage your service integrations. Each connection powers secure execution — credentials are encrypted and isolated.'}
           </p>
         </div>
         <Button size="sm" onClick={() => setAddStep('select')} data-tour="tour-add-connection">+ Add connection</Button>
@@ -452,7 +463,7 @@ export function ConnectionsPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-medium text-text-primary">{t.label}</span>
                     <div className="flex gap-1">
-                      {t.hasSensing && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">SENSING</span>}
+                      {isFullPlatform && t.hasSensing && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">SENSING</span>}
                       {t.hasExecution && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">EXECUTION</span>}
                     </div>
                     {!t.available && <span className="text-[10px] text-text-tertiary">Coming soon</span>}
@@ -474,7 +485,9 @@ export function ConnectionsPage() {
         <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
           <h3 className="text-sm font-medium text-text-primary mb-3">Connect GitHub</h3>
           <p className="text-[10px] text-text-tertiary mb-3">
-            One key, two roles. Your PAT enables both <strong>sensing</strong> (webhook events create operations) and <strong>secure execution</strong> (agents execute git push, create PRs via ephemeral containers).
+            {isFullPlatform
+              ? <>One key, two roles. Your PAT enables both <strong>sensing</strong> (webhook events create operations) and <strong>secure execution</strong> (agents execute git push, create PRs via ephemeral containers).</>
+              : <>Your PAT powers <strong>secure execution</strong> — agents execute git push, create PRs via ephemeral containers. Credentials are encrypted and never exposed.</>}
           </p>
           <div className="space-y-3">
             <div>
@@ -637,7 +650,8 @@ export function ConnectionsPage() {
         {connectionList.map((conn: any) => {
           const sensorData = sensorMap[conn.id];
           const sensing = conn.sensing ?? { enabled: false, config: null };
-          const execution = conn.execution ?? { actions: [], scopeBoundaries: [] };
+          const rawExec = conn.execution ?? {};
+          const execution = { actions: rawExec.actions ?? [], scopeBoundaries: rawExec.scopeBoundaries ?? [], note: rawExec.note ?? '' };
           const isSensingCapable = conn.provider === 'github';
 
           return (
@@ -657,7 +671,7 @@ export function ConnectionsPage() {
                       <ConnectionStatusBadge status={conn.status} />
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {isSensingCapable && (
+                      {isFullPlatform && isSensingCapable && (
                         <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${sensing.enabled ? 'bg-blue-500/15 text-blue-400' : 'bg-zinc-500/15 text-zinc-400'
                           }`}>
                           Sensing: {sensing.enabled ? 'Active' : 'Off'}
@@ -665,9 +679,9 @@ export function ConnectionsPage() {
                       )}
                       <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
                         }`}>
-                        Execution: {conn.status === 'active' ? `${execution.actions.length} actions` : 'Inactive'}
+                        Execution: {conn.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
-                      {sensorData && sensorData.operationsLast24h > 0 && (
+                      {isFullPlatform && sensorData && sensorData.operationsLast24h > 0 && (
                         <span className="text-[9px] text-text-tertiary">{sensorData.operationsLast24h} ops (24h)</span>
                       )}
                     </div>
@@ -675,7 +689,7 @@ export function ConnectionsPage() {
                 </div>
 
                 <div className="flex gap-2 items-center">
-                  {isSensingCapable && (
+                  {isFullPlatform && isSensingCapable && (
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleSensorMut.mutate({ id: conn.id, enabled: !sensing.enabled }); }}
                       title={sensing.enabled ? 'Pause sensing' : 'Enable sensing'}
@@ -696,7 +710,7 @@ export function ConnectionsPage() {
                 <div className="border-t border-border">
                   {/* Section Tabs */}
                   <div className="flex border-b border-border">
-                    {isSensingCapable && (
+                    {isFullPlatform && isSensingCapable && (
                       <button
                         className={`px-4 py-2 text-[11px] font-medium transition-colors ${expandedSection === 'sensing' ? 'text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary'}`}
                         onClick={() => setExpandedSection(expandedSection === 'sensing' ? null : 'sensing')}
