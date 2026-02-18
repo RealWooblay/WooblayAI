@@ -604,8 +604,8 @@ function FirewallDashboard() {
             <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Setup &rarr;</p>
             <p className="text-[10px] text-text-muted">Create API keys and connect your agents</p>
           </Link>
-          <Link to="/connections" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
-            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Connections &rarr;</p>
+          <Link to="/credentials" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Credentials &rarr;</p>
             <p className="text-[10px] text-text-muted">Manage credential vault</p>
           </Link>
           <Link to="/policies" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
@@ -701,13 +701,13 @@ function FullPlatformDashboard() {
   return (
     <div className="h-full overflow-y-auto p-6 canvas-bg relative">
       <WeatherBackground weather={weather} />
-      <div className="max-w-4xl mx-auto space-y-5 relative z-10" data-tour="tour-dashboard">
+      <div className="max-w-4xl mx-auto space-y-5 relative z-10" data-tour="tour-agents">
 
         {/* Header */}
         <div className="flex items-end justify-between">
           <div>
             <h1 className="text-lg font-bold text-text-primary font-mono">
-              {isEmpty && !hasData ? '> wooblay' : running.length > 0 ? `> ${running.length} agent${running.length !== 1 ? 's' : ''} active` : '> dashboard'}
+              {isEmpty && !hasData ? '> wooblay' : running.length > 0 ? `> ${running.length} agent${running.length !== 1 ? 's' : ''} active` : '> agents'}
             </h1>
             {hasData && (
               <div className="flex items-center gap-4 mt-1.5">
@@ -755,21 +755,6 @@ function FullPlatformDashboard() {
           </Link>
         )}
 
-        {/* External Agent Integration */}
-        <Link to="/settings" className="block p-4 rounded-xl bg-indigo-500/8 border border-indigo-500/20 hover:border-indigo-500/40 transition-colors group">
-          <div className="flex items-start gap-3">
-            <span className="font-mono text-indigo-400 text-sm mt-0.5">{'{ }'}</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-indigo-300">Connect External Agents</p>
-              <p className="text-[10px] text-indigo-400/60 mt-0.5">
-                Use Wooblay's secure gateway from any AI agent or framework.
-                Create an API key — same policy enforcement and credential vault, no hosting required.
-              </p>
-            </div>
-            <span className="text-[10px] text-indigo-400/60 font-mono shrink-0 group-hover:text-indigo-400 transition-colors">setup →</span>
-          </div>
-        </Link>
-
         {/* Empty State — Setup Checklist */}
         {isEmpty && !hasData && !deployOpen && (
           <div className="space-y-4">
@@ -796,11 +781,11 @@ function FullPlatformDashboard() {
                 />
                 <SetupStep
                   number={2}
-                  title="Add a Connection"
+                  title="Add Credentials"
                   description="Link your services so Wooblay can detect events and execute actions securely."
                   done={false}
-                  actionLabel="Add Connection"
-                  href="/connections"
+                  actionLabel="Add Credentials"
+                  href="/credentials"
                 />
                 <SetupStep
                   number={3}

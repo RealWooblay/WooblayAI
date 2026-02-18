@@ -299,13 +299,13 @@ export const updateInstance = (id: string, body: Partial<CreateInstanceRequest>)
   });
 
 export const startInstance = (id: string) =>
-  fetchApi<InstanceActionResponse>(`/api/instances/${id}/start`, { method: 'POST' });
+  fetchApi<InstanceActionResponse>(`/api/instances/${id}/start`, { method: 'POST', body: '{}' });
 
 export const stopInstance = (id: string) =>
-  fetchApi<InstanceActionResponse>(`/api/instances/${id}/stop`, { method: 'POST' });
+  fetchApi<InstanceActionResponse>(`/api/instances/${id}/stop`, { method: 'POST', body: '{}' });
 
 export const restartInstance = (id: string) =>
-  fetchApi<InstanceActionResponse>(`/api/instances/${id}/restart`, { method: 'POST' });
+  fetchApi<InstanceActionResponse>(`/api/instances/${id}/restart`, { method: 'POST', body: '{}' });
 
 export const deleteInstance = (id: string) =>
   fetchApi<void>(`/api/instances/${id}`, { method: 'DELETE' });

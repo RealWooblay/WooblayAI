@@ -23,22 +23,25 @@ interface NavItem {
 }
 
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
-  // CONNECT — how users interact with the product
+  // AGENTS — only in full platform mode (above Setup)
+  { to: '/', label: 'Agents', icon: '◎', end: true, section: 'agents' },
+  // CONNECT
   { to: '/setup', label: 'Setup', icon: '⚡', section: 'connect' },
-  { to: '/connections', label: 'Connections', icon: '◈', section: 'connect' },
-  // SECURE — the core product
+  { to: '/credentials', label: 'Credentials', icon: '🔑', section: 'connect' },
+  { to: '/sensors', label: 'Sensors', icon: '◈', section: 'connect' },
+  // SECURE
   { to: '/policies', label: 'Policies', icon: '◇', section: 'secure' },
   { to: '/approvals', label: 'Approvals', icon: '⬡', badge: 'approvals', section: 'secure' },
-  // MONITOR — observe what's happening
+  // MONITOR
   { to: '/activity', label: 'Activity', icon: '◈', section: 'monitor' },
   { to: '/notifications', label: 'Notifications', icon: '◈', section: 'monitor' },
-  { to: '/', label: 'Dashboard', icon: '◎', end: true, section: 'monitor' },
   // PLATFORM — only in full platform mode
   { to: '/operations', label: 'Operations', icon: '◉', badge: 'operations', section: 'platform' },
   { to: '/insights', label: 'Insights', icon: '◈', section: 'platform' },
 ];
 
 const SECTION_LABELS: Record<string, string> = {
+  agents: 'AGENTS',
   connect: 'CONNECT',
   secure: 'SECURE',
   monitor: 'MONITOR',
@@ -75,13 +78,20 @@ export function Sidebar() {
   const platformMode = (orgSettings as any)?.platformMode ?? 'firewall';
   const isFullPlatform = platformMode === 'full';
 
-  // Group nav items by section, filtering platform items when in firewall mode
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => item.section !== 'platform' || isFullPlatform,
-  );
+  // Group nav items: agents only when full platform; platform section only when full
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.section === 'agents') return isFullPlatform;
+    if (item.section === 'platform') return isFullPlatform;
+    return true;
+  });
 
-  // Render items grouped by section
-  const sections = ['connect', 'secure', 'monitor', ...(isFullPlatform ? ['platform'] : [])];
+  const sections = [
+    ...(isFullPlatform ? ['agents'] : []),
+    'connect',
+    'secure',
+    'monitor',
+    ...(isFullPlatform ? ['platform'] : []),
+  ];
   const groupedSections = sections.map((section) => ({
     key: section,
     label: SECTION_LABELS[section],

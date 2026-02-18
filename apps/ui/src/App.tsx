@@ -31,7 +31,8 @@ import { NotificationsPage } from './pages/notifications/NotificationsPage.tsx';
 // Operation-first pages
 import { OperationsPage } from './pages/operations/OperationsPage.tsx';
 import { OperationPage } from './pages/operations/OperationPage.tsx';
-import { ConnectionsPage } from './pages/connections/ConnectionsPage.tsx';
+import { CredentialsPage } from './pages/credentials/CredentialsPage.tsx';
+import { SensorsPage } from './pages/sensors/SensorsPage.tsx';
 import { RunPage } from './pages/runs/RunPage.tsx';
 import { InsightsPage } from './pages/insights/InsightsPage.tsx';
 
@@ -128,14 +129,15 @@ function AuthenticatedApp() {
           {/* Primary routes — sensor-first */}
           <Route path="/operations" element={<PageShell><OperationsPage /></PageShell>} />
           <Route path="/operations/:id" element={<PageShell><OperationPage /></PageShell>} />
-          <Route path="/connections" element={<PageShell><ConnectionsPage /></PageShell>} />
+          <Route path="/credentials" element={<PageShell><CredentialsPage /></PageShell>} />
+          <Route path="/sensors" element={<PageShell><SensorsPage /></PageShell>} />
+          <Route path="/connections" element={<Navigate to="/credentials" replace />} />
           <Route path="/runs/:id" element={<PageShell><RunPage /></PageShell>} />
           <Route path="/insights" element={<PageShell><InsightsPage /></PageShell>} />
 
           {/* Legacy redirects */}
           <Route path="/inbox" element={<Navigate to="/operations" replace />} />
           <Route path="/incidents/:id" element={<RedirectIncidentToOperation />} />
-          <Route path="/sensors" element={<Navigate to="/connections" replace />} />
 
           {/* Core pages */}
           <Route path="/" element={<DashboardPage />} />

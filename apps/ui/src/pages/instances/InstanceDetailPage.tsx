@@ -571,8 +571,8 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
           <p className="text-[10px] text-amber-400/70">
             The agent can read, use, and potentially exfiltrate these credentials. Only add keys here if you
             trust the agent with direct access. For sensitive credentials, use{' '}
-            <Link to="/connections" className="underline hover:text-amber-300">exec-only secrets</Link>{' '}
-            on the Connections page instead — the agent never sees those.
+            <Link to="/credentials" className="underline hover:text-amber-300">exec-only secrets</Link>{' '}
+            on the Credentials page instead — the agent never sees those.
           </p>
         </div>
 
@@ -638,8 +638,8 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
 
       {/* Quick links */}
       <div className="flex gap-3">
-        <Link to="/connections" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
-          <p className="text-[11px] font-medium text-text-primary">Connections</p>
+        <Link to="/credentials" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Credentials</p>
           <p className="text-[10px] text-text-muted mt-0.5">Manage exec-only secrets &amp; services <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
         </Link>
         <Link to="/policies" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">

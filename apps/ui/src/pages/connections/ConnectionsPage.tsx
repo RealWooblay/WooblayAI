@@ -52,7 +52,7 @@ const AI_FEATURES = [
   { label: 'Follow-Up Chaining', description: 'AI decides when a completed operation needs a follow-up and creates it automatically' },
 ];
 
-function EventRulesEditor({ connectionId, sensorConfig }: { connectionId: string; sensorConfig: any }) {
+export function EventRulesEditor({ connectionId, sensorConfig }: { connectionId: string; sensorConfig: any }) {
   const qc = useQueryClient();
 
   const existing: any[] = sensorConfig?.eventRules ?? [];
@@ -195,7 +195,9 @@ function EventRulesEditor({ connectionId, sensorConfig }: { connectionId: string
 
 // ── Main Page ─────────────────────────────────────────────────────────
 
-export function ConnectionsPage() {
+export type ConnectionsPageProps = { credentialsOnly?: boolean };
+
+export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProps) {
   const qc = useQueryClient();
   const [addStep, setAddStep] = useState<AddStep>(false);
   const [selectedProvider, setSelectedProvider] = useState<string>('github');
@@ -222,7 +224,7 @@ export function ConnectionsPage() {
     queryKey: ['sensors-status'],
     queryFn: getSensorsStatus,
     refetchInterval: 15_000,
-    enabled: isFullPlatform,
+    enabled: isFullPlatform && !credentialsOnly,
   });
 
   const createMut = useMutation({
@@ -307,17 +309,21 @@ export function ConnectionsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto" data-tour="tour-connections">
+    <div className="max-w-4xl mx-auto" data-tour={credentialsOnly ? 'tour-credentials' : 'tour-connections'}>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold text-text-primary">Connections</h1>
+          <h1 className="text-lg font-semibold text-text-primary">{credentialsOnly ? 'Credentials' : 'Connections'}</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
-            {isFullPlatform
-              ? 'Manage your service integrations. Each connection powers both sensing (inbound events) and secure execution (agent actions).'
-              : 'Manage your service integrations. Each connection powers secure execution — credentials are encrypted and isolated.'}
+            {credentialsOnly
+              ? 'Manage your service credentials. Keys are encrypted and only used inside Gate-controlled execution — agents never see them.'
+              : isFullPlatform
+                ? 'Manage your service integrations. Each connection powers both sensing (inbound events) and secure execution (agent actions).'
+                : 'Manage your service integrations. Each connection powers secure execution — credentials are encrypted and isolated.'}
           </p>
         </div>
-        <Button size="sm" onClick={() => setAddStep('select')} data-tour="tour-add-connection">+ Add connection</Button>
+        <Button size="sm" onClick={() => setAddStep('select')} data-tour={credentialsOnly ? 'tour-add-credential' : 'tour-add-connection'}>
+          + Add {credentialsOnly ? 'credential' : 'connection'}
+        </Button>
       </div>
 
       {/* Three-Layer Security Summary */}
@@ -548,8 +554,8 @@ export function ConnectionsPage() {
       {/* Connection List */}
       {connectionList.length === 0 && !addStep && (
         <EmptyState
-          title="No connections configured"
-          description="Connect a service like GitHub to start sensing events and enabling secure agent execution."
+          title={credentialsOnly ? 'No credentials configured' : 'No connections configured'}
+          description={credentialsOnly ? 'Add a service credential (e.g. GitHub, AWS) to enable secure agent execution.' : 'Connect a service like GitHub to start sensing events and enabling secure agent execution.'}
         />
       )}
 
@@ -576,7 +582,7 @@ export function ConnectionsPage() {
                       <ConnectionStatusBadge status={conn.status} />
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {isFullPlatform && isSensingCapable && (
+                      {!credentialsOnly && isFullPlatform && isSensingCapable && (
                         <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${sensing.enabled ? 'bg-blue-500/15 text-blue-400' : 'bg-zinc-500/15 text-zinc-400'
                           }`}>
                           Sensing: {sensing.enabled ? 'Active' : 'Off'}
@@ -586,7 +592,7 @@ export function ConnectionsPage() {
                         }`}>
                         Execution: {conn.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
-                      {isFullPlatform && sensorData && sensorData.operationsLast24h > 0 && (
+                      {!credentialsOnly && isFullPlatform && sensorData && sensorData.operationsLast24h > 0 && (
                         <span className="text-[9px] text-text-tertiary">{sensorData.operationsLast24h} ops (24h)</span>
                       )}
                     </div>
@@ -594,7 +600,7 @@ export function ConnectionsPage() {
                 </div>
 
                 <div className="flex gap-2 items-center">
-                  {isFullPlatform && isSensingCapable && (
+                  {!credentialsOnly && isFullPlatform && isSensingCapable && (
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleSensorMut.mutate({ id: conn.id, enabled: !sensing.enabled }); }}
                       title={sensing.enabled ? 'Pause sensing' : 'Enable sensing'}
@@ -613,7 +619,8 @@ export function ConnectionsPage() {
               {/* Expanded Sections */}
               {expandedId === conn.id && (
                 <div className="border-t border-border">
-                  {/* Section Tabs — only Sensing in full platform; execution is "one key, any action" */}
+                  {/* Section Tabs — only Sensing in full platform when not credentialsOnly */}
+                  {!credentialsOnly && (
                   <div className="flex border-b border-border">
                     {isFullPlatform && isSensingCapable && (
                       <button
@@ -624,6 +631,7 @@ export function ConnectionsPage() {
                       </button>
                     )}
                   </div>
+                  )}
 
                   <div className="px-4 py-4 space-y-4">
                     {/* One key, any action — no fixed list, no scope boundaries or extra secrets UI */}
@@ -632,8 +640,8 @@ export function ConnectionsPage() {
                       <p>One full-access key. Any action from your agent is sent through the gate and runs in an isolated container; the gate enforces your policy on every call. No fixed list of actions — no scope boundaries or extra secrets needed.</p>
                     </div>
 
-                    {/* Sensing Section */}
-                    {expandedSection === 'sensing' && (
+                    {/* Sensing Section — hidden when credentialsOnly */}
+                    {!credentialsOnly && expandedSection === 'sensing' && (
                       <>
                         {webhookInfo[conn.id] && (
                           <div>
@@ -686,7 +694,7 @@ export function ConnectionsPage() {
                     )}
 
                     {/* Actions */}
-                    {!expandedSection && (
+                    {(credentialsOnly || !expandedSection) && (
                       <div className="flex gap-2 pt-2">
                         {conn.status === 'active' && (
                           <Button size="xs" variant="danger" onClick={() => revokeMut.mutate(conn.id)}>

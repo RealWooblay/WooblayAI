@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../components/common/Button.tsx';
-import { getApiKeys, createApiKey, revokeApiKey, type ApiKeyInfo, type ApiKeyCreated } from '../../api/client.ts';
+import { getApiKeys, createApiKey, revokeApiKey, getOrgPolicySettings, updateOrgPolicySettings, type ApiKeyInfo, type ApiKeyCreated } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
 
 type IntegrationMode = 'gpt' | 'claude' | 'mcp' | 'custom';
@@ -21,16 +21,39 @@ const API_BASE = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' 
 const SPEC_URL = `${API_BASE}/api/gateway/spec`;
 const EXECUTE_URL = `${API_BASE}/api/gateway/execute`;
 
+const X_HANDLE_URL = 'https://x.com/wooblay';
+
 export function SetupPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [mode, setMode] = useState<IntegrationMode | null>(null);
+  const [unlockPassword, setUnlockPassword] = useState('');
 
   const { data: apiKeys = [] } = useQuery({ queryKey: ['api-keys'], queryFn: getApiKeys });
+  const { data: orgSettings } = useQuery({ queryKey: ['org-settings'], queryFn: getOrgPolicySettings, staleTime: 60_000 });
+  const platformMode = (orgSettings as any)?.platformMode ?? 'firewall';
+
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyExpiry, setNewKeyExpiry] = useState('');
   const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
+
+  const unlockFullPlatformMut = useMutation({
+    mutationFn: () => updateOrgPolicySettings({ platformMode: 'full', unlockPassword }),
+    onSuccess: () => {
+      setUnlockPassword('');
+      qc.invalidateQueries({ queryKey: ['org-settings'] });
+      toast('Full Platform mode enabled', 'success');
+    },
+    onError: (err: any) => {
+      const msg = err?.body ? (() => { try { const o = JSON.parse(err.body); return o.detail || o.error; } catch { return err.message; } })() : err?.message;
+      if (msg?.includes?.('not configured') || msg?.includes?.('Contact Wooblay')) {
+        toast('Full Platform access is gated. Reach out on X for the unlock password.', 'error');
+      } else {
+        toast(msg?.includes?.('Incorrect') ? 'Incorrect platform password.' : 'Failed to unlock.', 'error');
+      }
+    },
+  });
 
   const createKeyMut = useMutation({
     mutationFn: () => createApiKey({
@@ -57,7 +80,7 @@ export function SetupPage() {
       <div>
         <h1 className="text-lg font-bold text-text-primary">Setup</h1>
         <p className="text-xs text-text-muted mt-0.5">
-          One key, one endpoint. Connect <a href="/connections" className="text-accent hover:underline">connections</a> and set <a href="/policies" className="text-accent hover:underline">policies</a> first; the key inherits both.
+          One key, one endpoint. Connect <a href="/credentials" className="text-accent hover:underline">credentials</a> and set <a href="/policies" className="text-accent hover:underline">policies</a> first; the key inherits both.
         </p>
       </div>
 
@@ -199,6 +222,42 @@ export function SetupPage() {
           Security model: API key → org → vault credentials; policy runs; action runs in an ephemeral container. Agent never sees secrets. Wire the gateway as the only path for credentialed actions.
         </p>
       </div>
+
+      {/* Request full platform access — only when in firewall mode */}
+      {platformMode === 'firewall' && (
+        <div className="bg-surface-1 border border-purple-500/20 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-text-primary mb-1">Request full platform access</h2>
+          <p className="text-[11px] text-text-secondary mb-3">
+            Full platform unlocks hosted agents, sensors (webhooks, event rules), and orchestration. We offer it to teams that need more than the firewall — same security, more capabilities.
+          </p>
+          <div className="flex flex-wrap items-end gap-3 mb-3">
+            <div className="min-w-[180px]">
+              <label className="block text-[10px] text-text-muted mb-0.5">Platform password</label>
+              <input
+                type="password"
+                value={unlockPassword}
+                onChange={(e) => setUnlockPassword(e.target.value)}
+                placeholder="From Wooblay"
+                className="w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              />
+            </div>
+            <Button
+              size="sm"
+              onClick={() => unlockPassword && unlockFullPlatformMut.mutate()}
+              disabled={!unlockPassword || unlockFullPlatformMut.isPending}
+            >
+              {unlockFullPlatformMut.isPending ? 'Unlocking…' : 'Unlock full platform'}
+            </Button>
+          </div>
+          <p className="text-[10px] text-text-muted">
+            Don’t have the password?{' '}
+            <a href={X_HANDLE_URL} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+              Reach out on X
+            </a>
+            {' '}— we’ll get you set up.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -97,9 +97,9 @@ function buildSteps(firstInstanceId: string | null): TourStep[] {
   // ── Platform pages ──
   steps.push(
     {
-      path: '/connections',
-      target: 'tour-add-connection',
-      title: 'Connect your services',
+      path: '/credentials',
+      target: 'tour-add-credential',
+      title: 'Credentials',
       content: 'Link GitHub, AWS, GCP, or anything else. Exec-only secrets here are never seen by the agent \u2014 they only appear inside ephemeral secure containers.',
     },
     {
