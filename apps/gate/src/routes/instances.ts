@@ -617,20 +617,50 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       } catch { /* ignore */ }
       execSync(`cd "${dir}" && docker compose up -d`, { timeout: 30_000, stdio: 'pipe' });
 
-      // Poll for container to appear (compose up -d returns before container is in docker ps)
+      // Poll until container is actually running (Status starts with "Up "), not just present or "Restarting"
       let containerId: string | null = null;
-      for (let attempt = 0; attempt < 15; attempt++) {
+      const maxWaitMs = 90_000;
+      const intervalMs = 2_000;
+      const deadline = Date.now() + maxWaitMs;
+      while (Date.now() < deadline) {
         try {
-          const out = execSync(
-            `docker ps -q --filter "name=^${containerName}$"`,
+          const statusOut = execSync(
+            `docker ps -a --filter "name=^${containerName}$" --format "{{.ID}}|{{.Status}}"`,
             { timeout: 5000, stdio: 'pipe' },
           ).toString().trim();
-          if (out) {
-            containerId = out.split('\n')[0] ?? null;
-            break;
+          const line = statusOut.split('\n')[0];
+          if (line) {
+            const [id, status] = line.split('|');
+            if (id) containerId = id.trim();
+            // Only consider "ready" when Docker reports "Up X" (e.g. "Up 10 seconds")
+            if (status && status.startsWith('Up ')) {
+              break;
+            }
+            if (status && status.includes('Restarting')) {
+              request.log.info({ containerName, status }, 'Container restarting, waiting for Up');
+            }
           }
         } catch { }
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+
+      // Set running only if we saw "Up "; otherwise container may be in crash loop
+      const isUp = (() => {
+        try {
+          const s = execSync(
+            `docker ps -a --filter "name=^${containerName}$" --format "{{.Status}}"`,
+            { timeout: 5000, stdio: 'pipe' },
+          ).toString().trim();
+          return s.startsWith('Up ');
+        } catch { return false; }
+      })();
+
+      if (!isUp) {
+        request.log.warn({ instanceId: id, containerName }, 'Container did not reach Up in time');
+        return reply.code(503).send({
+          error: 'Container did not become ready in time. It may still be starting or restarting — check the Logs tab and try again in a moment.',
+          container: containerName,
+        });
       }
 
       await prisma.instance.update({

@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 
-type Status = 'active' | 'running' | 'blocked' | 'idle' | 'stopped' | 'error' | 'provisioning';
+type Status = 'active' | 'running' | 'blocked' | 'idle' | 'stopped' | 'error' | 'provisioning' | 'starting' | 'restarting' | 'stopping';
 
 const STATUS_COLORS: Record<Status, string> = {
   active: 'bg-emerald-400',
@@ -10,6 +10,9 @@ const STATUS_COLORS: Record<Status, string> = {
   stopped: 'bg-gray-500',
   error: 'bg-red-400',
   provisioning: 'bg-blue-400 animate-breathe',
+  starting: 'bg-amber-400 animate-breathe',
+  restarting: 'bg-amber-400 animate-breathe',
+  stopping: 'bg-amber-400 animate-breathe',
 };
 
 const STATUS_LABELS: Record<Status, string> = {
@@ -20,6 +23,9 @@ const STATUS_LABELS: Record<Status, string> = {
   stopped: 'Stopped',
   error: 'Error',
   provisioning: 'Provisioning',
+  starting: 'Starting…',
+  restarting: 'Restarting…',
+  stopping: 'Stopping…',
 };
 
 export function StatusDot({ status, showLabel = false, className }: {

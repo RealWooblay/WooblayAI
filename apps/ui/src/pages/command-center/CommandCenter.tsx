@@ -23,6 +23,9 @@ import {
   getInstanceLogs,
   getOrgPolicySettings,
   getApiKeys,
+  getAgentContainerState,
+  isContainerReady,
+  ApiError,
   type Instance,
   type MissionData,
   type CreateInstanceRequest,
@@ -53,7 +56,7 @@ const MODELS: { id: string; label: string; tier: string }[] = [
 
 // ── Alive Agent Face ─────────────────────────────────────────────────────────
 
-function AgentFace({ mission, instance }: { mission?: MissionData; instance: Instance }) {
+function AgentFace({ mission, instance, isContainerUp }: { mission?: MissionData; instance: Instance; isContainerUp: boolean }) {
   const [blink, setBlink] = useState(false);
 
   useEffect(() => {
@@ -70,7 +73,7 @@ function AgentFace({ mission, instance }: { mission?: MissionData; instance: Ins
     return () => clearTimeout(t);
   }, []);
 
-  if (instance.status !== 'running') {
+  if (!isContainerUp) {
     return (
       <div className="font-mono text-center" style={{ animation: 'breathe 6s ease-in-out infinite' }}>
         <span className="text-zinc-600 text-base">( -_- )</span>
@@ -334,7 +337,22 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
     onError: (err: Error) => toast(err.message, 'error'),
   };
 
-  const startMut = useMutation({ mutationFn: () => startInstance(instance.id), ...actionOpts });
+  const startMut = useMutation({
+    mutationFn: () => startInstance(instance.id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['instances'] }),
+    onError: (err: Error) => {
+      if (err instanceof ApiError && err.status === 503) {
+        try {
+          const body = JSON.parse(err.body) as { error?: string };
+          toast(body?.error ?? err.message, 'error');
+        } catch {
+          toast(err.message, 'error');
+        }
+      } else {
+        toast(err.message, 'error');
+      }
+    },
+  });
   const stopMut = useMutation({ mutationFn: () => stopInstance(instance.id), ...actionOpts });
   const restartMut = useMutation({ mutationFn: () => restartInstance(instance.id), ...actionOpts });
   const deleteMut = useMutation({
@@ -344,6 +362,8 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
   });
 
   const anyLoading = startMut.isPending || stopMut.isPending || restartMut.isPending || deleteMut.isPending;
+  const containerState = getAgentContainerState(instance, { startPending: startMut.isPending, stopPending: stopMut.isPending });
+  const isContainerUp = isContainerReady(instance);
   const isRunning = instance.status === 'running';
 
   const trust = mission?.trustScore ?? 0;
@@ -355,11 +375,17 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
 
   let statusLabel: string;
   let statusColor: string;
-  if (!isRunning) {
+  if (containerState === 'stopping') {
+    statusLabel = 'Stopping…';
+    statusColor = 'text-amber-400';
+  } else if (containerState === 'starting' || containerState === 'restarting') {
+    statusLabel = containerState === 'restarting' ? 'Restarting…' : 'Starting…';
+    statusColor = 'text-amber-400';
+  } else if (!isContainerUp) {
     statusLabel = 'offline';
     statusColor = 'text-zinc-500';
   } else if (!mission) {
-    statusLabel = 'connecting...';
+    statusLabel = 'connecting…';
     statusColor = 'text-zinc-500';
   } else if (hasPending) {
     statusLabel = 'waiting for you...';
@@ -393,7 +419,7 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
         {/* Left: Face (clean, no ring) */}
         <Link to={`/instances/${instance.id}`} className="shrink-0 group">
           <div className="w-[72px] h-[72px] flex items-center justify-center">
-            <AgentFace mission={mission} instance={instance} />
+            <AgentFace mission={mission} instance={instance} isContainerUp={isContainerUp} />
           </div>
         </Link>
 
@@ -419,12 +445,12 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
           <div className="mb-2">
             <span className={`text-[11px] font-mono ${statusColor} ${hasPending ? 'animate-pulse' : ''} truncate block`}>
               {isWorking ? `> ${statusLabel}` : statusLabel}
-              {!hasPending && !isWorking && isRunning && <span className="animate-blink"> _</span>}
+              {!hasPending && !isWorking && isContainerUp && <span className="animate-blink"> _</span>}
             </span>
           </div>
 
           {/* Running = API key in use — stop when not in use to avoid spend */}
-          {isRunning && (
+          {isContainerUp && (
             <p className="text-[10px] text-text-muted font-mono mb-1.5">
               Your Anthropic key is in use while running — stop when not in use to avoid API spend.
             </p>
@@ -432,7 +458,7 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
           {/* Metrics row: trust bar + cost + actions */}
           {mission && (
             <div className="flex items-center gap-4">
-              {isRunning && (
+              {isContainerUp && (
                 <div className="flex items-center gap-1.5">
                   <span className={`text-[10px] font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
                     {trust}
@@ -457,13 +483,13 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
 
       {/* Action bar — clean separator */}
       <div className="flex items-center gap-2 px-5 py-2.5 border-t border-border/40 bg-surface-0/30 rounded-b-xl">
-        {!isRunning && (
+        {containerState === 'offline' && (
           <button onClick={() => startMut.mutate()} disabled={anyLoading}
             className="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 disabled:opacity-40 px-2.5 py-1 rounded-md bg-emerald-500/8 hover:bg-emerald-500/15 transition-colors">
-            {startMut.isPending ? 'starting...' : 'start'}
+            {startMut.isPending ? 'starting…' : 'start'}
           </button>
         )}
-        {isRunning && (
+        {containerState !== 'offline' && (
           <>
             {!restartConfirm ? (
               <button onClick={() => setRestartConfirm(true)} disabled={anyLoading}

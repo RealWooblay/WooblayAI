@@ -26,6 +26,8 @@ import {
   getInstanceSecrets,
   addInstanceSecret,
   deleteInstanceSecret,
+  getAgentContainerState,
+  isContainerReady,
   type FileEntry,
   type MissionData,
   type Instance,
@@ -46,6 +48,29 @@ const CAT_LABEL: Record<string, string> = {
   files: 'Files', network: 'Network', secrets: 'Secrets', infra: 'Infra',
   destructive: 'Destructive', data: 'Data', communication: 'Comms', other: 'Other',
 };
+
+function InstanceStatusBadge({ instance }: { instance: Instance }) {
+  const state = getAgentContainerState(instance);
+  const labels: Record<typeof state, string> = {
+    offline: 'offline',
+    starting: 'Starting…',
+    restarting: 'Restarting…',
+    online: 'online',
+    stopping: 'Stopping…',
+  };
+  const colors: Record<typeof state, string> = {
+    offline: 'bg-zinc-500/10 text-zinc-500',
+    starting: 'bg-amber-500/10 text-amber-400',
+    restarting: 'bg-amber-500/10 text-amber-400',
+    online: 'bg-emerald-500/10 text-emerald-400',
+    stopping: 'bg-amber-500/10 text-amber-400',
+  };
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium font-mono shrink-0 ${colors[state]}`}>
+      {labels[state]}
+    </span>
+  );
+}
 
 // ── SVG Pie Chart ─────────────────────────────────────────────────────────────
 
@@ -321,11 +346,10 @@ function AgentNetwork({ mission, instances }: { mission?: MissionData; instances
               return (
                 <div key={sa.sessionId} className="flex items-start gap-2">
                   <span className="text-border mt-2 text-[10px] select-none">{isLast ? '└─' : '├─'}</span>
-                  <div className={`flex-1 border rounded-lg p-2.5 transition-colors ${
-                    sa.status === 'awaiting_approval' ? 'border-amber-500/25 bg-amber-500/[0.03]' :
-                    sa.status === 'active' ? 'border-emerald-500/15 bg-emerald-500/[0.02]' :
-                    'border-border/50'
-                  }`}>
+                  <div className={`flex-1 border rounded-lg p-2.5 transition-colors ${sa.status === 'awaiting_approval' ? 'border-amber-500/25 bg-amber-500/[0.03]' :
+                      sa.status === 'active' ? 'border-emerald-500/15 bg-emerald-500/[0.02]' :
+                        'border-border/50'
+                    }`}>
                     <div className="flex items-center gap-2">
                       <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                       <span className="text-text-secondary text-[10px]">{sa.sessionId.slice(0, 12)}</span>
@@ -483,8 +507,10 @@ function InstanceMiniTour({ setActiveTab }: { setActiveTab: (t: 'overview' | 'pr
       {!rect && <div className="absolute inset-0 bg-black/60" aria-hidden />}
       {rect && (
         <div className="absolute rounded-xl border-2 border-accent/80 bg-transparent transition-all duration-300 ease-out"
-          style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height,
-            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6), 0 0 30px 4px rgba(99,102,241,0.15)' }} />
+          style={{
+            left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6), 0 0 30px 4px rgba(99,102,241,0.15)'
+          }} />
       )}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-[420px] px-4">
         <div className="bg-surface-1 border border-accent/20 rounded-2xl shadow-2xl overflow-hidden"
@@ -947,22 +973,25 @@ function ProfileTab({ instanceId, instance, isRunning }: { instanceId: string; i
 
 // ── Workspace File Explorer ───────────────────────────────────────────────────
 
-function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning: boolean }) {
+function WorkspaceTab({ instanceId, instance }: { instanceId: string; instance: Instance }) {
   const [currentPath, setCurrentPath] = useState('/root/.openclaw/workspace');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
+  const isRunning = instance.status === 'running';
+  const containerReady = isContainerReady(instance);
+
   const { data: files, isLoading: filesLoading, error: filesError } = useQuery({
     queryKey: ['files', instanceId, currentPath],
     queryFn: () => listFiles(instanceId, currentPath),
-    enabled: isRunning,
+    enabled: containerReady,
     refetchInterval: autoRefresh ? 5000 : false,
   });
 
   const { data: fileContent, isLoading: contentLoading } = useQuery({
     queryKey: ['file-content', instanceId, selectedFile],
     queryFn: () => readFile(instanceId, selectedFile!),
-    enabled: !!selectedFile && isRunning,
+    enabled: !!selectedFile && containerReady,
   });
 
   if (!isRunning) {
@@ -971,6 +1000,16 @@ function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning
         <pre className="text-text-tertiary font-mono text-lg mb-2">( -_- )</pre>
         <p className="text-text-secondary font-mono text-sm">agent not running</p>
         <p className="text-text-tertiary font-mono text-[10px] mt-1">start the agent to browse its workspace</p>
+      </div>
+    );
+  }
+
+  if (!containerReady) {
+    return (
+      <div className="bg-surface-1 border border-border rounded-xl p-12 text-center">
+        <pre className="text-text-tertiary font-mono text-lg mb-2">( . . )</pre>
+        <p className="text-text-secondary font-mono text-sm">Agent is starting</p>
+        <p className="text-text-tertiary font-mono text-[10px] mt-1">Workspace will be available when the container is up</p>
       </div>
     );
   }
@@ -1053,9 +1092,8 @@ function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning
                         setSelectedFile(fullPath);
                       }
                     }}
-                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-[11px] font-mono transition-colors group ${
-                      isSelected ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-surface-2/50 hover:text-text-primary'
-                    }`}
+                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-[11px] font-mono transition-colors group ${isSelected ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-surface-2/50 hover:text-text-primary'
+                      }`}
                   >
                     <span className={`shrink-0 w-3 text-center ${entry.type === 'dir' ? 'text-accent' : 'text-text-tertiary'}`}>
                       {getFileIcon(entry)}
@@ -1203,222 +1241,217 @@ export function InstanceDetailPage() {
       <InstanceMiniTour setActiveTab={setActiveTab} />
 
       <div className="max-w-5xl mx-auto space-y-5 relative z-10">
-      <Link to="/" className="text-xs text-text-tertiary hover:text-text-secondary transition-colors font-mono inline-flex items-center gap-1.5">
-        <span>←</span> dashboard
-      </Link>
+        <Link to="/" className="text-xs text-text-tertiary hover:text-text-secondary transition-colors font-mono inline-flex items-center gap-1.5">
+          <span>←</span> dashboard
+        </Link>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl p-6" data-tour="tour-instance-header">
-        <div className="flex items-center gap-6">
-          {/* Face — clean, well-padded */}
-          <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
-            <AgentCharacter mission={mission} instance={instance} />
-          </div>
+        {/* ── Header ─────────────────────────────────────────────────────────── */}
+        <div className="bg-surface-1 border border-border rounded-xl p-6" data-tour="tour-instance-header">
+          <div className="flex items-center gap-6">
+            {/* Face — clean, well-padded */}
+            <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
+              <AgentCharacter mission={mission} instance={instance} />
+            </div>
 
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium font-mono shrink-0 ${
-                instance.status === 'running' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'
-              }`}>{instance.status}</span>
-              {(mission?.subAgents?.length ?? 0) > 0 && (
-                <span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full shrink-0">
-                  +{mission!.subAgents.length} sub-agent{mission!.subAgents.length !== 1 ? 's' : ''}
-                </span>
+            {/* Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 mb-1">
+                <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
+                <InstanceStatusBadge instance={instance} />
+                {(mission?.subAgents?.length ?? 0) > 0 && (
+                  <span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full shrink-0">
+                    +{mission!.subAgents.length} sub-agent{mission!.subAgents.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              {mission?.role && <p className="text-sm text-text-secondary font-mono">{mission.role}</p>}
+              {mission?.goal && mission.goal !== instance.name && (
+                <p className="text-xs text-text-tertiary font-mono mt-0.5">goal: {mission.goal}</p>
+              )}
+              {isContainerReady(instance) && (
+                <p className="text-xs text-amber-400/90 font-mono mt-2">
+                  Your Anthropic API key is in use while this instance is running. Stop the instance when not in use to avoid API spend. Memory will not be lost.
+                </p>
               )}
             </div>
-            {mission?.role && <p className="text-sm text-text-secondary font-mono">{mission.role}</p>}
-            {mission?.goal && mission.goal !== instance.name && (
-              <p className="text-xs text-text-tertiary font-mono mt-0.5">goal: {mission.goal}</p>
-            )}
-            {instance.status === 'running' && (
-              <p className="text-xs text-amber-400/90 font-mono mt-2">
-                Your Anthropic API key is in use while this instance is running. Stop the instance when not in use to avoid API spend.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
-      <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
-        {(['overview', 'profile', 'security', 'workspace'] as const).map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            data-tour={`tour-tab-${tab}`}
-            className={`px-5 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors ${
-              activeTab === tab
-                ? 'bg-accent/10 text-accent font-medium'
-                : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-2/50'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === 'workspace' ? (
-        <WorkspaceTab instanceId={instance.id} isRunning={instance.status === 'running'} />
-      ) : activeTab === 'profile' ? (
-        <ProfileTab instanceId={instance.id} instance={instance} isRunning={instance.status === 'running'} />
-      ) : activeTab === 'security' ? (
-        <CapabilitiesSection instance={instance} />
-      ) : (
-      <>
-      {/* ── At a Glance ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-3">
-        {/* Trust */}
-        <div className="bg-surface-1 border border-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Trust</span>
-            {dailyCounts.length > 1 && <Sparkline data={dailyCounts} color={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'} width={64} height={20} />}
-          </div>
-          <div className="flex items-end gap-2">
-            <span className={`text-2xl font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
-              {trust}
-            </span>
-            <div className="flex-1 mb-1.5">
-              <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-500 ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
-                  style={{ width: `${trust}%` }} />
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Cost */}
-        <div className="bg-surface-1 border border-border rounded-xl p-4">
-          <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Cost</div>
-          <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
-          <div className="text-[10px] text-text-tertiary font-mono mt-1">week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
+        {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
+        <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
+          {(['overview', 'profile', 'security', 'workspace'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              data-tour={`tour-tab-${tab}`}
+              className={`px-5 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors ${activeTab === tab
+                  ? 'bg-accent/10 text-accent font-medium'
+                  : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-2/50'
+                }`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
 
-        {/* Actions */}
-        <div className="bg-surface-1 border border-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Actions</span>
-            {dailyCounts.length > 1 && <Sparkline data={dailyCounts} width={64} height={20} />}
-          </div>
-          <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">{totalActions}</div>
-          {(mission?.progress?.pending ?? 0) > 0 && (
-            <div className="text-[10px] text-amber-400 font-mono mt-1">{mission!.progress!.pending} pending</div>
-          )}
-        </div>
-
-        {/* Score */}
-        <div className="bg-surface-1 border border-border rounded-xl p-4">
-          <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Score</div>
-          <div className={`text-2xl font-bold font-mono tabular-nums ${
-            contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
-          }`}>{contributionScore}</div>
-          <div className="text-[10px] text-text-tertiary font-mono mt-1">
-            {summary?.approvalEfficiency ? `${summary.approvalEfficiency} eff.` : 'no data'}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
-      {criticalFlags.length > 0 && (
-        <div className="space-y-2">
-          {criticalFlags.slice(0, 3).map(flag => (
-            <div key={flag.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
-              <div className="flex items-start gap-3">
-                <span className="font-mono text-red-400 text-[11px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-red-300 font-medium">{flag.title}</p>
-                  <p className="text-xs text-red-400/70 mt-1 truncate">{flag.description?.split('\n')[0]}</p>
-                  <div className="flex items-center gap-4 mt-2.5">
-                    <Link to="/audit" className="text-[11px] text-red-300 font-medium hover:text-red-200 font-mono">view audit →</Link>
-                    <button onClick={() => dismissMutation.mutate(flag.id)} className="text-[11px] text-red-400/30 hover:text-red-400/70 font-mono">dismiss</button>
+        {activeTab === 'workspace' ? (
+          <WorkspaceTab instanceId={instance.id} instance={instance} />
+        ) : activeTab === 'profile' ? (
+          <ProfileTab instanceId={instance.id} instance={instance} isRunning={isContainerReady(instance)} />
+        ) : activeTab === 'security' ? (
+          <CapabilitiesSection instance={instance} />
+        ) : (
+          <>
+            {/* ── At a Glance ───────────────────────────────────────────────────── */}
+            <div className="grid grid-cols-4 gap-3">
+              {/* Trust */}
+              <div className="bg-surface-1 border border-border rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Trust</span>
+                  {dailyCounts.length > 1 && <Sparkline data={dailyCounts} color={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'} width={64} height={20} />}
+                </div>
+                <div className="flex items-end gap-2">
+                  <span className={`text-2xl font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                    {trust}
+                  </span>
+                  <div className="flex-1 mb-1.5">
+                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-500 ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        style={{ width: `${trust}%` }} />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
 
-      {/* ── Activity Over Time ─────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Audit · Last 7 Days</h2>
-          {summary && (
-            <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
-              <span>denial rate: {summary.denialRate ?? '—'}</span>
-              <span>PRs: {summary.prsAndCommits ?? 0}</span>
-            </div>
-          )}
-        </div>
-        <ActivityChart
-          data={dailyCounts.length > 0 ? dailyCounts : [contributionScore]}
-          labels={byDay.length > 0 ? [byDay[0]?.date?.slice(5) ?? '', byDay[byDay.length - 1]?.date?.slice(5) ?? ''] : ['today', 'today']}
-        />
-      </div>
-
-      {/* ── Output + Categories side by side ──────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Output stats */}
-        <div className="bg-surface-1 border border-border rounded-xl p-5">
-          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Output</h3>
-          <div className="space-y-3">
-            {[
-              { label: 'Files Created', value: summary?.filesCreated ?? 0, color: 'text-blue-400' },
-              { label: 'Files Edited', value: summary?.filesEdited ?? 0, color: 'text-cyan-400' },
-              { label: 'Lines Written', value: summary?.linesWritten ?? 0, color: 'text-emerald-400' },
-              { label: 'Commands Run', value: summary?.commandsExecuted ?? 0, color: 'text-amber-400' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="flex items-center justify-between">
-                <span className="text-xs text-text-secondary font-mono">{label}</span>
-                <span className={`text-sm font-bold tabular-nums font-mono ${color}`}>{value}</span>
+              {/* Cost */}
+              <div className="bg-surface-1 border border-border rounded-xl p-4">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Cost</div>
+                <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
+                <div className="text-[10px] text-text-tertiary font-mono mt-1">week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Categories */}
-        <div className="bg-surface-1 border border-border rounded-xl p-5">
-          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Categories</h3>
-          {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
-            <PieChart breakdown={mission.categoryBreakdown} />
-          ) : (
-            <div className="text-xs text-text-tertiary font-mono py-4">no data yet</div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Agent Network ─────────────────────────────────────────────────── */}
-      <AgentNetwork mission={mission} instances={allInstances ?? []} />
-
-      {/* ── Recent audit ────────────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Recent audit</h3>
-          <Link to="/audit" className="text-[11px] text-accent hover:text-accent-bright font-mono">all →</Link>
-        </div>
-        {!activity?.data?.length ? (
-          <div className="p-10 text-center font-mono">
-            <div className="text-text-tertiary text-sm" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o ) no actions yet</div>
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {activity.data.slice(0, 10).map(item => (
-              <div key={item.id} className="px-5 py-3 flex items-center gap-4 text-sm hover:bg-surface-2/30 transition-colors">
-                <span className="text-[11px] text-text-tertiary w-14 shrink-0 font-mono tabular-nums">
-                  {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                <span className="text-text-primary truncate flex-1 text-xs">{item.humanDescription}</span>
-                <span className={`text-[11px] font-mono font-medium shrink-0 ${
-                  item.status === 'denied' ? 'text-red-400' : item.status === 'pending' ? 'text-amber-400' : 'text-emerald-400'
-                }`}>{item.status}</span>
+              {/* Actions */}
+              <div className="bg-surface-1 border border-border rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Actions</span>
+                  {dailyCounts.length > 1 && <Sparkline data={dailyCounts} width={64} height={20} />}
+                </div>
+                <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">{totalActions}</div>
+                {(mission?.progress?.pending ?? 0) > 0 && (
+                  <div className="text-[10px] text-amber-400 font-mono mt-1">{mission!.progress!.pending} pending</div>
+                )}
               </div>
-            ))}
-          </div>
+
+              {/* Score */}
+              <div className="bg-surface-1 border border-border rounded-xl p-4">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Score</div>
+                <div className={`text-2xl font-bold font-mono tabular-nums ${contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
+                  }`}>{contributionScore}</div>
+                <div className="text-[10px] text-text-tertiary font-mono mt-1">
+                  {summary?.approvalEfficiency ? `${summary.approvalEfficiency} eff.` : 'no data'}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
+            {criticalFlags.length > 0 && (
+              <div className="space-y-2">
+                {criticalFlags.slice(0, 3).map(flag => (
+                  <div key={flag.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="font-mono text-red-400 text-[11px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-red-300 font-medium">{flag.title}</p>
+                        <p className="text-xs text-red-400/70 mt-1 truncate">{flag.description?.split('\n')[0]}</p>
+                        <div className="flex items-center gap-4 mt-2.5">
+                          <Link to="/audit" className="text-[11px] text-red-300 font-medium hover:text-red-200 font-mono">view audit →</Link>
+                          <button onClick={() => dismissMutation.mutate(flag.id)} className="text-[11px] text-red-400/30 hover:text-red-400/70 font-mono">dismiss</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Activity Over Time ─────────────────────────────────────────────── */}
+            <div className="bg-surface-1 border border-border rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Audit · Last 7 Days</h2>
+                {summary && (
+                  <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
+                    <span>denial rate: {summary.denialRate ?? '—'}</span>
+                    <span>PRs: {summary.prsAndCommits ?? 0}</span>
+                  </div>
+                )}
+              </div>
+              <ActivityChart
+                data={dailyCounts.length > 0 ? dailyCounts : [contributionScore]}
+                labels={byDay.length > 0 ? [byDay[0]?.date?.slice(5) ?? '', byDay[byDay.length - 1]?.date?.slice(5) ?? ''] : ['today', 'today']}
+              />
+            </div>
+
+            {/* ── Output + Categories side by side ──────────────────────────────── */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* Output stats */}
+              <div className="bg-surface-1 border border-border rounded-xl p-5">
+                <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Output</h3>
+                <div className="space-y-3">
+                  {[
+                    { label: 'Files Created', value: summary?.filesCreated ?? 0, color: 'text-blue-400' },
+                    { label: 'Files Edited', value: summary?.filesEdited ?? 0, color: 'text-cyan-400' },
+                    { label: 'Lines Written', value: summary?.linesWritten ?? 0, color: 'text-emerald-400' },
+                    { label: 'Commands Run', value: summary?.commandsExecuted ?? 0, color: 'text-amber-400' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="flex items-center justify-between">
+                      <span className="text-xs text-text-secondary font-mono">{label}</span>
+                      <span className={`text-sm font-bold tabular-nums font-mono ${color}`}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Categories */}
+              <div className="bg-surface-1 border border-border rounded-xl p-5">
+                <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Categories</h3>
+                {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
+                  <PieChart breakdown={mission.categoryBreakdown} />
+                ) : (
+                  <div className="text-xs text-text-tertiary font-mono py-4">no data yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Agent Network ─────────────────────────────────────────────────── */}
+            <AgentNetwork mission={mission} instances={allInstances ?? []} />
+
+            {/* ── Recent audit ────────────────────────────────────────────────────── */}
+            <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+                <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Recent audit</h3>
+                <Link to="/audit" className="text-[11px] text-accent hover:text-accent-bright font-mono">all →</Link>
+              </div>
+              {!activity?.data?.length ? (
+                <div className="p-10 text-center font-mono">
+                  <div className="text-text-tertiary text-sm" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o ) no actions yet</div>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {activity.data.slice(0, 10).map(item => (
+                    <div key={item.id} className="px-5 py-3 flex items-center gap-4 text-sm hover:bg-surface-2/30 transition-colors">
+                      <span className="text-[11px] text-text-tertiary w-14 shrink-0 font-mono tabular-nums">
+                        {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span className="text-text-primary truncate flex-1 text-xs">{item.humanDescription}</span>
+                      <span className={`text-[11px] font-mono font-medium shrink-0 ${item.status === 'denied' ? 'text-red-400' : item.status === 'pending' ? 'text-amber-400' : 'text-emerald-400'
+                        }`}>{item.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         )}
-      </div>
-      </>
-      )}
 
       </div>
     </div>

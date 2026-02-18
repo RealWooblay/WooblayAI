@@ -246,6 +246,8 @@ export interface Instance {
   name: string;
   userId: string | null;
   status: string;
+  /** Live Docker container status e.g. "Up 2 minutes", "Restarting (1) 5 seconds ago", "Exited (0)". */
+  liveStatus?: string | null;
   agentRuntime: string;
   model: string;
   configJson: string | null;
@@ -278,6 +280,28 @@ export interface InstanceActionResponse {
   ok: boolean;
   message: string;
   containerId?: string;
+}
+
+/** Derive UI state from instance + optional pending actions. Uses liveStatus so "Online" only when container is actually Up. */
+export type AgentContainerState = 'offline' | 'starting' | 'restarting' | 'online' | 'stopping';
+
+export function getAgentContainerState(
+  instance: Instance,
+  opts?: { startPending?: boolean; stopPending?: boolean },
+): AgentContainerState {
+  if (opts?.stopPending) return 'stopping';
+  if (opts?.startPending) return 'starting';
+  if (instance.status !== 'running') return 'offline';
+  const live = instance.liveStatus ?? '';
+  if (live.includes('Restarting')) return 'restarting';
+  if (live.startsWith('Up ')) return 'online';
+  if (live.includes('Exited') || live.includes('Dead')) return 'offline';
+  return 'starting';
+}
+
+/** True only when container is Up and usable (e.g. for Workspace, mission). */
+export function isContainerReady(instance: Instance): boolean {
+  return getAgentContainerState(instance) === 'online';
 }
 
 export const getInstances = () =>

@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider } from '@clerk/clerk-react';
 import { ToastProvider } from './components/common/Toast.tsx';
-import { ThemeProvider } from './contexts/ThemeContext.tsx';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext.tsx';
 import App from './App.tsx';
 import './index.css';
 
@@ -19,8 +19,8 @@ const queryClient = new QueryClient({
   },
 });
 
-// Clerk dark theme to match Wooblay's dark UI
-const clerkAppearance = {
+// Clerk dark theme — matches Wooblay dark UI
+const CLERK_APPEARANCE_DARK = {
   baseTheme: undefined,
   variables: {
     colorPrimary: '#6366f1',
@@ -39,7 +39,6 @@ const clerkAppearance = {
     card: 'bg-[#111113] border border-white/10 shadow-xl',
     formButtonPrimary: 'bg-indigo-500 hover:bg-indigo-600',
     footerActionLink: 'text-indigo-400 hover:text-indigo-300',
-    // Organization components: force light-on-dark text everywhere
     organizationSwitcherTrigger: 'text-[#e4e4e7]',
     organizationPreview: 'text-[#e4e4e7]',
     organizationSwitcherTriggerIcon: 'text-[#a1a1aa]',
@@ -51,7 +50,6 @@ const clerkAppearance = {
     organizationSwitcherPopoverActionButtonText: 'text-[#e4e4e7]',
     organizationSwitcherPopoverActionButtonIcon: 'text-[#a1a1aa]',
     organizationSwitcherPopoverFooter: 'border-white/10',
-    // OrganizationProfile: ensure all inner text is light
     organizationProfilePage: 'text-[#e4e4e7]',
     profilePage: 'text-[#e4e4e7]',
     profileSectionTitle: 'text-[#e4e4e7]',
@@ -75,29 +73,88 @@ const clerkAppearance = {
   },
 };
 
-// Conditionally wrap with ClerkProvider only if key is present
-const AppWithProviders = CLERK_PUBLISHABLE_KEY ? (
-  <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} appearance={clerkAppearance}>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <ThemeProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
-        </ThemeProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
-  </ClerkProvider>
-) : (
+// Clerk light theme — matches Wooblay light UI
+const CLERK_APPEARANCE_LIGHT = {
+  baseTheme: undefined,
+  variables: {
+    colorPrimary: '#6366f1',
+    colorBackground: '#fafafa',
+    colorText: '#18181b',
+    colorTextSecondary: '#52525b',
+    colorInputBackground: '#ffffff',
+    colorInputText: '#18181b',
+    colorDanger: '#dc2626',
+    colorSuccess: '#16a34a',
+    colorWarning: '#ca8a04',
+    colorNeutral: '#52525b',
+    borderRadius: '0.5rem',
+  },
+  elements: {
+    card: 'bg-white border border-zinc-200 shadow-xl',
+    formButtonPrimary: 'bg-indigo-500 hover:bg-indigo-600',
+    footerActionLink: 'text-indigo-600 hover:text-indigo-700',
+    organizationSwitcherTrigger: 'text-[#18181b]',
+    organizationPreview: 'text-[#18181b]',
+    organizationSwitcherTriggerIcon: 'text-[#52525b]',
+    organizationPreviewTextContainer: 'text-[#18181b]',
+    organizationPreviewSecondaryIdentifier: 'text-[#52525b]',
+    organizationSwitcherPopoverCard: 'bg-white border border-zinc-200 shadow-xl',
+    organizationSwitcherPopoverActions: 'text-[#18181b]',
+    organizationSwitcherPopoverActionButton: 'text-[#18181b] hover:bg-zinc-50',
+    organizationSwitcherPopoverActionButtonText: 'text-[#18181b]',
+    organizationSwitcherPopoverActionButtonIcon: 'text-[#52525b]',
+    organizationSwitcherPopoverFooter: 'border-zinc-200',
+    organizationProfilePage: 'text-[#18181b]',
+    profilePage: 'text-[#18181b]',
+    profileSectionTitle: 'text-[#18181b]',
+    profileSectionContent: 'text-[#18181b]',
+    profileSectionPrimaryButton: 'text-[#18181b]',
+    membersPageInviteButton: 'bg-indigo-500 hover:bg-indigo-600',
+    tableHead: 'text-[#52525b]',
+    tableCell: 'text-[#18181b]',
+    tagInputContainer: 'bg-white border border-zinc-200 text-[#18181b]',
+    formFieldInput: 'bg-white border border-zinc-200 text-[#18181b]',
+    formFieldLabel: 'text-[#52525b]',
+    badge: 'text-[#18181b]',
+    breadcrumbs: 'text-[#52525b]',
+    breadcrumbsItem: 'text-[#52525b]',
+    breadcrumbsItemDivider: 'text-[#a1a1aa]',
+    modalContent: 'bg-white border border-zinc-200 shadow-xl',
+    modalBackdrop: 'bg-black/40',
+    navbarButton: 'text-[#18181b]',
+    headerTitle: 'text-[#18181b]',
+    headerSubtitle: 'text-[#52525b]',
+  },
+};
+
+function ClerkProviderWithTheme({ children }: { children: React.ReactNode }) {
+  const { resolved } = useTheme();
+  const appearance = resolved === 'light' ? CLERK_APPEARANCE_LIGHT : CLERK_APPEARANCE_DARK;
+  return (
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} appearance={appearance}>
+      {children}
+    </ClerkProvider>
+  );
+}
+
+const InnerApp = (
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
-      <ThemeProvider>
-        <ToastProvider>
-          <App />
-        </ToastProvider>
-      </ThemeProvider>
+      <ToastProvider>
+        <App />
+      </ToastProvider>
     </BrowserRouter>
   </QueryClientProvider>
+);
+
+const AppWithProviders = (
+  <ThemeProvider>
+    {CLERK_PUBLISHABLE_KEY ? (
+      <ClerkProviderWithTheme>{InnerApp}</ClerkProviderWithTheme>
+    ) : (
+      InnerApp
+    )}
+  </ThemeProvider>
 );
 
 createRoot(document.getElementById('root')!).render(

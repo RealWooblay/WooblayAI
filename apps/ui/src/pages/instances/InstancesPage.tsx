@@ -15,6 +15,8 @@ import {
   deleteInstance,
   updateInstance,
   getInstanceLogs,
+  getAgentContainerState,
+  ApiError,
 } from '../../api/client.ts';
 import type { Instance, CreateInstanceRequest } from '../../api/client.ts';
 import { Button } from '../../components/common/Button.tsx';
@@ -424,7 +426,22 @@ function InstanceCard({ instance }: { instance: Instance }) {
     onError: (err: Error) => toast(err.message, 'error'),
   };
 
-  const startMut = useMutation({ mutationFn: () => startInstance(instance.id), ...actionOpts });
+  const startMut = useMutation({
+    mutationFn: () => startInstance(instance.id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['instances'] }),
+    onError: (err: Error) => {
+      if (err instanceof ApiError && err.status === 503) {
+        try {
+          const body = JSON.parse(err.body) as { error?: string };
+          toast(body?.error ?? err.message, 'error');
+        } catch {
+          toast(err.message, 'error');
+        }
+      } else {
+        toast(err.message, 'error');
+      }
+    },
+  });
   const stopMut = useMutation({ mutationFn: () => stopInstance(instance.id), ...actionOpts });
   const restartMut = useMutation({ mutationFn: () => restartInstance(instance.id), ...actionOpts });
   const deleteMut = useMutation({
@@ -441,7 +458,9 @@ function InstanceCard({ instance }: { instance: Instance }) {
   });
 
   const anyLoading = startMut.isPending || stopMut.isPending || restartMut.isPending || deleteMut.isPending;
+  const containerState = getAgentContainerState(instance, { startPending: startMut.isPending, stopPending: stopMut.isPending });
   const isRunning = instance.status === 'running';
+  const statusForDot = containerState === 'offline' ? 'stopped' : containerState === 'online' ? 'running' : containerState;
 
   const loadLogs = async () => {
     try {
@@ -460,7 +479,7 @@ function InstanceCard({ instance }: { instance: Instance }) {
             onSave={(name) => renameMut.mutate(name)}
             className="text-sm font-semibold text-text-primary"
           />
-          <StatusDot status={instance.status} showLabel />
+          <StatusDot status={statusForDot} showLabel />
           {instance.telegramBot && (
             <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full">TG</span>
           )}
@@ -480,12 +499,12 @@ function InstanceCard({ instance }: { instance: Instance }) {
 
         {/* Actions */}
         <div className="flex items-center gap-2 flex-wrap">
-          {!isRunning && (
+          {containerState === 'offline' && (
             <Button size="xs" onClick={() => startMut.mutate()} disabled={anyLoading}>
-              {startMut.isPending ? 'Starting...' : 'Start'}
+              {startMut.isPending ? 'Starting…' : 'Start'}
             </Button>
           )}
-          {isRunning && (
+          {containerState !== 'offline' && (
             <>
               <Button size="xs" variant="secondary" onClick={() => restartMut.mutate()} disabled={anyLoading}>
                 {restartMut.isPending ? 'Restarting...' : 'Restart'}
