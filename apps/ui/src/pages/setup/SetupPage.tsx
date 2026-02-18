@@ -1,6 +1,5 @@
 /**
- * Setup — Integration guide, API keys, and quick-start for connecting external agents.
- * This is the primary onboarding surface for the firewall product.
+ * Setup — API keys and integration by agent type. Minimal, mode-specific instructions.
  */
 
 import { useState } from 'react';
@@ -9,9 +8,23 @@ import { Button } from '../../components/common/Button.tsx';
 import { getApiKeys, createApiKey, revokeApiKey, type ApiKeyInfo, type ApiKeyCreated } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
 
+type IntegrationMode = 'gpt' | 'claude' | 'mcp' | 'custom';
+
+const MODES: { id: IntegrationMode; label: string }[] = [
+  { id: 'gpt', label: 'GPT (OpenAI)' },
+  { id: 'claude', label: 'Claude' },
+  { id: 'mcp', label: 'MCP' },
+  { id: 'custom', label: 'Custom / API' },
+];
+
+const API_BASE = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? window.location.origin : '');
+const SPEC_URL = `${API_BASE}/api/gateway/spec`;
+const EXECUTE_URL = `${API_BASE}/api/gateway/execute`;
+
 export function SetupPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [mode, setMode] = useState<IntegrationMode | null>(null);
 
   const { data: apiKeys = [] } = useQuery({ queryKey: ['api-keys'], queryFn: getApiKeys });
   const [newKeyName, setNewKeyName] = useState('');
@@ -40,65 +53,23 @@ export function SetupPage() {
   });
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
-      <h1 className="text-lg font-bold text-text-primary mb-1">Setup</h1>
-      <p className="text-xs text-text-muted mb-6">
-        Connect any AI agent to Wooblay in under 5 minutes. All policy enforcement, credential isolation,
-        and secure execution applies automatically.
-      </p>
-
-      {/* Quick Start Guide */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-text-primary mb-3">Quick Start</h2>
-        <div className="space-y-3 text-[11px]">
-          <div className="flex gap-3 items-start">
-            <span className="shrink-0 w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center text-xs font-bold">1</span>
-            <div>
-              <p className="text-text-primary font-medium">Add a Connection</p>
-              <p className="text-text-muted mt-0.5">
-                Go to <a href="/connections" className="text-accent hover:text-accent-bright">Connections</a> and
-                add your service credentials (API keys, tokens). They're encrypted in the vault — your agents never see them.
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-3 items-start">
-            <span className="shrink-0 w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center text-xs font-bold">2</span>
-            <div>
-              <p className="text-text-primary font-medium">Configure Policies</p>
-              <p className="text-text-muted mt-0.5">
-                Set <a href="/policies" className="text-accent hover:text-accent-bright">Policies</a> to control
-                what actions are allowed, denied, or require human approval.
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-3 items-start">
-            <span className="shrink-0 w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center text-xs font-bold">3</span>
-            <div>
-              <p className="text-text-primary font-medium">Create an API Key</p>
-              <p className="text-text-muted mt-0.5">
-                Generate a key below and give it to your agent. The key inherits your connections and policies automatically.
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="max-w-2xl mx-auto space-y-5">
+      <div>
+        <h1 className="text-lg font-bold text-text-primary">Setup</h1>
+        <p className="text-xs text-text-muted mt-0.5">
+          One key, one endpoint. Connect <a href="/connections" className="text-accent hover:underline">connections</a> and set <a href="/policies" className="text-accent hover:underline">policies</a> first; the key inherits both.
+        </p>
       </div>
 
       {/* API Keys */}
       <div className="bg-surface-1 border border-border rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-text-primary mb-1">API Keys</h2>
-        <p className="text-xs text-text-muted mb-4">
-          Each key authenticates an external agent or framework against the Wooblay gateway.
-          Same policy enforcement, credential vault, and secure execution as hosted agents.
-        </p>
+        <h2 className="text-sm font-semibold text-text-primary mb-3">API Keys</h2>
 
-        {/* Created key banner */}
         {createdKey && (
-          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 mb-4">
-            <p className="text-xs font-semibold text-emerald-400 mb-2">
-              Key created — copy it now. It won't be shown again.
-            </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs bg-black/30 rounded px-3 py-2 text-emerald-300 font-mono break-all select-all">
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 mb-4">
+            <p className="text-[11px] font-medium text-emerald-400 mb-2">Copy now — won’t be shown again</p>
+            <div className="flex gap-2">
+              <code className="flex-1 text-xs bg-black/30 rounded px-2 py-1.5 text-emerald-300 font-mono break-all select-all">
                 {createdKey.key}
               </code>
               <button
@@ -107,151 +78,126 @@ export function SetupPage() {
                   setCopiedKey(true);
                   setTimeout(() => setCopiedKey(false), 2000);
                 }}
-                className="px-3 py-2 text-xs bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-lg transition-colors"
+                className="shrink-0 px-2 py-1.5 text-[11px] bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded"
               >
                 {copiedKey ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <button
-              onClick={() => setCreatedKey(null)}
-              className="text-[10px] text-text-muted hover:text-text-secondary mt-2"
-            >
-              Dismiss
-            </button>
+            <button onClick={() => setCreatedKey(null)} className="text-[10px] text-text-muted hover:text-text-secondary mt-1.5">Dismiss</button>
           </div>
         )}
 
-        {/* Existing keys */}
         {apiKeys.length > 0 && (
-          <div className="space-y-2 mb-4">
+          <div className="space-y-1.5 mb-4">
             {apiKeys.map((k: ApiKeyInfo) => (
-              <div key={k.id} className="flex items-center gap-3 bg-surface-2 rounded-lg p-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-text-primary font-medium">{k.name}</p>
-                    <code className="text-[10px] text-text-muted font-mono">{k.prefix}...</code>
-                  </div>
-                  <div className="flex gap-3 mt-0.5">
-                    <p className="text-[10px] text-text-muted">
-                      Created {new Date(k.createdAt).toLocaleDateString()}
-                    </p>
-                    {k.lastUsedAt && (
-                      <p className="text-[10px] text-text-muted">
-                        Last used {new Date(k.lastUsedAt).toLocaleDateString()}
-                      </p>
-                    )}
-                    {k.expiresAt && (
-                      <p className="text-[10px] text-amber-400/70">
-                        Expires {new Date(k.expiresAt).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => revokeKeyMut.mutate(k.id)}
-                  className="text-[10px] text-red-400/50 hover:text-red-400"
-                >
-                  Revoke
-                </button>
+              <div key={k.id} className="flex items-center justify-between bg-surface-2 rounded-lg px-3 py-2">
+                <span className="text-[11px] text-text-primary">{k.name}</span>
+                <code className="text-[10px] text-text-muted font-mono">{k.prefix}...</code>
+                <button onClick={() => revokeKeyMut.mutate(k.id)} className="text-[10px] text-red-400/70 hover:text-red-400">Revoke</button>
               </div>
             ))}
           </div>
         )}
 
-        {/* Create new key */}
-        <div className="space-y-3">
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block text-[11px] text-text-muted mb-1">Key Name</label>
-              <input
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="e.g. GPT Action, Claude MCP, CI Pipeline"
-                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-              />
-            </div>
-            <div className="w-32">
-              <label className="block text-[11px] text-text-muted mb-1">Expires in (days)</label>
-              <input
-                value={newKeyExpiry}
-                onChange={(e) => setNewKeyExpiry(e.target.value)}
-                placeholder="Never"
-                type="number"
-                min="1"
-                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-              />
-            </div>
+        <div className="flex gap-2 flex-wrap items-end">
+          <div className="flex-1 min-w-[140px]">
+            <label className="block text-[10px] text-text-muted mb-0.5">Name</label>
+            <input
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              placeholder="e.g. GPT, Claude, CI"
+              className="w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+            />
           </div>
-          <Button
-            size="sm"
-            onClick={() => newKeyName && createKeyMut.mutate()}
-            disabled={!newKeyName || createKeyMut.isPending}
-          >
-            Create API Key
+          <div className="w-24">
+            <label className="block text-[10px] text-text-muted mb-0.5">Expires (days)</label>
+            <input
+              value={newKeyExpiry}
+              onChange={(e) => setNewKeyExpiry(e.target.value)}
+              placeholder="—"
+              type="number"
+              min="1"
+              className="w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+            />
+          </div>
+          <Button size="sm" onClick={() => newKeyName && createKeyMut.mutate()} disabled={!newKeyName || createKeyMut.isPending}>
+            Create key
           </Button>
         </div>
       </div>
 
-      {/* Integration Guide */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-text-primary mb-1">Integration</h2>
-
-        {/* How it works */}
-        <div className="p-3 bg-surface-2 rounded-lg">
-          <p className="text-[11px] font-medium text-text-secondary mb-2">How it works</p>
-          <p className="text-[10px] text-text-muted">
-            External agents call the gateway with an action and parameters. Wooblay authenticates via API key,
-            resolves credentials from the vault, evaluates your policies, and executes in an ephemeral container.
-            The agent never sees the raw credentials — they're injected server-side and destroyed after execution.
-          </p>
+      {/* Choose integration → mode-specific instructions */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-text-primary mb-3">How will your agent connect?</h2>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setMode(m.id)}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${mode === m.id ? 'bg-accent text-white' : 'bg-surface-2 text-text-secondary hover:bg-surface-3 hover:text-text-primary'}`}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
 
-        {/* Example call */}
-        <div className="p-3 bg-surface-2 rounded-lg">
-          <p className="text-[11px] font-medium text-text-secondary mb-2">Example request</p>
-          <div className="space-y-1.5 text-[10px] text-text-muted font-mono bg-black/20 rounded p-2.5">
-            <p className="text-indigo-300">POST https://gate.wooblay.com/api/gateway/execute</p>
-            <p className="text-zinc-500">Authorization: Bearer wbl_ak_your_key_here</p>
-            <p className="text-zinc-500">Content-Type: application/json</p>
-            <p className="text-zinc-400 mt-1">{'{'} "action": "...", "params": {'{'} ... {'}'} {'}'}</p>
+        {mode && (
+          <div className="pt-2 border-t border-border">
+            {mode === 'gpt' && (
+              <>
+                <ul className="text-[11px] text-text-secondary space-y-1.5 list-disc list-inside mb-3">
+                  <li>In your GPT: Configure → Actions → Import from URL or paste the spec.</li>
+                  <li>Set authentication: Bearer token, paste your API key.</li>
+                  <li>The model will see the execute action and call it when it needs to run something.</li>
+                </ul>
+                <a href={SPEC_URL} download="wooblay-gateway-openapi.yaml" className="inline-flex items-center px-2.5 py-1.5 text-[11px] font-medium bg-accent/15 text-accent rounded-lg hover:bg-accent/25">
+                  Download OpenAPI spec
+                </a>
+              </>
+            )}
+            {mode === 'claude' && (
+              <>
+                <ul className="text-[11px] text-text-secondary space-y-1.5 list-disc list-inside mb-3">
+                  <li>Use an MCP server that forwards tool calls to the Wooblay gateway, or call the API from your app.</li>
+                  <li>Auth: <code className="bg-surface-2 px-1 rounded text-[10px]">Authorization: Bearer &lt;your-key&gt;</code></li>
+                  <li>Endpoint: <code className="bg-surface-2 px-1 rounded text-[10px]">POST /api/gateway/execute</code> with <code className="bg-surface-2 px-1 rounded text-[10px]">{"{ action, params }"}</code></li>
+                </ul>
+                <a href={SPEC_URL} download="wooblay-gateway-openapi.yaml" className="inline-flex items-center px-2.5 py-1.5 text-[11px] font-medium bg-accent/15 text-accent rounded-lg hover:bg-accent/25">
+                  Download OpenAPI spec
+                </a>
+              </>
+            )}
+            {mode === 'mcp' && (
+              <>
+                <ul className="text-[11px] text-text-secondary space-y-1.5 list-disc list-inside mb-3">
+                  <li>Expose a tool that POSTs to your gateway with the API key in the header.</li>
+                  <li>URL: <code className="bg-surface-2 px-1 rounded text-[10px] break-all">{EXECUTE_URL}</code></li>
+                  <li>Body: <code className="bg-surface-2 px-1 rounded text-[10px]">{"{ \"action\": \"...\", \"params\": { \"command\": \"...\", \"provider\": \"github\" } }"}</code></li>
+                </ul>
+                <a href={SPEC_URL} download="wooblay-gateway-openapi.yaml" className="inline-flex items-center px-2.5 py-1.5 text-[11px] font-medium bg-accent/15 text-accent rounded-lg hover:bg-accent/25">
+                  Download OpenAPI spec
+                </a>
+              </>
+            )}
+            {mode === 'custom' && (
+              <>
+                <ul className="text-[11px] text-text-secondary space-y-1.5 list-disc list-inside mb-3">
+                  <li><code className="bg-surface-2 px-1 rounded text-[10px]">POST /api/gateway/execute</code></li>
+                  <li>Header: <code className="bg-surface-2 px-1 rounded text-[10px]">Authorization: Bearer wbl_ak_...</code></li>
+                  <li>Body: <code className="bg-surface-2 px-1 rounded text-[10px]">{"{ action, params: { command, provider } }"}</code></li>
+                </ul>
+                <a href={SPEC_URL} download="wooblay-gateway-openapi.yaml" className="inline-flex items-center px-2.5 py-1.5 text-[11px] font-medium bg-accent/15 text-accent rounded-lg hover:bg-accent/25">
+                  Download OpenAPI spec
+                </a>
+              </>
+            )}
           </div>
-          <p className="text-[10px] text-text-muted mt-2">
-            Any action can be executed — provide the action name, command, and which provider&apos;s credentials to use.
-            Call <code className="text-[10px] bg-black/20 px-1 rounded">GET /api/gateway/capabilities</code> with
-            your API key to see which providers are connected.
-          </p>
-        </div>
+        )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-          <div className="p-3 bg-surface-2 rounded-lg">
-            <p className="text-[11px] font-medium text-text-secondary mb-1">GPT Actions</p>
-            <p className="text-[10px] text-text-muted">
-              Import the OpenAPI spec as a custom action. Set Bearer auth with your API key.
-            </p>
-          </div>
-          <div className="p-3 bg-surface-2 rounded-lg">
-            <p className="text-[11px] font-medium text-text-secondary mb-1">Claude MCP</p>
-            <p className="text-[10px] text-text-muted">
-              Bridge tool calls to the gateway via a thin MCP server.
-            </p>
-          </div>
-          <div className="p-3 bg-surface-2 rounded-lg">
-            <p className="text-[11px] font-medium text-text-secondary mb-1">Any Agent / Framework</p>
-            <p className="text-[10px] text-text-muted">
-              Any agent that can make HTTP calls can use the gateway as a secure execution backend.
-            </p>
-          </div>
-        </div>
-
-        <div className="p-3 bg-indigo-500/5 border border-indigo-500/15 rounded-lg">
-          <p className="text-[11px] font-medium text-indigo-300 mb-1">Security model</p>
-          <p className="text-[10px] text-indigo-400/60">
-            API key authenticates the caller and resolves the org. Credentials are pulled from the vault,
-            policy rules are evaluated, and the action executes in an ephemeral container that's destroyed
-            after. The external agent never touches raw secrets — they're injected server-side at execution time.
-            Everything you configure in Wooblay (connections, policies, scope boundaries) applies to external agents automatically.
-          </p>
-        </div>
+        <p className="text-[10px] text-text-muted mt-4 pt-3 border-t border-border/50">
+          Security model: API key → org → vault credentials; policy runs; action runs in an ephemeral container. Agent never sees secrets. Wire the gateway as the only path for credentialed actions.
+        </p>
       </div>
     </div>
   );

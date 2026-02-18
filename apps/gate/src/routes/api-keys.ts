@@ -31,12 +31,17 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/api/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
     const org = getOrgScope(request);
-    if (!org.orgId) {
+    let orgId = org.orgId;
+    if (!orgId) {
+      const fallback = await prisma.organization.findFirst({ select: { id: true } });
+      orgId = fallback?.id ?? null;
+    }
+    if (!orgId) {
       return reply.code(403).send({ error: 'Organization required to manage API keys' });
     }
 
     const keys = await prisma.apiKey.findMany({
-      where: { orgId: org.orgId, revokedAt: null },
+      where: { orgId, revokedAt: null },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -59,7 +64,12 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post('/api/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
     const org = getOrgScope(request);
-    if (!org.orgId) {
+    let orgId = org.orgId;
+    if (!orgId) {
+      const fallback = await prisma.organization.findFirst({ select: { id: true } });
+      orgId = fallback?.id ?? null;
+    }
+    if (!orgId) {
       return reply.code(403).send({ error: 'Organization required to create API keys' });
     }
 
@@ -82,7 +92,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
 
     const apiKey = await prisma.apiKey.create({
       data: {
-        orgId: org.orgId,
+        orgId,
         name: body.name.trim(),
         keyHash,
         prefix,
@@ -92,7 +102,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
 
     await persistEvent(prisma, {
       type: 'api_key.created',
-      data: { apiKeyId: apiKey.id, orgId: org.orgId, name: body.name.trim() },
+      data: { apiKeyId: apiKey.id, orgId, name: body.name.trim() },
     });
 
     return reply.code(201).send({
@@ -111,14 +121,19 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
    */
   app.delete('/api/api-keys/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     const org = getOrgScope(request);
-    if (!org.orgId) {
+    let orgId = org.orgId;
+    if (!orgId) {
+      const fallback = await prisma.organization.findFirst({ select: { id: true } });
+      orgId = fallback?.id ?? null;
+    }
+    if (!orgId) {
       return reply.code(403).send({ error: 'Organization required' });
     }
 
     const { id } = request.params as { id: string };
 
     const apiKey = await prisma.apiKey.findUnique({ where: { id } });
-    if (!apiKey || apiKey.orgId !== org.orgId) {
+    if (!apiKey || apiKey.orgId !== orgId) {
       return reply.code(404).send({ error: 'API key not found' });
     }
 
@@ -133,7 +148,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
 
     await persistEvent(prisma, {
       type: 'api_key.revoked',
-      data: { apiKeyId: id, orgId: org.orgId },
+      data: { apiKeyId: id, orgId },
     });
 
     return reply.send({ revoked: true });

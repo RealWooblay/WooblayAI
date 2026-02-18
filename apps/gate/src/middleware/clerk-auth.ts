@@ -37,6 +37,7 @@ const PUBLIC_PATHS = [
   '/api/sync/events',
   '/api/gateway/execute',
   '/api/gateway/capabilities',
+  '/api/gateway/spec',
   '/api/gateway/bypass-report',
 ];
 

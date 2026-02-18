@@ -32,6 +32,7 @@ import { simulateAction } from '../engine/simulate.js';
 import { executeSecureAction } from '../engine/secure-exec.js';
 import { classifyRisk, classifyCategory } from '../engine/risk.js';
 import { validateApiKey } from './api-keys.js';
+import { getGatewaySpecYaml } from '../spec/gateway-openapi.js';
 import { Decision } from '@wooblay/types';
 
 // ── Idempotency ─────────────────────────────────────────────────────────
@@ -104,6 +105,24 @@ async function resolveGatewayAuth(
 }
 
 export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
+  /**
+   * GET /api/gateway/spec
+   *
+   * OpenAPI spec for the gateway. Server URL is set from the request origin
+   * so the user gets a spec that points to their actual gate. Give this to
+   * your agent (e.g. import in GPT Actions) so it knows exactly what to send.
+   */
+  app.get('/api/gateway/spec', async (request: FastifyRequest, reply: FastifyReply) => {
+    const host = request.headers.host ?? 'localhost:4800';
+    const protocol = request.headers['x-forwarded-proto'] ?? request.protocol ?? 'https';
+    const serverUrl = `${protocol}://${host.split(',')[0].trim()}`;
+    const yaml = getGatewaySpecYaml(serverUrl);
+    return reply
+      .header('Content-Type', 'application/x-yaml')
+      .header('Content-Disposition', 'attachment; filename="wooblay-gateway-openapi.yaml"')
+      .send(yaml);
+  });
+
   /**
    * POST /api/gateway/execute
    *

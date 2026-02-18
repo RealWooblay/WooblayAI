@@ -9,10 +9,6 @@ import {
   updateSensorConfig,
   getWebhookUrl,
   initSensor,
-  updateScopeBoundaries,
-  getConnectionSecrets,
-  addConnectionSecret,
-  deleteConnectionSecret,
   getOrgPolicySettings,
 } from '../../api/client.ts';
 import { Spinner } from '../../components/common/Spinner.tsx';
@@ -27,87 +23,6 @@ const CONNECTION_TYPES: { id: string; label: string; description: string; availa
   { id: 'gcp', label: 'GCP', description: 'Deploy Cloud Run, manage GCS, read logs securely.', available: true, hasSensing: false, hasExecution: true },
   { id: 'webhook', label: 'Generic Webhook', description: 'Receive events from any system via URL. Coming soon.', available: false, hasSensing: true, hasExecution: false },
 ];
-
-// ── Scope Boundary Editor ─────────────────────────────────────────────
-
-function ScopeBoundaryEditor({ connection, onSave }: { connection: any; onSave: (boundaries: any) => void }) {
-  const actions = connection.execution?.actions ?? [];
-  const existing = connection.execution?.scopeBoundaries ?? [];
-
-  const [boundaries, setBoundaries] = useState<Record<string, { allowed: string; blocked: string }>>(() => {
-    const initial: Record<string, { allowed: string; blocked: string }> = {};
-    for (const sb of existing) {
-      initial[sb.action] = {
-        allowed: sb.allowed.join(', '),
-        blocked: sb.blocked.join(', '),
-      };
-    }
-    return initial;
-  });
-
-  const handleSave = () => {
-    const parsed: Record<string, { allowed: string[]; blocked: string[] }> = {};
-    for (const [action, { allowed, blocked }] of Object.entries(boundaries)) {
-      const allowList = allowed.split(',').map((s) => s.trim()).filter(Boolean);
-      const blockList = blocked.split(',').map((s) => s.trim()).filter(Boolean);
-      if (allowList.length > 0 || blockList.length > 0) {
-        parsed[action] = { allowed: allowList, blocked: blockList };
-      }
-    }
-    onSave(parsed);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h4 className="text-[11px] font-medium text-text-secondary">Scope Boundaries</h4>
-        <Button size="xs" onClick={handleSave}>Save boundaries</Button>
-      </div>
-      <p className="text-[10px] text-text-tertiary">
-        Control what each action can target. Use glob patterns: <code className="bg-surface-2 px-1 rounded">feature-*</code>, <code className="bg-surface-2 px-1 rounded">*</code>. Blocked takes precedence.
-      </p>
-      {actions.map((action: any) => (
-        <div key={action.action} className="bg-surface-2 border border-border rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <code className="text-[11px] font-mono text-accent">{action.action}</code>
-            <span className="text-[10px] text-text-tertiary">{action.description}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[9px] text-text-tertiary uppercase tracking-wider block mb-0.5">Allowed patterns</label>
-              <input
-                type="text"
-                value={boundaries[action.action]?.allowed ?? ''}
-                onChange={(e) => setBoundaries((prev) => ({
-                  ...prev,
-                  [action.action]: { ...prev[action.action] ?? { allowed: '', blocked: '' }, allowed: e.target.value },
-                }))}
-                placeholder="feature-*, fix/*"
-                className="w-full bg-surface-3 border border-border rounded px-2 py-1 text-[11px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-            </div>
-            <div>
-              <label className="text-[9px] text-text-tertiary uppercase tracking-wider block mb-0.5">Blocked patterns</label>
-              <input
-                type="text"
-                value={boundaries[action.action]?.blocked ?? ''}
-                onChange={(e) => setBoundaries((prev) => ({
-                  ...prev,
-                  [action.action]: { ...prev[action.action] ?? { allowed: '', blocked: '' }, blocked: e.target.value },
-                }))}
-                placeholder="main, master, production"
-                className="w-full bg-surface-3 border border-border rounded px-2 py-1 text-[11px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-            </div>
-          </div>
-        </div>
-      ))}
-      {actions.length === 0 && (
-        <p className="text-[10px] text-text-muted italic">No actions available for this provider.</p>
-      )}
-    </div>
-  );
-}
 
 // ── Event Rules Editor ────────────────────────────────────────────────
 // User declares WHAT they care about. AI handles the HOW.
@@ -356,14 +271,6 @@ export function ConnectionsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['connections'] });
       qc.invalidateQueries({ queryKey: ['sensors-status'] });
-    },
-  });
-
-  const scopeMut = useMutation({
-    mutationFn: ({ id, boundaries }: { id: string; boundaries: any }) =>
-      updateScopeBoundaries(id, boundaries),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['connections'] });
     },
   });
 
@@ -650,8 +557,6 @@ export function ConnectionsPage() {
         {connectionList.map((conn: any) => {
           const sensorData = sensorMap[conn.id];
           const sensing = conn.sensing ?? { enabled: false, config: null };
-          const rawExec = conn.execution ?? {};
-          const execution = { actions: rawExec.actions ?? [], scopeBoundaries: rawExec.scopeBoundaries ?? [], note: rawExec.note ?? '' };
           const isSensingCapable = conn.provider === 'github';
 
           return (
@@ -708,7 +613,7 @@ export function ConnectionsPage() {
               {/* Expanded Sections */}
               {expandedId === conn.id && (
                 <div className="border-t border-border">
-                  {/* Section Tabs */}
+                  {/* Section Tabs — only Sensing in full platform; execution is "one key, any action" */}
                   <div className="flex border-b border-border">
                     {isFullPlatform && isSensingCapable && (
                       <button
@@ -718,27 +623,15 @@ export function ConnectionsPage() {
                         Sensing
                       </button>
                     )}
-                    <button
-                      className={`px-4 py-2 text-[11px] font-medium transition-colors ${expandedSection === 'execution' ? 'text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary'}`}
-                      onClick={() => setExpandedSection(expandedSection === 'execution' ? null : 'execution')}
-                    >
-                      Execution
-                    </button>
-                    <button
-                      className={`px-4 py-2 text-[11px] font-medium transition-colors ${expandedSection === 'scope' ? 'text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary'}`}
-                      onClick={() => setExpandedSection(expandedSection === 'scope' ? null : 'scope')}
-                    >
-                      Scope Boundaries
-                    </button>
-                    <button
-                      className={`px-4 py-2 text-[11px] font-medium transition-colors ${expandedSection === 'secrets' ? 'text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary'}`}
-                      onClick={() => setExpandedSection(expandedSection === 'secrets' ? null : 'secrets')}
-                    >
-                      Secrets
-                    </button>
                   </div>
 
                   <div className="px-4 py-4 space-y-4">
+                    {/* One key, any action — no fixed list, no scope boundaries or extra secrets UI */}
+                    <div className="text-[11px] text-text-secondary rounded-lg bg-surface-2 border border-border p-3">
+                      <p className="font-medium text-text-primary mb-1">Execution</p>
+                      <p>One full-access key. Any action from your agent is sent through the gate and runs in an isolated container; the gate enforces your policy on every call. No fixed list of actions — no scope boundaries or extra secrets needed.</p>
+                    </div>
+
                     {/* Sensing Section */}
                     {expandedSection === 'sensing' && (
                       <>
@@ -792,45 +685,6 @@ export function ConnectionsPage() {
                       </>
                     )}
 
-                    {/* Execution Section */}
-                    {expandedSection === 'execution' && (
-                      <div>
-                        <h4 className="text-[11px] font-medium text-text-secondary mb-2">Available Actions</h4>
-                        <p className="text-[10px] text-text-tertiary mb-3">
-                          Actions your agents can execute through this connection. Each runs in an ephemeral container — agent never sees credentials.
-                        </p>
-                        <div className="grid gap-2">
-                          {execution.actions.map((action: any) => (
-                            <div key={action.action} className="bg-surface-2 border border-border rounded-lg px-3 py-2 flex items-center justify-between">
-                              <div>
-                                <code className="text-[11px] font-mono text-accent">{action.action}</code>
-                                <p className="text-[10px] text-text-tertiary mt-0.5">{action.description}</p>
-                              </div>
-                              <div className="flex gap-1">
-                                <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Ready</span>
-                              </div>
-                            </div>
-                          ))}
-                          {execution.actions.length === 0 && (
-                            <p className="text-[10px] text-text-muted italic">No actions available for this provider.</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Scope Boundaries Section */}
-                    {expandedSection === 'scope' && (
-                      <ScopeBoundaryEditor
-                        connection={conn}
-                        onSave={(boundaries) => scopeMut.mutate({ id: conn.id, boundaries })}
-                      />
-                    )}
-
-                    {/* Secrets Section */}
-                    {expandedSection === 'secrets' && (
-                      <SecretsEditor connectionId={conn.id} />
-                    )}
-
                     {/* Actions */}
                     {!expandedSection && (
                       <div className="flex gap-2 pt-2">
@@ -848,131 +702,6 @@ export function ConnectionsPage() {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-// ── Secrets Editor Component ──────────────────────────────────────────
-
-function SecretsEditor({ connectionId }: { connectionId: string }) {
-  const qc = useQueryClient();
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
-
-  const { data: secretsData, isLoading } = useQuery({
-    queryKey: ['connection-secrets', connectionId],
-    queryFn: () => getConnectionSecrets(connectionId),
-  });
-
-  const addMut = useMutation({
-    mutationFn: (secret: { key: string; value: string; mode: 'agent' | 'exec_only' }) =>
-      addConnectionSecret(connectionId, secret),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['connection-secrets', connectionId] });
-    },
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: (key: string) => deleteConnectionSecret(connectionId, key),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['connection-secrets', connectionId] });
-    },
-  });
-
-  const existing = secretsData?.secrets ?? [];
-  const execSecrets = existing.filter((s: any) => s.mode === 'exec_only');
-  const agentSecrets = existing.filter((s: any) => s.mode === 'agent');
-
-  const handleAdd = () => {
-    if (!newKey.trim() || !newValue.trim()) return;
-    const normalizedKey = newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-    addMut.mutate({ key: normalizedKey, value: newValue, mode: 'exec_only' });
-    setNewKey('');
-    setNewValue('');
-  };
-
-  return (
-    <div className="space-y-3">
-      <div>
-        <h4 className="text-[11px] font-medium text-text-secondary">Exec-Only Secrets</h4>
-        <p className="text-[10px] text-text-tertiary mt-1">
-          Credentials injected only into ephemeral secure execution containers. The agent never sees these values
-          — use for deploy keys, database passwords, and sensitive tokens.
-        </p>
-      </div>
-
-      {isLoading ? (
-        <Spinner size="sm" />
-      ) : (
-        <>
-          {execSecrets.length > 0 && (
-            <div className="space-y-1.5">
-              {execSecrets.map((s: any) => (
-                <div key={s.key} className="flex items-center gap-2 bg-surface-2 border border-border rounded-lg px-3 py-2">
-                  <code className="text-[11px] font-mono text-accent flex-1">{s.key}</code>
-                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
-                    EXEC ONLY
-                  </span>
-                  <span className="text-[10px] text-text-muted font-mono">••••••</span>
-                  <button
-                    onClick={() => deleteMut.mutate(s.key)}
-                    className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="bg-surface-2 border border-border rounded-lg p-3 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[9px] text-text-tertiary uppercase tracking-wider block mb-0.5">Key Name</label>
-                <input
-                  type="text"
-                  value={newKey}
-                  onChange={(e) => setNewKey(e.target.value)}
-                  placeholder="DEPLOY_KEY"
-                  className="w-full bg-surface-1 border border-border rounded px-2 py-1 text-[11px] text-text-primary font-mono placeholder:text-text-muted focus:border-accent focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-[9px] text-text-tertiary uppercase tracking-wider block mb-0.5">Value</label>
-                <input
-                  type="password"
-                  value={newValue}
-                  onChange={(e) => setNewValue(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full bg-surface-1 border border-border rounded px-2 py-1 text-[11px] text-text-primary font-mono placeholder:text-text-muted focus:border-accent focus:outline-none"
-                />
-              </div>
-            </div>
-            <Button size="xs" onClick={handleAdd} disabled={!newKey.trim() || !newValue.trim() || addMut.isPending}>
-              {addMut.isPending ? 'Adding...' : 'Add Exec-Only Secret'}
-            </Button>
-          </div>
-
-          {/* Show agent keys as read-only reference */}
-          {agentSecrets.length > 0 && (
-            <div className="mt-2 pt-3 border-t border-border/50">
-              <p className="text-[10px] text-text-muted mb-2">
-                Agent-accessible keys (managed from agent detail page):
-              </p>
-              <div className="space-y-1">
-                {agentSecrets.map((s: any) => (
-                  <div key={s.key} className="flex items-center gap-2 px-3 py-1.5 rounded bg-surface-2/30">
-                    <code className="text-[10px] font-mono text-text-secondary">{s.key}</code>
-                    <span className="text-[8px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      agent env
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
     </div>
   );
 }
