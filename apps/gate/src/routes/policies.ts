@@ -414,10 +414,17 @@ Suggest policy optimizations.`,
       const org = getOrgScope(request);
       let orgId = org.orgId;
 
-      // Fall back to first available org if JWT has no org_id (personal workspace)
+      // Resolve org when JWT has no org_id: use User's org from DB, then any org
       if (!orgId) {
-        const fallback = await prisma.organization.findFirst({ select: { id: true } });
-        orgId = fallback?.id ?? null;
+        const clerkUserId = (request as any).clerkUserId as string | undefined;
+        if (clerkUserId) {
+          const user = await prisma.user.findUnique({ where: { clerkId: clerkUserId }, select: { orgId: true } });
+          orgId = user?.orgId ?? null;
+        }
+        if (!orgId) {
+          const fallback = await prisma.organization.findFirst({ select: { id: true } });
+          orgId = fallback?.id ?? null;
+        }
       }
       if (!orgId) {
         return reply.send({ simulationThreshold: 'high', platformMode: 'firewall' });
@@ -447,10 +454,17 @@ Suggest policy optimizations.`,
       const org = getOrgScope(request);
       let orgId = org.orgId;
 
-      // Fall back to first available org if JWT has no org_id (personal workspace)
+      // Resolve org when JWT has no org_id: use User's org from DB, then any org
       if (!orgId) {
-        const fallback = await prisma.organization.findFirst({ select: { id: true } });
-        orgId = fallback?.id ?? null;
+        const clerkUserId = (request as any).clerkUserId as string | undefined;
+        if (clerkUserId) {
+          const user = await prisma.user.findUnique({ where: { clerkId: clerkUserId }, select: { orgId: true } });
+          orgId = user?.orgId ?? null;
+        }
+        if (!orgId) {
+          const fallback = await prisma.organization.findFirst({ select: { id: true } });
+          orgId = fallback?.id ?? null;
+        }
       }
       if (!orgId) {
         return reply.code(400).send({ error: 'No organization found. Create one in your account settings.' });
