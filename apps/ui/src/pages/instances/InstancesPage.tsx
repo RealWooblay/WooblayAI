@@ -459,7 +459,6 @@ function InstanceCard({ instance }: { instance: Instance }) {
 
   const anyLoading = startMut.isPending || stopMut.isPending || restartMut.isPending || deleteMut.isPending;
   const containerState = getAgentContainerState(instance, { startPending: startMut.isPending, stopPending: stopMut.isPending });
-  const isRunning = instance.status === 'running';
   const statusForDot = containerState === 'offline' ? 'stopped' : containerState === 'online' ? 'running' : containerState;
 
   const loadLogs = async () => {

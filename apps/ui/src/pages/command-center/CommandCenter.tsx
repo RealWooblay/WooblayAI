@@ -56,7 +56,7 @@ const MODELS: { id: string; label: string; tier: string }[] = [
 
 // ── Alive Agent Face ─────────────────────────────────────────────────────────
 
-function AgentFace({ mission, instance, isContainerUp }: { mission?: MissionData; instance: Instance; isContainerUp: boolean }) {
+function AgentFace({ mission, isContainerUp }: { mission?: MissionData; instance: Instance; isContainerUp: boolean }) {
   const [blink, setBlink] = useState(false);
 
   useEffect(() => {
@@ -364,7 +364,6 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
   const anyLoading = startMut.isPending || stopMut.isPending || restartMut.isPending || deleteMut.isPending;
   const containerState = getAgentContainerState(instance, { startPending: startMut.isPending, stopPending: stopMut.isPending });
   const isContainerUp = isContainerReady(instance);
-  const isRunning = instance.status === 'running';
 
   const trust = mission?.trustScore ?? 0;
   const cost = Number(mission?.estimatedCost ?? 0) || 0;
