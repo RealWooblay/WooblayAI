@@ -423,6 +423,12 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
             </span>
           </div>
 
+          {/* Running = API key in use — stop when not in use to avoid spend */}
+          {isRunning && (
+            <p className="text-[10px] text-text-muted font-mono mb-1.5">
+              Your Anthropic key is in use while running — stop when not in use to avoid API spend.
+            </p>
+          )}
           {/* Metrics row: trust bar + cost + actions */}
           {mission && (
             <div className="flex items-center gap-4">

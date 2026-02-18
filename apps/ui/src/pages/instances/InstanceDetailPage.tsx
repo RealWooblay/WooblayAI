@@ -1232,6 +1232,11 @@ export function InstanceDetailPage() {
             {mission?.goal && mission.goal !== instance.name && (
               <p className="text-xs text-text-tertiary font-mono mt-0.5">goal: {mission.goal}</p>
             )}
+            {instance.status === 'running' && (
+              <p className="text-xs text-amber-400/90 font-mono mt-2">
+                Your Anthropic API key is in use while this instance is running. Stop the instance when not in use to avoid API spend.
+              </p>
+            )}
           </div>
         </div>
       </div>

@@ -85,6 +85,8 @@ However, for reference on what customers should expect:
 
 A typical agent run uses 50K-200K tokens → **$0.05-$3.00 per run** depending on model.
 
+**Important for customers:** The OpenClaw runtime uses the customer's Anthropic (or OpenAI) API key **while the instance container is running**. That includes startup, idle behavior, Telegram bots, and any default or background behavior in OpenClaw — not only when the user explicitly sends a message. **Stop the instance when not in use to avoid unexpected API spend.** The UI shows a notice when an instance is running: "Your Anthropic key is in use — stop when not in use to avoid API spend."
+
 ---
 
 ## Per-Customer Cost Summary
