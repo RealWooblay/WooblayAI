@@ -9,7 +9,6 @@ import clsx from 'clsx';
 import { Button } from '../../components/common/Button.tsx';
 import { getApiKeys, createApiKey, revokeApiKey, getOrgPolicySettings, updateOrgPolicySettings, getInstances, createInstance, getMcpServers, type ApiKeyInfo, type ApiKeyCreated, type Instance } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
-import { Link } from 'react-router-dom';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? window.location.origin : '');
 const X_HANDLE_URL = 'https://x.com/wooblay';
