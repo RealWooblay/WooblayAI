@@ -1,8 +1,136 @@
-# Wooblay — External testing checklist
+# Wooblay — External testing
 
-Use this list to test the app end-to-end or hand to testers. Tick off as you go.
+Use this doc to test the app end-to-end or hand to testers. Includes step-by-step instructions for **Cursor**, **Claude Desktop**, and **HTTP API** integration.
 
-**Platform modes:** Wooblay has two modes. **Firewall** (default): CONNECT (Gateway, Credentials, Sensors), SECURE, MONITOR — no hosted agents, no Operations/Insights. **Full Platform**: adds AGENTS (dashboard) and PLATFORM (Operations, Insights). Unlock Full Platform via Settings > Platform Mode with the password from Wooblay.
+**Platform modes:** **Firewall** (default): Gateway, Credentials, Sensors, Policies, Approvals, Audit — no hosted agents, no Operations/Insights. **Full Platform**: adds Dashboard (agents), Operations, Insights. Unlock via **Settings > Platform Mode** with the password from Wooblay.
+
+---
+
+## Quick start — external integrations
+
+Before testing Cursor or Claude Desktop you need:
+
+1. **API key** — Gateway page → create a key, copy it (shown once).
+2. **MCP proxy** — Gateway page → "Your Firewall" → deploy a proxy (name + Deploy). Wait until status is `running`.
+3. **SSE endpoint** — After proxy is running, copy the endpoint shown (e.g. `https://wooblay.com/mcp/cmllpu4xl0001p901ehrxb86k`).
+4. **MCP tools** (optional) — Add at least one MCP server in "MCP Tools" (e.g. GitHub, Filesystem) so the proxy exposes tools.
+
+---
+
+## Cursor integration
+
+1. Open Cursor.
+2. Open **Settings** (gear or `Cmd/Ctrl + ,`) → **Cursor Settings** → **Features** → **MCP** (or search "MCP").
+3. Edit the MCP config file (e.g. `~/.cursor/mcp.json` or the path Cursor shows).
+4. Add Wooblay as an MCP server:
+
+```json
+{
+  "mcpServers": {
+    "wooblay": {
+      "url": "YOUR_SSE_ENDPOINT",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+Replace `YOUR_SSE_ENDPOINT` with your Gateway SSE URL (e.g. `https://wooblay.com/mcp/YOUR_INSTANCE_ID`).
+
+5. **Auth:** Cursor may prompt for auth or you may need to pass the API key. If your Wooblay deployment expects a Bearer token, use a config that supports headers. Example with env-based token:
+
+```json
+{
+  "mcpServers": {
+    "wooblay": {
+      "url": "https://wooblay.com/mcp/YOUR_INSTANCE_ID",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Replace `YOUR_API_KEY` with the key you created on the Gateway page, and `YOUR_INSTANCE_ID` with your proxy instance ID from the SSE URL.
+
+6. Restart Cursor or reload MCP servers (if there is an option).
+7. In a chat, ask the model to list tools or use a tool that you added (e.g. GitHub). Requests go through Wooblay; check **Gateway** page usage (calls, blocked, pending) and **Audit** for the activity log.
+
+**Checklist:**
+
+- [ ] API key created and copied.
+- [ ] Proxy deployed and status `running`.
+- [ ] SSE endpoint copied from Gateway page.
+- [ ] `mcp.json` (or equivalent) updated with Wooblay URL and optional `headers.Authorization`.
+- [ ] Cursor restarted / MCP reloaded.
+- [ ] Model can list or call Wooblay tools; Activity/Audit shows the call.
+
+---
+
+## Claude Desktop integration
+
+1. Get your **API key** and **SSE endpoint** from the Wooblay Gateway page (see Quick start).
+2. Open Claude Desktop config:
+   - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+3. Add the Wooblay MCP server:
+
+```json
+{
+  "mcpServers": {
+    "wooblay": {
+      "url": "YOUR_SSE_ENDPOINT",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Replace `YOUR_SSE_ENDPOINT` and `YOUR_API_KEY` with your values.
+
+4. Restart Claude Desktop.
+5. Start a new conversation; Claude should have access to the tools exposed by your Wooblay proxy. Trigger a tool call and verify in Wooblay **Gateway** (usage) and **Audit**.
+
+**Checklist:**
+
+- [ ] Config file updated with Wooblay `url`, `transport`, and `headers.Authorization`.
+- [ ] Claude Desktop restarted.
+- [ ] Tool call appears in Wooblay Audit.
+
+---
+
+## HTTP API (gateway execute)
+
+Use this to test the gateway without an MCP client.
+
+1. Create an **API key** on the Gateway page and copy it.
+2. Call the execute endpoint:
+
+```bash
+curl -X POST https://YOUR_DOMAIN/api/gateway/execute \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "exec:run",
+    "toolName": "github__create_issue",
+    "args": { "title": "Test", "repo": "org/repo" },
+    "connectionIds": []
+  }'
+```
+
+Replace `YOUR_DOMAIN` (e.g. `wooblay.com`) and `YOUR_API_KEY`. Adjust `toolName`, `args`, and `connectionIds` to match your policies and connections.
+
+3. Expect either a successful result or a clear error (e.g. 403 policy, 404 tool, missing connection). A valid key should not return 401.
+
+**Checklist:**
+
+- [ ] Request returns 2xx or a clear 4xx/5xx (not 401 with valid key).
+- [ ] If allowed, receipt appears in Audit.
 
 ---
 
@@ -11,162 +139,101 @@ Use this list to test the app end-to-end or hand to testers. Tick off as you go.
 - [ ] Sign up (email or OAuth)
 - [ ] Sign out and sign back in
 - [ ] Session persists after refresh
-- [ ] If onboarding is enabled: complete coupon/activation step to reach the app
+- [ ] If onboarding is enabled: complete coupon/activation to reach the app
 
 ---
 
 ## 2. Sidebar & navigation
 
-- [ ] **Firewall mode:** Sidebar shows CONNECT (Gateway, Credentials, Sensors), SECURE (Policies, Approvals), MONITOR (Activity, Notifications). No AGENTS or PLATFORM section.
-- [ ] **Full Platform mode:** Sidebar shows AGENTS, then CONNECT, SECURE, MONITOR, PLATFORM (Operations, Insights).
-- [ ] Organization switcher at top (Clerk) — switch org if you have multiple.
-- [ ] Tutorial and Settings links at bottom work.
-- [ ] Unknown URL redirects to `/operations` (or dashboard in firewall if operations hidden — check behavior).
+- [ ] **Firewall mode:** CONNECT (Gateway, Credentials, Sensors), SECURE (Approvals, Policies), MONITOR (Notifications, Audit). No AGENTS or PLATFORM.
+- [ ] **Full Platform mode:** Dashboard (AGENTS), then CONNECT, SECURE, MONITOR, PLATFORM (Operations, Insights).
+- [ ] Organization switcher (Clerk) works if you have multiple orgs.
+- [ ] Tutorial and Settings at bottom work.
+- [ ] Unknown URL redirects appropriately (e.g. dashboard or 404).
 
 ---
 
-## 3. Gateway & API keys (external agents)
+## 3. Gateway (firewall setup)
 
-- [ ] Go to **CONNECT > Gateway** (route `/setup`).
-- [ ] Page title: Setup; copy mentions credentials and policies.
-- [ ] **Create API key:** Name + optional expiry (days) → Create key. Key shown once — copy it.
-- [ ] Key appears in list with prefix; **Revoke** works.
-- [ ] Integration modes (GPT, Claude, MCP, Custom) show correct instructions and URLs.
-- [ ] **Test execute** (optional): `curl -X POST <API_BASE>/api/gateway/execute -H "Authorization: Bearer <key>" -H "Content-Type: application/json" -d '{"action":"test","params":{}}'` — expect 4xx/5xx with a clear error (e.g. connection/scope), not 401 if key is valid.
-- [ ] **Capabilities** (optional): `curl <API_BASE>/api/gateway/capabilities -H "Authorization: Bearer <key>"` — returns JSON (e.g. connected providers).
+- [ ] Go to **CONNECT > Gateway** (`/setup`).
+- [ ] **API Keys:** Create key (name + optional expiry) → key shown once → copy it. Key appears in list with prefix; Revoke works.
+- [ ] **Your Firewall:** If no proxy, deploy one (name + Deploy). If proxy exists: status badge, SSE endpoint with copy, usage (calls, blocked, pending). Delete proxy: click delete → confirm/cancel.
+- [ ] **Connection tabs:** Claude Desktop / Cursor / HTTP / cURL snippets match your endpoint and key placeholder.
+- [ ] **MCP Tools:** Add from catalog (e.g. GitHub, Filesystem) or custom server (name, transport, source, optional vault credentials). Configured list shows toggles and remove. Section only visible when a proxy exists.
+- [ ] **How It Works:** L1/L2/L3 summary visible. No Full Platform unlock on this page (use Settings).
 
 ---
 
 ## 4. Credentials & Sensors
 
-- [ ] **Credentials** (`/credentials`): List of credentials (execution-only or sensing). Add credential: name, type (e.g. GitHub), paste token/keys — Save. Shows Active/Inactive. No “Sensing” badge when adding execution-only credential.
-- [ ] **Sensors** (`/sensors`): Copy says to add a credential first. Webhook URL and secret per connection; sensor config; scope boundaries; available actions.
-- [ ] Create manual operation from UI; optionally trigger GitHub webhook to `/api/webhooks/github/:connectionId` and see operation appear (Full Platform).
+- [ ] **Credentials** (`/credentials`): List connections; add (provider/name/credential). Active/Inactive. Custom provider supported.
+- [ ] **Sensors** (`/sensors`): Only visible in Full Platform mode. Webhook URL and secret per connection; sensor config; event rules (free-form). Manual or webhook-triggered operations (Full Platform).
 
 ---
 
 ## 5. Dashboard — Agents (Full Platform only)
 
-- [ ] Home (`/`) shows list of agent instances or empty state.
-- [ ] **Deploy new agent:** open deploy form, fill name + model + API key, deploy.
-- [ ] New agent appears with correct name/status.
-- [ ] **Start** stopped agent → status running; **Stop** running → offline.
-- [ ] **Restart:** warning about memory (or that state is preserved); restart works.
-- [ ] **Config** (inline): change model/API key/Telegram; “requires restart” when relevant; save works.
-- [ ] **Logs:** open inline logs, see container output.
-- [ ] Trust bar and cost/actions show when agent is running.
-- [ ] Click instance name/card → instance detail.
+- [ ] Home (`/`) shows instances or empty state.
+- [ ] Deploy: choose **Proxy** or **Agent**. Proxy: name only. Agent: name, model, API key, channels.
+- [ ] Instance cards show type (Agent/Proxy), status, tool count or model.
+- [ ] Start / Stop / Restart work; status updates (may take a short time after restart).
+- [ ] Config and Logs (for agents). Click instance → detail.
 
 ---
 
-## 6. Instance detail — Overview
+## 6. Instance detail
 
-- [ ] Mission/status and current action (or “Idle”).
-- [ ] Sub-agents section (if any) correct.
-- [ ] Anomaly alerts (if any) with link to activity.
-- [ ] Tabs: **Overview**, **Profile**, **Security**, **Workspace**.
-
----
-
-## 7. Instance detail — Profile
-
-- [ ] **Quick edit:** Role + Goal; “Save profile” updates DB and writes SOUL.md + IDENTITY.md (no restart).
-- [ ] “SOUL.md + IDENTITY.md (live from container)”: both files load.
-- [ ] Role/Goal pre-fill from live SOUL.md when available.
-- [ ] Edit SOUL.md / IDENTITY.md raw → Save → content persists.
-- [ ] Warning: “Save profile overwrites… To keep agent-evolved content, edit the files below.”
+- [ ] **Overview:** Status, endpoint (proxy), or mission/action (agent). Tabs: Overview, Profile (agents), Security (Access), Workspace (agents).
+- [ ] **Security (Access):** MCP servers, credentials (e.g. GitHub, AWS, GCP, custom). Add/edit/remove tools and credential links.
+- [ ] **Profile / Workspace:** As applicable for agents only.
 
 ---
 
-## 8. Instance detail — Security (Access)
+## 7. Activity / Audit
 
-- [ ] **Risk warning** visible: “Direct Access — Bypasses Tool Gateway” with link to Sensors.
-- [ ] **GitHub:** expand, paste token, Save → shows “configured”.
-- [ ] **AWS / GCP:** add keys, Save → shows “configured”.
-- [ ] Changing credentials doesn’t require restart (hot-inject).
-
----
-
-## 9. Instance detail — Workspace
-
-- [ ] Default path `/root/.openclaw/workspace` (or equivalent); directory listing loads.
-- [ ] **~** (home) goes to `/root`; click folder → navigate; breadcrumbs work.
-- [ ] Click file → content loads or download.
-- [ ] **Download** file works.
-- [ ] **Live** checkbox: off = no auto-refresh; on = refetch every 5s. With agent writing files, see new files appear.
+- [ ] Audit shows tool calls and receipts.
+- [ ] Filters (date, risk, status). Expand row for details.
+- [ ] Export if available.
 
 ---
 
-## 10. Activity
+## 8. Policies
 
-- [ ] Chain integrity banner (verified / issues).
-- [ ] Session summary (counts, AI flags).
-- [ ] **Anomaly flags:** Dismiss single; **Dismiss all** clears active.
-- [ ] **Show dismissed:** toggles list; pagination/arrows work.
-- [ ] Filters: date range, risk, status.
-- [ ] Action log: expand row for details (tool, risk, receipt).
-- [ ] Pagination when > 30 items.
-- [ ] Export JSON / Export CSV.
+- [ ] Global rules; no agent dropdown in firewall mode.
+- [ ] Add/edit/disable/delete rules. Presets and suggestions if enabled.
+- [ ] AI Security Supervisor / suggestions if configured.
 
 ---
 
-## 11. Policies
+## 9. Approvals
 
-- [ ] **Global only:** No agent dropdown. Header shows “X rules — apply to all agents in this org”.
-- [ ] **No rules:** empty state says monitor-only mode; AI detection still runs.
-- [ ] **Presets:** click preset → confirm replace → rules apply.
-- [ ] **AI Security Supervisor:** Enable → analysis runs; summary and suggestions appear.
-- [ ] **Suggestions:** Apply single → suggestion disappears; **Apply all** / **Dismiss all** behave correctly.
-- [ ] **Duplicate:** applying same suggestion again (or existing rule) prevented or marked “already exists”.
-- [ ] **Add rules with AI:** prompt → Create → rules created if AI responds.
-- [ ] Advanced: expand, see all rules; toggle enable/disable; delete rule.
+- [ ] Pending actions list. Approve / Deny; activity updates.
 
 ---
 
-## 12. Operations & Approvals (Full Platform)
+## 10. Settings
 
-- [ ] **Operations** (`/operations`): list shows routing status (auto_routed / pending / unassigned); inline Approve / Assign / Dismiss.
-- [ ] **Operation detail** (`/operations/:id`): routing, runs list, create run.
-- [ ] **Approvals:** pending actions appear; Approve / Deny updates activity.
-
----
-
-## 13. Settings
-
-- [ ] **Profile:** name, email shown.
-- [ ] **Account:** Plan (e.g. Beta Access), member since.
-- [ ] **Appearance:** Dark / Light / System — switch and see UI update; preference persists.
+- [ ] Profile, Account, Appearance (theme persists).
 - [ ] **Platform Mode:** Firewall vs Full Platform; unlock with password when gated.
-- [ ] **Session:** Sign out works.
-- [ ] Organization is **not** in Settings (only in sidebar org switcher).
+- [ ] Sign out works.
 
 ---
 
-## 14. Edge cases & errors
+## 11. Edge cases
 
-- [ ] Workspace with agent **stopped** → clear message (e.g. “agent not running” or empty).
-- [ ] Profile with agent stopped → message that profile needs agent running.
-- [ ] Invalid API key or config → error message (no silent fail).
-- [ ] 404 / missing instance → handled (redirect or error message).
-- [ ] Long names/roles truncate (no layout break).
-- [ ] Simulation timeout/failure: gateway and tool routes **block** execution (503 or DENY), not allow-through.
-
----
-
-## 15. Cross-browser / device (optional)
-
-- [ ] Chrome/Edge
-- [ ] Safari (if available)
-- [ ] Mobile: layout usable, key flows work
+- [ ] Stopped agent: workspace/profile show clear message.
+- [ ] Invalid API key or bad config → clear error (no silent fail).
+- [ ] 404 / missing instance → handled.
+- [ ] Simulation/gateway failure → execution blocked (e.g. DENY or 503), not allowed through.
 
 ---
 
 ## Quick handoff
 
 1. Share app URL (e.g. `https://wooblay.com`) and this doc.
-2. Sign up and complete onboarding if required.
-3. **Firewall:** Gateway (create API key), Credentials, Sensors, Policies, Activity.
-4. **Full Platform:** Add Agents (deploy one), instance detail (Overview, Profile, Security, Workspace), Operations, Approvals.
+2. **External testing:** Create API key + deploy proxy on Gateway → copy SSE endpoint → configure Cursor or Claude Desktop (or call HTTP API). Verify in Gateway usage and Audit.
+3. **Firewall:** Gateway, Credentials, Policies, Approvals, Audit.
+4. **Full Platform:** Add Dashboard (deploy proxy/agent), instance detail, Operations, Approvals.
 5. Note anything broken, unclear, or slow — and which section.
 
 ---
