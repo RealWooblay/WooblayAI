@@ -3,7 +3,7 @@ name: Build & Deploy
 on:
   push:
     branches: [mvp, main]
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch: # Manual trigger — run from Actions tab if you pushed to another branch
 
 env:
   AWS_REGION: us-east-1
