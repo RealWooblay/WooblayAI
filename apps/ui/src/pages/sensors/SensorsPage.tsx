@@ -175,10 +175,10 @@ export function SensorsPage() {
                         toggleSensorMut.mutate({ id: conn.id, enabled: !sensing.enabled });
                       }}
                       title={sensing.enabled ? 'Pause sensing' : 'Enable sensing'}
-                      className={`relative h-6 w-11 shrink-0 rounded-full p-1 transition-colors ${sensing.enabled ? 'bg-accent' : 'bg-surface-3'}`}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${sensing.enabled ? 'bg-accent' : 'bg-surface-3'}`}
                     >
                       <span
-                        className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${sensing.enabled ? 'translate-x-3' : 'translate-x-0'}`}
+                        className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${sensing.enabled ? 'translate-x-5' : 'translate-x-0'}`}
                       />
                     </button>
                     <span className="text-[10px] text-text-muted">{expandedId === conn.id ? '▲' : '▼'}</span>

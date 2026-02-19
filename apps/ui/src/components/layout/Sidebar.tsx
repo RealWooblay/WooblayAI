@@ -109,10 +109,10 @@ export function Sidebar() {
   const platformMode = (orgSettings as any)?.platformMode ?? 'firewall';
   const isFullPlatform = platformMode === 'full';
 
-  // Group nav items: agents only when full platform; platform section only when full
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (item.section === 'agents') return isFullPlatform;
     if (item.section === 'platform') return isFullPlatform;
+    if (item.to === '/sensors') return isFullPlatform;
     return true;
   });
 

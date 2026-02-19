@@ -766,22 +766,47 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       try {
         execSync(`docker rm -f "${containerName}" 2>/dev/null || true`, { timeout: 10_000, stdio: 'pipe' });
       } catch { /* ignore */ }
-      execSync(`cd "${dir}" && docker compose up -d`, { timeout: 30_000, stdio: 'pipe' });
 
-      let containerId: string | null = null;
-      try {
-        containerId = execSync(
-          `docker ps -q --filter "name=^${containerName}$"`,
-          { timeout: 5000, stdio: 'pipe' },
-        ).toString().trim() || null;
-      } catch { }
+      await prisma.instance.update({ where: { id }, data: { status: 'provisioning' } });
 
-      await prisma.instance.update({
-        where: { id },
-        data: { status: 'running', containerId },
+      // Run compose up in background so we don't block the HTTP response
+      const doStart = async () => {
+        try {
+          execSync(`cd "${dir}" && docker compose up -d`, { timeout: 120_000, stdio: 'pipe' });
+        } catch (upErr: any) {
+          request.log.error(upErr, `docker compose up -d failed for ${instance.name}`);
+          await prisma.instance.update({ where: { id }, data: { status: 'error' } }).catch(() => {});
+          return;
+        }
+
+        // Poll for container readiness (up to 30s)
+        let containerId: string | null = null;
+        for (let attempt = 0; attempt < 6; attempt++) {
+          await new Promise((r) => setTimeout(r, 5000));
+          try {
+            const out = execSync(
+              `docker ps -q --filter "name=^${containerName}$" --filter "status=running"`,
+              { timeout: 5000, stdio: 'pipe' },
+            ).toString().trim();
+            if (out) { containerId = out; break; }
+          } catch { /* retry */ }
+        }
+
+        if (containerId) {
+          await prisma.instance.update({ where: { id }, data: { status: 'running', containerId } });
+          request.log.info(`Instance ${instance.name} started successfully`);
+        } else {
+          request.log.warn(`Instance ${instance.name} — container not running after start`);
+          await prisma.instance.update({ where: { id }, data: { status: 'error' } }).catch(() => {});
+        }
+      };
+
+      doStart().catch(async (err) => {
+        request.log.error(err, `Start failed for ${instance.name}`);
+        await prisma.instance.update({ where: { id }, data: { status: 'error' } }).catch(() => {});
       });
 
-      return reply.send({ ok: true, message: `Instance ${instance.name} starting`, containerId });
+      return reply.send({ ok: true, message: `Instance ${instance.name} starting` });
     } catch (err: any) {
       request.log.error(err, 'Failed to start instance');
       return reply.code(500).send({ error: `Start failed: ${err.message}` });
@@ -857,18 +882,35 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
             execSync(`cd "${dir}" && docker compose kill`, { timeout: 10_000, stdio: 'pipe' });
           } catch { /* best effort */ }
         }
-        execSync(`cd "${dir}" && docker compose up -d`, { timeout: 30_000, stdio: 'pipe' });
 
-        let containerId: string | null = null;
         try {
-          containerId = execSync(
-            `docker ps -q --filter "name=${containerName}"`,
-            { timeout: 5000, stdio: 'pipe' },
-          ).toString().trim() || null;
-        } catch { }
+          execSync(`cd "${dir}" && docker compose up -d`, { timeout: 120_000, stdio: 'pipe' });
+        } catch (upErr) {
+          request.log.error(upErr, `docker compose up -d failed for ${instance.name}`);
+          await prisma.instance.update({ where: { id }, data: { status: 'error' } }).catch(() => {});
+          return;
+        }
 
-        await prisma.instance.update({ where: { id }, data: { status: 'running', containerId } });
-        request.log.info(`Instance ${instance.name} restarted successfully`);
+        // Poll for container readiness (up to 30s)
+        let containerId: string | null = null;
+        for (let attempt = 0; attempt < 6; attempt++) {
+          await new Promise((r) => setTimeout(r, 5000));
+          try {
+            const out = execSync(
+              `docker ps -q --filter "name=^${containerName}$" --filter "status=running"`,
+              { timeout: 5000, stdio: 'pipe' },
+            ).toString().trim();
+            if (out) { containerId = out; break; }
+          } catch { /* retry */ }
+        }
+
+        if (containerId) {
+          await prisma.instance.update({ where: { id }, data: { status: 'running', containerId } });
+          request.log.info(`Instance ${instance.name} restarted successfully`);
+        } else {
+          request.log.warn(`Instance ${instance.name} — container not running after restart`);
+          await prisma.instance.update({ where: { id }, data: { status: 'error' } }).catch(() => {});
+        }
       };
 
       doRestart().catch(async (err) => {

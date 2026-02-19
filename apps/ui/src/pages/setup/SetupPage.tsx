@@ -210,34 +210,64 @@ export function SetupPage() {
         </p>
       </div>
 
-      {/* ── Instance Picker ────────────────────────────────────────────── */}
+      {/* ── HTTP API ─────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-text-primary mb-1">HTTP API</h2>
+        <p className="text-[10px] text-text-muted mb-3">
+          Use the REST API directly for any integration. All three security layers apply.
+        </p>
+        <div className="mb-3">
+          <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-1.5">Gateway Endpoint</div>
+          <code className="block bg-surface-0 border border-border px-4 py-3 rounded-lg text-sm font-mono text-text-primary break-all select-all">
+            {API_BASE}/api/gateway/execute
+          </code>
+        </div>
+        <pre className="bg-surface-0 border border-border rounded-lg p-4 text-xs font-mono text-text-secondary overflow-x-auto whitespace-pre">
+{`POST /api/gateway/execute
+Authorization: Bearer wbl_ak_...
+Content-Type: application/json
+
+{
+  "action": "exec:run",
+  "toolName": "github-tools__create_pr",
+  "args": { "title": "...", "base": "main" },
+  "connectionIds": ["conn_id_here"]
+}`}
+        </pre>
+      </div>
+
+      {/* ── MCP Proxy Endpoint ─────────────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-text-primary mb-1">MCP Proxy</h2>
+        <p className="text-[10px] text-text-muted mb-3">
+          Connect MCP-speaking agents (Claude Desktop, Cursor, custom) through the security gate.
+        </p>
+
         {instances.length === 0 ? (
-          <div className="text-center py-6">
-            <p className="text-sm text-text-secondary mb-4">Create an instance to get your MCP endpoint.</p>
-            <Link to="/instances">
-              <Button>Create Instance</Button>
+          <div className="text-center py-6 bg-surface-0 rounded-lg border border-border">
+            <p className="text-sm text-text-secondary mb-3">Deploy an instance to get your MCP endpoint.</p>
+            <Link to="/">
+              <Button>Go to Dashboard</Button>
             </Link>
           </div>
-        ) : instances.length === 1 ? (
-          /* Auto-selected single instance — just show the config */
-          <ConnectionConfig sseEndpoint={sseEndpoint} />
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
-              {instances.map((inst: Instance) => (
-                <InstancePickerCard
-                  key={inst.id}
-                  instance={inst}
-                  selected={inst.id === selectedId}
-                  onClick={() => setSelectedId(inst.id)}
-                />
-              ))}
-            </div>
+            {instances.length > 1 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                {instances.map((inst: Instance) => (
+                  <InstancePickerCard
+                    key={inst.id}
+                    instance={inst}
+                    selected={inst.id === selectedId}
+                    onClick={() => setSelectedId(inst.id)}
+                  />
+                ))}
+              </div>
+            )}
             {selected ? (
               <ConnectionConfig sseEndpoint={sseEndpoint} />
             ) : (
-              <p className="text-sm text-text-muted text-center py-4">Select an instance above to see its connection config.</p>
+              <p className="text-sm text-text-muted text-center py-4">Select an instance above to see its MCP config.</p>
             )}
           </>
         )}

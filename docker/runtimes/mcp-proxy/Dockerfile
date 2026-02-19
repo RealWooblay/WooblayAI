@@ -6,6 +6,18 @@
 # every tool call through the Wooblay Gate, and routes credentialed tools
 # to Layer 3 ephemeral execution.
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── Stage 1: Build TypeScript ────────────────────────────────────────────
+FROM node:20-slim AS build
+
+WORKDIR /app
+
+COPY apps/mcp-proxy/package.json apps/mcp-proxy/package-lock.json* apps/mcp-proxy/tsconfig.json ./
+COPY apps/mcp-proxy/src ./src
+
+RUN npm install && npx tsc -b
+
+# ── Stage 2: Production ─────────────────────────────────────────────────
 FROM node:20-slim
 
 RUN apt-get update -qq && \
@@ -18,7 +30,7 @@ WORKDIR /app
 COPY apps/mcp-proxy/package.json ./
 RUN npm install --omit=dev && npm cache clean --force
 
-COPY apps/mcp-proxy/dist ./dist
+COPY --from=build /app/dist ./dist
 
 USER node
 EXPOSE 3100
