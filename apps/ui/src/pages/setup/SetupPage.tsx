@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Button } from '../../components/common/Button.tsx';
-import { getApiKeys, createApiKey, revokeApiKey, getOrgPolicySettings, updateOrgPolicySettings, getInstances, getMcpServers, type ApiKeyInfo, type ApiKeyCreated, type Instance } from '../../api/client.ts';
+import { getApiKeys, createApiKey, revokeApiKey, getOrgPolicySettings, updateOrgPolicySettings, getInstances, createInstance, getMcpServers, type ApiKeyInfo, type ApiKeyCreated, type Instance } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
 import { Link } from 'react-router-dom';
 
@@ -136,6 +136,43 @@ Authorization: Bearer wbl_ak_...
   );
 }
 
+function DeployProxyInline() {
+  const [name, setName] = useState('');
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const createMut = useMutation({
+    mutationFn: () => createInstance({ name, instanceType: 'proxy' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instances'] });
+      toast('MCP Proxy deployed — configure tools in its detail view', 'success');
+      setName('');
+    },
+    onError: (err: any) => toast(`Deploy failed: ${err.message}`, 'error'),
+  });
+
+  return (
+    <div className="bg-surface-0 rounded-lg border border-border p-5">
+      <p className="text-sm text-text-secondary mb-3">Deploy an MCP Proxy to get your secure endpoint.</p>
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <label className="block text-[10px] text-text-muted mb-1">Proxy name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && name.trim() && createMut.mutate()}
+            placeholder="e.g. my-firewall"
+            className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50"
+          />
+        </div>
+        <Button onClick={() => createMut.mutate()} disabled={!name.trim() || createMut.isPending}>
+          {createMut.isPending ? 'Deploying…' : 'Deploy Proxy'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function SetupPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -244,12 +281,7 @@ Content-Type: application/json
         </p>
 
         {instances.length === 0 ? (
-          <div className="text-center py-6 bg-surface-0 rounded-lg border border-border">
-            <p className="text-sm text-text-secondary mb-3">Deploy an instance to get your MCP endpoint.</p>
-            <Link to="/">
-              <Button>Go to Dashboard</Button>
-            </Link>
-          </div>
+          <DeployProxyInline />
         ) : (
           <>
             {instances.length > 1 && (

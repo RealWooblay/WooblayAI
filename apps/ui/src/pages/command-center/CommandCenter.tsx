@@ -579,28 +579,84 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
   );
 }
 
+// ── Inline Proxy Deploy ──────────────────────────────────────────────────────
+
+function InlineProxyDeployForm({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [name, setName] = useState('');
+
+  const createMut = useMutation({
+    mutationFn: () => createInstance({ name, instanceType: 'proxy' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['instances'] });
+      toast('MCP Proxy deployed — configure tools in the detail view', 'success');
+      onClose();
+    },
+    onError: (err) => toast(`Deploy failed: ${err.message}`, 'error'),
+  });
+
+  return (
+    <div className="rounded-xl border border-violet-500/30 bg-surface-1 p-5 space-y-3 animate-slide-in-up">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs text-violet-400 uppercase tracking-wider font-mono font-medium">Deploy MCP Proxy</h3>
+        <button onClick={onClose} className="text-text-tertiary hover:text-text-secondary text-xs font-mono">cancel</button>
+      </div>
+      <p className="text-[10px] text-text-muted">
+        Secure MCP firewall for external agents (Claude Desktop, Cursor, etc). No hosted agent — just the security membrane.
+      </p>
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <label className="text-[9px] text-text-tertiary font-mono block mb-1">Name</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. my-firewall"
+            onKeyDown={e => e.key === 'Enter' && name.trim() && createMut.mutate()}
+            className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50" />
+        </div>
+        <Button size="xs" onClick={() => createMut.mutate()} disabled={!name.trim() || createMut.isPending}>
+          {createMut.isPending ? 'deploying...' : 'deploy'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Firewall Dashboard (firewall mode) ───────────────────────────────────────
 
 function FirewallDashboard() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats, refetchInterval: 5_000 });
   const { data: approvals } = useQuery({ queryKey: ['approvals', 'pending'], queryFn: getApprovals, refetchInterval: 5_000 });
   const { data: apiKeys = [] } = useQuery({ queryKey: ['api-keys'], queryFn: getApiKeys });
+  const { data: instances } = useQuery({ queryKey: ['instances'], queryFn: getInstances, refetchInterval: 5_000 });
+
+  const [proxyDeployOpen, setProxyDeployOpen] = useState(false);
 
   const pending = approvals ?? [];
   const totalActions = stats?.totalToolCalls ?? 0;
   const pendingApprovals = stats?.pendingApprovals ?? 0;
   const deniedActions = stats?.byDecision?.DENY ?? 0;
+  const proxyInstances = (instances ?? []).filter(i => i.instanceType === 'proxy');
 
   return (
     <div className="h-full overflow-y-auto p-6 canvas-bg relative">
       <div className="max-w-3xl mx-auto space-y-5 relative z-10">
         {/* Header */}
-        <div>
-          <h1 className="text-lg font-bold text-text-primary font-mono">&gt; wooblay gate</h1>
-          <p className="text-xs text-text-muted mt-1">
-            AI agent firewall — policy enforcement, credential isolation, secure execution.
-          </p>
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-text-primary font-mono">&gt; wooblay gate</h1>
+            <p className="text-xs text-text-muted mt-1">
+              AI agent firewall — policy enforcement, credential isolation, secure execution.
+            </p>
+          </div>
+          <button onClick={() => setProxyDeployOpen(!proxyDeployOpen)}
+            className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
+              proxyDeployOpen ? 'bg-violet-500/10 text-violet-400' : 'bg-accent text-white hover:bg-accent-bright'
+            }`}>
+            {proxyDeployOpen ? 'cancel' : '+ deploy proxy'}
+          </button>
         </div>
+
+        {/* Inline proxy deploy */}
+        {proxyDeployOpen && <InlineProxyDeployForm onClose={() => setProxyDeployOpen(false)} />}
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-3">
@@ -622,6 +678,25 @@ function FirewallDashboard() {
           </div>
         </div>
 
+        {/* Proxy instances */}
+        {proxyInstances.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-[10px] text-text-muted uppercase tracking-wider font-mono">MCP Proxies</h2>
+            {proxyInstances.map(inst => (
+              <Link key={inst.id} to={`/instances/${inst.id}`}
+                className="flex items-center justify-between bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors">
+                <div className="flex items-center gap-3">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-violet-500/10 text-violet-400">Proxy</span>
+                  <span className="text-sm font-medium text-text-primary font-mono">{inst.name}</span>
+                </div>
+                <span className={`text-[10px] font-mono ${inst.status === 'running' ? 'text-emerald-400' : inst.status === 'error' ? 'text-red-400' : 'text-text-muted'}`}>
+                  {inst.status}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+
         {/* Pending approvals alert */}
         {pending.length > 0 && (
           <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
@@ -642,8 +717,8 @@ function FirewallDashboard() {
         {/* Quick Actions */}
         <div className="grid grid-cols-3 gap-3">
           <Link to="/setup" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
-            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Setup &rarr;</p>
-            <p className="text-[10px] text-text-muted">Create API keys and connect your agents</p>
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Gateway &rarr;</p>
+            <p className="text-[10px] text-text-muted">API keys, endpoints, connect config</p>
           </Link>
           <Link to="/credentials" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
             <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Credentials &rarr;</p>
@@ -661,7 +736,7 @@ function FirewallDashboard() {
             <p className="text-sm text-text-secondary mb-2">No API keys yet</p>
             <p className="text-xs text-text-muted mb-4">Create your first API key to connect an external agent to Wooblay.</p>
             <Link to="/setup">
-              <Button size="sm">Go to Setup</Button>
+              <Button size="sm">Go to Gateway</Button>
             </Link>
           </div>
         )}
@@ -705,7 +780,7 @@ function FullPlatformDashboard() {
   const { data: approvals } = useQuery({ queryKey: ['approvals', 'pending'], queryFn: getApprovals, refetchInterval: 5_000 });
   const { data: flagsData } = useQuery({ queryKey: ['flags', 'dashboard'], queryFn: () => getFlags({ dismissed: 'false', limit: '5' }), refetchInterval: 10_000 });
 
-  const [deployOpen, setDeployOpen] = useState(false);
+  const [deployOpen, setDeployOpen] = useState<false | 'agent' | 'proxy'>(false);
 
   const allInstances = instances ?? [];
   const running = allInstances.filter(i => i.status === 'running');
@@ -762,17 +837,26 @@ function FullPlatformDashboard() {
               </div>
             )}
           </div>
-          <button onClick={() => setDeployOpen(!deployOpen)}
-            data-tour="tour-deploy"
-            className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
-              deployOpen ? 'bg-accent/10 text-accent' : 'bg-accent text-white hover:bg-accent-bright'
-            }`}>
-            {deployOpen ? 'cancel' : '+ deploy agent'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setDeployOpen(deployOpen === 'proxy' ? false : 'proxy')}
+              className={`text-xs font-mono px-3 py-2 rounded-lg transition-colors ${
+                deployOpen === 'proxy' ? 'bg-violet-500/10 text-violet-400' : 'bg-surface-1 border border-border text-text-secondary hover:border-violet-500/50 hover:text-violet-400'
+              }`}>
+              {deployOpen === 'proxy' ? 'cancel' : '+ proxy'}
+            </button>
+            <button onClick={() => setDeployOpen(deployOpen === 'agent' ? false : 'agent')}
+              data-tour="tour-deploy"
+              className={`text-xs font-mono px-3 py-2 rounded-lg transition-colors ${
+                deployOpen === 'agent' ? 'bg-accent/10 text-accent' : 'bg-accent text-white hover:bg-accent-bright'
+              }`}>
+              {deployOpen === 'agent' ? 'cancel' : '+ agent'}
+            </button>
+          </div>
         </div>
 
         {/* Inline Deploy */}
-        {deployOpen && <InlineDeployForm onClose={() => setDeployOpen(false)} />}
+        {deployOpen === 'agent' && <InlineDeployForm onClose={() => setDeployOpen(false)} />}
+        {deployOpen === 'proxy' && <InlineProxyDeployForm onClose={() => setDeployOpen(false)} />}
 
         {/* Critical Flags */}
         {criticalFlags.length > 0 && (
@@ -814,10 +898,10 @@ function FullPlatformDashboard() {
               <div className="space-y-3">
                 <SetupStep
                   number={1}
-                  title="Deploy an Agent"
-                  description="Start your first AI agent. It will run in an isolated container with full coding capabilities."
+                  title="Deploy an Instance"
+                  description="Deploy a hosted agent or an MCP proxy for external agents. Both are secured by the Gate."
                   done={false}
-                  action={() => setDeployOpen(true)}
+                  action={() => setDeployOpen('agent')}
                   actionLabel="Deploy Agent"
                 />
                 <SetupStep

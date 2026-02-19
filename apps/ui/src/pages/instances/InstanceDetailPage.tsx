@@ -364,9 +364,9 @@ function AgentNetwork({ mission, instances }: { mission?: MissionData; instances
                 <div key={sa.sessionId} className="flex items-start gap-2">
                   <span className="text-border mt-2 text-[10px] select-none">{isLast ? '└─' : '├─'}</span>
                   <div className={`flex-1 border rounded-lg p-2.5 transition-colors ${sa.status === 'awaiting_approval' ? 'border-amber-500/25 bg-amber-500/[0.03]' :
-                      sa.status === 'active' ? 'border-emerald-500/15 bg-emerald-500/[0.02]' :
-                        'border-border/50'
-                    }`}>
+                    sa.status === 'active' ? 'border-emerald-500/15 bg-emerald-500/[0.02]' :
+                    'border-border/50'
+                  }`}>
                     <div className="flex items-center gap-2">
                       <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                       <span className="text-text-secondary text-[10px]">{sa.sessionId.slice(0, 12)}</span>
@@ -806,13 +806,13 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
                     <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20">
                       agent-visible
                     </span>
-                  </div>
+          </div>
                   <button
                     onClick={() => delMut.mutate(s.key)}
                     className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
                   >
                     remove
-                  </button>
+        </button>
                 </div>
               ))}
             </div>
@@ -850,8 +850,8 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
             <p className="text-[10px] text-red-400 font-mono mt-2">
               Failed to add — {(addMut.error as any)?.body ?? 'check server logs'}
             </p>
-          )}
-        </div>
+        )}
+      </div>
       )}
 
       {/* Quick links */}
@@ -933,7 +933,7 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
           >
             browse registry
           </a>
-          <button
+        <button
             onClick={() => setShowSearch(!showSearch)}
             disabled={!containerOnline}
             title={!containerOnline ? 'Start the agent to install skills' : undefined}
@@ -957,20 +957,20 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
           {installed.map((skill: InstalledSkill) => (
             <div key={skill.name} className="bg-surface-2/50 rounded-lg p-3 group">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
                   <code className="text-[11px] text-text-primary font-mono">{skill.name}</code>
                   <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">
                     skill
                   </span>
-                </div>
+          </div>
                 <button
                   onClick={() => removeMut.mutate(skill.name)}
                   disabled={removeMut.isPending}
                   className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
                 >
                   remove
-                </button>
+        </button>
               </div>
               {skill.description && (
                 <p className="text-[10px] text-text-muted mt-1.5 ml-3.5 truncate">{skill.description}</p>
@@ -988,7 +988,7 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
       {showSearch && (
         <div className="border border-border rounded-lg p-4 space-y-3 bg-surface-0/50">
           <div className="flex gap-2">
-            <input
+              <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -1002,7 +1002,7 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
             >
               {searchLoading ? 'Searching...' : 'Search'}
             </button>
-          </div>
+            </div>
 
           {searchError && (
             <p className="text-[10px] text-amber-400 font-mono">
@@ -1029,7 +1029,7 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
                         {skill.stars > 0 && (
                           <span className="text-[9px] text-text-muted font-mono">{skill.stars} stars</span>
                         )}
-                      </div>
+            </div>
                       {skill.description && (
                         <p className="text-[10px] text-text-muted mt-0.5 truncate">{skill.description}</p>
                       )}
@@ -1042,8 +1042,8 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
                           ))}
                         </div>
                       )}
-                    </div>
-                    <button
+            </div>
+            <button
                       onClick={() => !isInstalled && installMut.mutate(skill.slug)}
                       disabled={isInstalled || isInstalling}
                       className={`shrink-0 ml-3 px-3 py-1.5 rounded text-[10px] font-mono font-medium transition-colors ${
@@ -1053,12 +1053,12 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
                       }`}
                     >
                       {isInstalled ? 'installed' : isInstalling ? 'installing...' : 'install'}
-                    </button>
+            </button>
                   </div>
                 );
               })}
-            </div>
-          )}
+          </div>
+        )}
 
           {searchTerm && !searchLoading && results.length === 0 && !searchError && (
             <p className="text-[10px] text-text-muted font-mono py-2 text-center">
@@ -1070,8 +1070,8 @@ function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: {
             <p className="text-[10px] text-red-400 font-mono">
               Install failed: {(installMut.error as any)?.body ?? (installMut.error as Error)?.message ?? 'Unknown error'}
             </p>
-          )}
-        </div>
+        )}
+      </div>
       )}
     </div>
   );
@@ -1215,7 +1215,7 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
           {servers.map((s: McpServerConfig) => (
             <div key={s.id} className="bg-surface-2/50 rounded-lg p-3 group">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
                   <button
                     onClick={() => toggleMut.mutate({ id: s.id, enabled: !s.enabled })}
                     disabled={toggleMut.isPending}
@@ -1264,8 +1264,8 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
                   >
                     remove
                   </button>
-                )}
-              </div>
+            )}
+          </div>
               <div className="mt-1.5 flex items-center gap-3 flex-wrap">
                 <span className="text-[10px] text-text-muted font-mono truncate">{s.source}</span>
                 {s.connections && s.connections.map((c: any) => (
@@ -1280,7 +1280,7 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
                     className="text-[9px] font-mono text-accent hover:text-accent-bright transition-colors"
                   >
                     edit credentials
-                  </button>
+        </button>
                 )}
               </div>
               {editingCredsServerId === s.id && (
@@ -1343,16 +1343,16 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
       {/* Add server form */}
       {showAdd && (
         <div className="border border-border rounded-lg p-4 space-y-3 bg-surface-0/50">
-          <div className="flex gap-2">
+              <div className="flex gap-2">
             <div className="flex-1">
               <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Name</label>
-              <input
+                <input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
                 placeholder="github-tools"
                 className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
-              />
-            </div>
+                />
+              </div>
             <div className="w-24">
               <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Transport</label>
               <select
@@ -1366,17 +1366,17 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
             </div>
           </div>
 
-          <div>
+            <div>
             <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
               {newTransport === 'stdio' ? 'Package / Command' : 'SSE URL'}
             </label>
-            <input
+              <input
               value={newSource}
               onChange={(e) => setNewSource(e.target.value)}
               placeholder={newTransport === 'stdio' ? 'npx @modelcontextprotocol/server-github' : 'https://mcp.example.com/sse'}
               className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
-            />
-          </div>
+              />
+            </div>
 
           {/* Connection selection — vault-backed credentials */}
           <div>
@@ -1389,7 +1389,7 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
             {activeConns.length > 0 ? (
               <div className="space-y-1">
                 {activeConns.map((c: any) => (
-                  <button
+            <button
                     key={c.id}
                     type="button"
                     onClick={() => toggleConn(c.id)}
@@ -1410,15 +1410,15 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
                     </span>
                     <span className="text-text-primary">{c.name}</span>
                     <span className="text-text-muted">{c.provider}</span>
-                  </button>
+            </button>
                 ))}
-              </div>
+          </div>
             ) : (
               <p className="text-[9px] text-text-muted py-2">
                 No active connections. <Link to="/credentials" className="text-accent hover:underline">Add one on Credentials</Link> first.
               </p>
-            )}
-          </div>
+        )}
+      </div>
 
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => { setShowAdd(false); setSelectedConnIds([]); }}
@@ -1900,7 +1900,7 @@ function WorkspaceTab({ instanceId, instance }: { instanceId: string; instance: 
                       }
                     }}
                     className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-[11px] font-mono transition-colors group ${isSelected ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-surface-2/50 hover:text-text-primary'
-                      }`}
+                    }`}
                   >
                     <span className={`shrink-0 w-3 text-center ${entry.type === 'dir' ? 'text-accent' : 'text-text-tertiary'}`}>
                       {getFileIcon(entry)}
@@ -2064,22 +2064,22 @@ export function InstanceDetailPage() {
       <InstanceMiniTour setActiveTab={setActiveTab} />
 
       <div className="max-w-5xl mx-auto space-y-5 relative z-10">
-        <Link to="/" className="text-xs text-text-tertiary hover:text-text-secondary transition-colors font-mono inline-flex items-center gap-1.5">
-          <span>←</span> dashboard
-        </Link>
+      <Link to="/" className="text-xs text-text-tertiary hover:text-text-secondary transition-colors font-mono inline-flex items-center gap-1.5">
+        <span>←</span> dashboard
+      </Link>
 
-        {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
         <div className="bg-surface-1 border border-border rounded-xl p-6" data-tour="tour-instance-header">
-          <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6">
             {instance.instanceType !== 'proxy' && (
-              <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
-                <AgentCharacter mission={mission} instance={instance} />
-              </div>
+          <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
+            <AgentCharacter mission={mission} instance={instance} />
+          </div>
             )}
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
                 <InstanceStatusBadge instance={instance} />
                 <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 ${
                   instance.instanceType === 'proxy'
@@ -2089,18 +2089,18 @@ export function InstanceDetailPage() {
                   {instance.instanceType === 'proxy' ? 'MCP Proxy' : instance.agentRuntime}
                 </span>
                 {instance.instanceType !== 'proxy' && (mission?.subAgents?.length ?? 0) > 0 && (
-                  <span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full shrink-0">
-                    +{mission!.subAgents.length} sub-agent{mission!.subAgents.length !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
+                <span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full shrink-0">
+                  +{mission!.subAgents.length} sub-agent{mission!.subAgents.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
               {instance.instanceType === 'proxy' ? (
                 <p className="text-xs text-text-tertiary font-mono mt-1">Secure MCP firewall for external agents</p>
               ) : (
                 <>
-                  {mission?.role && <p className="text-sm text-text-secondary font-mono">{mission.role}</p>}
-                  {mission?.goal && mission.goal !== instance.name && (
-                    <p className="text-xs text-text-tertiary font-mono mt-0.5">goal: {mission.goal}</p>
+            {mission?.role && <p className="text-sm text-text-secondary font-mono">{mission.role}</p>}
+            {mission?.goal && mission.goal !== instance.name && (
+              <p className="text-xs text-text-tertiary font-mono mt-0.5">goal: {mission.goal}</p>
                   )}
                   {isContainerReady(instance) && (
                     <p className="text-xs text-amber-400/90 font-mono mt-2">
@@ -2141,30 +2141,30 @@ export function InstanceDetailPage() {
               )}
               {instance.liveStatus && (
                 <span className="text-[9px] font-mono text-text-muted text-center">{instance.liveStatus}</span>
-              )}
-            </div>
+            )}
           </div>
         </div>
+      </div>
 
-        {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
-        <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
+      {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
+      <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
           {(instance.instanceType === 'proxy'
             ? (['overview', 'tools'] as const)
             : (['overview', 'profile', 'tools', 'workspace'] as const)
           ).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
               data-tour={`tour-tab-${tab}`}
               className={`px-5 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors ${activeTab === tab
-                  ? 'bg-accent/10 text-accent font-medium'
-                  : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-2/50'
-                }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
+                ? 'bg-accent/10 text-accent font-medium'
+                : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-2/50'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
 
         {activeTab === 'workspace' && instance.instanceType !== 'proxy' ? (
           <WorkspaceTab instanceId={instance.id} instance={instance} />
@@ -2174,158 +2174,158 @@ export function InstanceDetailPage() {
           <CapabilitiesSection instance={instance} />
         ) : instance.instanceType === 'proxy' ? (
           <ProxyOverview instance={instance} />
-        ) : (
-          <>
-            {/* ── At a Glance ───────────────────────────────────────────────────── */}
-            <div className="grid grid-cols-4 gap-3">
-              {/* Trust */}
-              <div className="bg-surface-1 border border-border rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Trust</span>
-                  {dailyCounts.length > 1 && <Sparkline data={dailyCounts} color={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'} width={64} height={20} />}
-                </div>
-                <div className="flex items-end gap-2">
-                  <span className={`text-2xl font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
-                    {trust}
-                  </span>
-                  <div className="flex-1 mb-1.5">
-                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-500 ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
-                        style={{ width: `${trust}%` }} />
-                    </div>
-                  </div>
-                </div>
+      ) : (
+      <>
+      {/* ── At a Glance ───────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-4 gap-3">
+        {/* Trust */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Trust</span>
+            {dailyCounts.length > 1 && <Sparkline data={dailyCounts} color={trust > 70 ? '#34d399' : trust > 40 ? '#fbbf24' : '#f87171'} width={64} height={20} />}
+          </div>
+          <div className="flex items-end gap-2">
+            <span className={`text-2xl font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
+              {trust}
+            </span>
+            <div className="flex-1 mb-1.5">
+              <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${trust > 70 ? 'bg-emerald-500' : trust > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                  style={{ width: `${trust}%` }} />
               </div>
+            </div>
+          </div>
+        </div>
 
-              {/* Cost */}
-              <div className="bg-surface-1 border border-border rounded-xl p-4">
-                <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Cost</div>
-                <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
-                <div className="text-[10px] text-text-tertiary font-mono mt-1">week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
-              </div>
+        {/* Cost */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Cost</div>
+          <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">${totalCost.toFixed(2)}</div>
+          <div className="text-[10px] text-text-tertiary font-mono mt-1">week: ${(cost?.costThisWeek ?? 0).toFixed(2)}</div>
+        </div>
 
-              {/* Actions */}
-              <div className="bg-surface-1 border border-border rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Actions</span>
-                  {dailyCounts.length > 1 && <Sparkline data={dailyCounts} width={64} height={20} />}
-                </div>
-                <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">{totalActions}</div>
-                {(mission?.progress?.pending ?? 0) > 0 && (
-                  <div className="text-[10px] text-amber-400 font-mono mt-1">{mission!.progress!.pending} pending</div>
-                )}
-              </div>
+        {/* Actions */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] text-text-muted uppercase tracking-wider font-mono">Actions</span>
+            {dailyCounts.length > 1 && <Sparkline data={dailyCounts} width={64} height={20} />}
+          </div>
+          <div className="text-2xl font-bold text-text-primary font-mono tabular-nums">{totalActions}</div>
+          {(mission?.progress?.pending ?? 0) > 0 && (
+            <div className="text-[10px] text-amber-400 font-mono mt-1">{mission!.progress!.pending} pending</div>
+          )}
+        </div>
 
-              {/* Score */}
-              <div className="bg-surface-1 border border-border rounded-xl p-4">
-                <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Score</div>
+        {/* Score */}
+        <div className="bg-surface-1 border border-border rounded-xl p-4">
+          <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Score</div>
                 <div className={`text-2xl font-bold font-mono tabular-nums ${contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
-                  }`}>{contributionScore}</div>
-                <div className="text-[10px] text-text-tertiary font-mono mt-1">
-                  {summary?.approvalEfficiency ? `${summary.approvalEfficiency} eff.` : 'no data'}
-                </div>
-              </div>
-            </div>
+          }`}>{contributionScore}</div>
+          <div className="text-[10px] text-text-tertiary font-mono mt-1">
+            {summary?.approvalEfficiency ? `${summary.approvalEfficiency} eff.` : 'no data'}
+          </div>
+        </div>
+      </div>
 
-            {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
-            {criticalFlags.length > 0 && (
-              <div className="space-y-2">
-                {criticalFlags.slice(0, 3).map(flag => (
-                  <div key={flag.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="font-mono text-red-400 text-[11px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-red-300 font-medium">{flag.title}</p>
-                        <p className="text-xs text-red-400/70 mt-1 truncate">{flag.description?.split('\n')[0]}</p>
-                        <div className="flex items-center gap-4 mt-2.5">
+      {/* ── Anomaly Alerts ─────────────────────────────────────────────────── */}
+      {criticalFlags.length > 0 && (
+        <div className="space-y-2">
+          {criticalFlags.slice(0, 3).map(flag => (
+            <div key={flag.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <span className="font-mono text-red-400 text-[11px] font-bold shrink-0 mt-0.5">[{flag.severity}]</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-red-300 font-medium">{flag.title}</p>
+                  <p className="text-xs text-red-400/70 mt-1 truncate">{flag.description?.split('\n')[0]}</p>
+                  <div className="flex items-center gap-4 mt-2.5">
                           <Link to="/audit" className="text-[11px] text-red-300 font-medium hover:text-red-200 font-mono">view audit →</Link>
-                          <button onClick={() => dismissMutation.mutate(flag.id)} className="text-[11px] text-red-400/30 hover:text-red-400/70 font-mono">dismiss</button>
-                        </div>
-                      </div>
-                    </div>
+                    <button onClick={() => dismissMutation.mutate(flag.id)} className="text-[11px] text-red-400/30 hover:text-red-400/70 font-mono">dismiss</button>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* ── Activity Over Time ─────────────────────────────────────────────── */}
-            <div className="bg-surface-1 border border-border rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Audit · Last 7 Days</h2>
-                {summary && (
-                  <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
-                    <span>denial rate: {summary.denialRate ?? '—'}</span>
-                    <span>PRs: {summary.prsAndCommits ?? 0}</span>
-                  </div>
-                )}
-              </div>
-              <ActivityChart
-                data={dailyCounts.length > 0 ? dailyCounts : [contributionScore]}
-                labels={byDay.length > 0 ? [byDay[0]?.date?.slice(5) ?? '', byDay[byDay.length - 1]?.date?.slice(5) ?? ''] : ['today', 'today']}
-              />
-            </div>
-
-            {/* ── Output + Categories side by side ──────────────────────────────── */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Output stats */}
-              <div className="bg-surface-1 border border-border rounded-xl p-5">
-                <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Output</h3>
-                <div className="space-y-3">
-                  {[
-                    { label: 'Files Created', value: summary?.filesCreated ?? 0, color: 'text-blue-400' },
-                    { label: 'Files Edited', value: summary?.filesEdited ?? 0, color: 'text-cyan-400' },
-                    { label: 'Lines Written', value: summary?.linesWritten ?? 0, color: 'text-emerald-400' },
-                    { label: 'Commands Run', value: summary?.commandsExecuted ?? 0, color: 'text-amber-400' },
-                  ].map(({ label, value, color }) => (
-                    <div key={label} className="flex items-center justify-between">
-                      <span className="text-xs text-text-secondary font-mono">{label}</span>
-                      <span className={`text-sm font-bold tabular-nums font-mono ${color}`}>{value}</span>
-                    </div>
-                  ))}
                 </div>
               </div>
-
-              {/* Categories */}
-              <div className="bg-surface-1 border border-border rounded-xl p-5">
-                <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Categories</h3>
-                {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
-                  <PieChart breakdown={mission.categoryBreakdown} />
-                ) : (
-                  <div className="text-xs text-text-tertiary font-mono py-4">no data yet</div>
-                )}
-              </div>
             </div>
+          ))}
+        </div>
+      )}
 
-            {/* ── Agent Network ─────────────────────────────────────────────────── */}
-            <AgentNetwork mission={mission} instances={allInstances ?? []} />
+      {/* ── Activity Over Time ─────────────────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+                <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Audit · Last 7 Days</h2>
+          {summary && (
+            <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
+              <span>denial rate: {summary.denialRate ?? '—'}</span>
+              <span>PRs: {summary.prsAndCommits ?? 0}</span>
+            </div>
+          )}
+        </div>
+        <ActivityChart
+          data={dailyCounts.length > 0 ? dailyCounts : [contributionScore]}
+          labels={byDay.length > 0 ? [byDay[0]?.date?.slice(5) ?? '', byDay[byDay.length - 1]?.date?.slice(5) ?? ''] : ['today', 'today']}
+        />
+      </div>
+
+      {/* ── Output + Categories side by side ──────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Output stats */}
+        <div className="bg-surface-1 border border-border rounded-xl p-5">
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Output</h3>
+          <div className="space-y-3">
+            {[
+              { label: 'Files Created', value: summary?.filesCreated ?? 0, color: 'text-blue-400' },
+              { label: 'Files Edited', value: summary?.filesEdited ?? 0, color: 'text-cyan-400' },
+              { label: 'Lines Written', value: summary?.linesWritten ?? 0, color: 'text-emerald-400' },
+              { label: 'Commands Run', value: summary?.commandsExecuted ?? 0, color: 'text-amber-400' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex items-center justify-between">
+                <span className="text-xs text-text-secondary font-mono">{label}</span>
+                <span className={`text-sm font-bold tabular-nums font-mono ${color}`}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Categories */}
+        <div className="bg-surface-1 border border-border rounded-xl p-5">
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Categories</h3>
+          {mission?.categoryBreakdown && Object.keys(mission.categoryBreakdown).length > 0 ? (
+            <PieChart breakdown={mission.categoryBreakdown} />
+          ) : (
+            <div className="text-xs text-text-tertiary font-mono py-4">no data yet</div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Agent Network ─────────────────────────────────────────────────── */}
+      <AgentNetwork mission={mission} instances={allInstances ?? []} />
 
             {/* ── Recent audit ────────────────────────────────────────────────────── */}
-            <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
                 <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Recent audit</h3>
                 <Link to="/audit" className="text-[11px] text-accent hover:text-accent-bright font-mono">all →</Link>
-              </div>
-              {!activity?.data?.length ? (
-                <div className="p-10 text-center font-mono">
-                  <div className="text-text-tertiary text-sm" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o ) no actions yet</div>
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {activity.data.slice(0, 10).map(item => (
-                    <div key={item.id} className="px-5 py-3 flex items-center gap-4 text-sm hover:bg-surface-2/30 transition-colors">
-                      <span className="text-[11px] text-text-tertiary w-14 shrink-0 font-mono tabular-nums">
-                        {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <span className="text-text-primary truncate flex-1 text-xs">{item.humanDescription}</span>
+        </div>
+        {!activity?.data?.length ? (
+          <div className="p-10 text-center font-mono">
+            <div className="text-text-tertiary text-sm" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o ) no actions yet</div>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {activity.data.slice(0, 10).map(item => (
+              <div key={item.id} className="px-5 py-3 flex items-center gap-4 text-sm hover:bg-surface-2/30 transition-colors">
+                <span className="text-[11px] text-text-tertiary w-14 shrink-0 font-mono tabular-nums">
+                  {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className="text-text-primary truncate flex-1 text-xs">{item.humanDescription}</span>
                       <span className={`text-[11px] font-mono font-medium shrink-0 ${item.status === 'denied' ? 'text-red-400' : item.status === 'pending' ? 'text-amber-400' : 'text-emerald-400'
-                        }`}>{item.status}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
+                }`}>{item.status}</span>
+              </div>
+            ))}
+          </div>
         )}
+      </div>
+      </>
+      )}
 
       </div>
     </div>
