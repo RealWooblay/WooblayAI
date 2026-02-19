@@ -36,6 +36,11 @@ import { callGate, callGateStructuredExec } from './gate-interceptor.js';
 const PORT = parseInt(process.env['MCP_PROXY_PORT'] ?? '3100', 10);
 const PROXY_TOKEN = process.env['GATEWAY_TOKEN'] ?? '';
 
+if (!PROXY_TOKEN) {
+  console.error('[mcp-proxy] FATAL: GATEWAY_TOKEN is not set. Refusing to start without auth token.');
+  process.exit(1);
+}
+
 // ── State ────────────────────────────────────────────────────────────────
 
 const upstreamClients = new Map<string, Client>();
@@ -96,7 +101,7 @@ async function connectUpstream(serverConfig: McpServerConfigEntry): Promise<void
 async function executeToolCall(
   qualifiedName: string,
   args: Record<string, unknown>,
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
   const entry = toolRegistry.get(qualifiedName);
   if (!entry) {
     return { content: [{ type: 'text', text: `Unknown tool: ${qualifiedName}` }], isError: true };
@@ -176,7 +181,7 @@ async function executeToolCall(
 
     try {
       const result = await client.callTool({ name: tool.name, arguments: args });
-      return result as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      return result as { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
     } catch (err) {
       return {
         content: [{ type: 'text', text: `Upstream error: ${err instanceof Error ? err.message : String(err)}` }],

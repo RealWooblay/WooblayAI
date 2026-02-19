@@ -32,7 +32,7 @@ It is not an agent framework, an orchestration platform, or a monitoring tool. I
 
 **Core guarantee:** The agent process has zero credentials. It requests an action ("push this branch to GitHub"). Wooblay checks policy, optionally holds for human approval, then executes the action in an isolated container where the credential exists for the duration of that single operation. The container is destroyed. The agent receives the result.
 
-Wooblay works with any agent framework. We ship an adapter for OpenClaw. The architecture supports LangChain, CrewAI, AutoGen, or any custom agent — the adapter intercepts tool calls at the framework level and routes them through the Wooblay Gate API. No agent code changes required.
+Wooblay works with any agent framework. We ship an adapter for OpenClaw and a native MCP proxy that any MCP-speaking agent can connect to. The architecture supports LangChain, CrewAI, AutoGen, Claude, Cursor, or any custom agent — the proxy or adapter intercepts tool calls and routes them through the Wooblay Gate. No agent code changes required.
 
 ---
 
@@ -44,8 +44,8 @@ Wooblay works with any agent framework. We ship an adapter for OpenClaw. The arc
                        │  (Clerk JWT) │  deploy, approve, monitor, configure
                        └──────┬───────┘
                               │
-   GitHub ─────────────┐      │     ┌── External Agents (GPT, Claude, MCP)
-   (webhooks)          │      │     │   via API key + gateway endpoint
+   GitHub ─────────────┐      │     ┌── External Agents (Claude, Cursor, custom)
+   (webhooks)          │      │     │   via MCP proxy SSE or HTTP gateway
                        ▼      ▼     ▼
                     ┌────────────────────┐
                     │    Wooblay Gate    │  Fastify API server
@@ -57,7 +57,7 @@ Wooblay works with any agent framework. We ship an adapter for OpenClaw. The arc
        ┌────────────┐  ┌───────┐ ┌──────────┐ ┌─────────┐
        │Policy Engine│  │ Vault │ │ Receipt  │ │ Sensor  │
        │+ Risk Class │  │AES-256│ │  Chain   │ │ Engine  │
-       │+ Scope Check│  │ -GCM  │ │ ed25519  │ │         │
+       │+ Simulation │  │ -GCM  │ │ ed25519  │ │         │
        └──────┬─────┘  └───┬───┘ └──────────┘ └─────────┘
               │             │
        ┌──────▼─────────────▼────┐
@@ -66,15 +66,31 @@ Wooblay works with any agent framework. We ship an adapter for OpenClaw. The arc
        │  - network isolated      │
        │  - destroyed after use   │
        └─────────────────────────┘
+
+  ┌───────────────────────┐       ┌─────────────────────────┐
+  │   Agent Container     │ stdio │     MCP Proxy Sidecar   │ SSE
+  │  (OpenClaw / custom)  │──────▶│  intercepts all MCP     │◀── External
+  │  zero credentials     │       │  tool calls, routes     │    Agents
+  └───────────────────────┘       │  through Gate L1+L2+L3  │
+                                  └────────────┬────────────┘
+                                               │
+                                  ┌────────────▼────────────┐
+                                  │  Upstream MCP Servers    │
+                                  │  (npm packages / SSE)   │
+                                  │  run inside L3 container │
+                                  │  when credentials needed │
+                                  └─────────────────────────┘
 ```
 
-**Agent Container:** Runs the AI agent (any framework). Has no credentials. Communicates only with the Gate API.
+**Agent Container:** Runs the AI agent (any framework). Has no credentials. Communicates with the Gate API and the MCP Proxy sidecar.
+
+**MCP Proxy:** Deployed as a sidecar alongside each agent container. Presents itself as an MCP server to the agent (via stdio) and to external agents (via SSE). Intercepts every MCP tool call and routes it through the Gate for policy evaluation, simulation, and secure execution. The agent and the proxy share no credentials — the proxy fetches them from the Gate at execution time. External agents connect by adding a single SSE URL to their MCP configuration.
 
 **Gate:** Receives every tool call. Classifies risk. Evaluates policy. Manages approvals. Orchestrates execution. Signs receipts.
 
 **Vault:** Stores credentials using envelope encryption (AES-256-GCM, KMS-backed in production). Decrypts only into ephemeral execution containers.
 
-**Ephemeral Exec Container:** Created per-action. Receives the decrypted credential as an environment variable. Executes the command. Returns output. Gets destroyed. Read-only filesystem, isolated network, 1 GB memory limit, 128 PID limit.
+**Ephemeral Exec Container:** Created per-action. Receives the decrypted credential as an environment variable. Executes the command (or starts the upstream MCP server for MCP tool calls). Returns output. Gets destroyed. Read-only filesystem, isolated network, 1 GB memory limit, 128 PID limit.
 
 ---
 
@@ -95,8 +111,6 @@ The policy engine evaluates every tool call against user-defined rules before an
 3. Policy evaluation — rules are priority-ordered, first match wins. Each rule specifies: tool name (glob pattern), risk tier, category, args pattern, and decision: `ALLOW`, `DENY`, or `APPROVE` (human review)
 
 **Default behavior:** READ actions auto-allow. WRITE and DESTRUCTIVE actions require human approval. Users configure from there.
-
-**Scope boundaries:** Per-connection allow/block patterns. Example: `git:push` allowed to `feature-*` branches, blocked on `main`. Blocked patterns take precedence over allowed.
 
 ### Layer 2: Simulation
 
@@ -131,7 +145,54 @@ The agent process cannot read from, write to, or communicate with this container
 
 ---
 
-## 5. Credential Architecture
+## 5. MCP Proxy
+
+The Model Context Protocol (MCP) is the emerging standard for agents to discover and invoke tools. Agents that speak MCP expect to connect to an MCP server, call `tools/list` to discover available tools, and call `tools/call` to execute them. Wooblay's MCP Proxy makes this work without breaking the credential isolation guarantee.
+
+### How It Works
+
+The proxy is a security membrane. It presents itself as an MCP server to agents and acts as an MCP client to upstream tool servers. Every tool call passes through the Gate before it reaches the upstream server.
+
+```
+Agent ──(MCP)──▶ Wooblay MCP Proxy ──(Gate L1+L2)──▶ policy check
+                                      │
+                        ┌─────────────┼─────────────┐
+                        ▼             ▼              ▼
+                  non-credentialed  credentialed   denied
+                  tool call         tool call      → blocked
+                        │             │
+                        ▼             ▼
+                  proxy calls     Gate L3: ephemeral
+                  upstream MCP    container starts
+                  server directly upstream MCP server
+                                  with vault creds
+                                  → result → destroy
+```
+
+**Non-credentialed tools** — the proxy calls the upstream MCP server directly after L1 policy and L2 simulation pass. No credentials are involved.
+
+**Credentialed tools** — the proxy routes the call through the Gate's structured execution endpoint. The Gate creates an ephemeral container, injects the vault-decrypted credentials, starts the upstream MCP server inside that container, calls the tool, captures the result, and destroys the container. The agent and the proxy never see the credential.
+
+### Two Connection Modes
+
+**Hosted agents (sidecar):** The proxy runs as a Docker sidecar alongside the agent container. The agent connects via stdio. Configuration is automatic — the proxy reads its MCP server list from the Gate and exposes all configured tools to the agent.
+
+**External agents (SSE):** Any MCP-speaking agent — Claude Desktop, Cursor, a custom agent on a developer's laptop — connects by adding Wooblay's SSE endpoint to its MCP configuration. The agent sends tool calls over SSE. The proxy authenticates via gateway token and applies the same three-layer security as hosted agents. No dashboard, no agent hosting — just a URL and a token.
+
+### What Users Configure
+
+From the Security tab of any instance in the dashboard, users add MCP servers by specifying:
+
+- **Name** — human-readable identifier (e.g., `slack-tools`, `stripe-api`)
+- **Transport** — `stdio` (npm package executed locally) or `sse` (remote HTTPS endpoint)
+- **Source** — the npm package name or SSE URL
+- **Connection IDs** — which vault credentials to inject for Layer 3 execution
+
+Any MCP server can be added. There is no hardcoded list. The proxy discovers tools from each configured server at startup and aggregates them into a single tool namespace for the agent.
+
+---
+
+## 6. Credential Architecture
 
 ### Envelope Encryption
 
@@ -157,7 +218,7 @@ The UI shows clear warnings when adding agent-visible secrets.
 
 ---
 
-## 6. Cryptographic Receipt Chain
+## 7. Cryptographic Receipt Chain
 
 Every decision — allow, deny, approve, execute — produces a receipt.
 
@@ -181,7 +242,7 @@ The chain is append-only and tamper-evident. Modifying any receipt changes its h
 
 ---
 
-## 7. Sensor Engine and Operations
+## 8. Sensor Engine and Operations
 
 Wooblay is event-driven. External events create Operations; Operations route to agents.
 
@@ -209,9 +270,16 @@ Operations are routed to the best-fit agent:
 
 ---
 
-## 8. Gateway API
+## 9. Gateway API
 
-External agents (GPT Actions, Claude, MCP servers, custom code) connect through the gateway.
+Wooblay exposes two complementary interfaces to agents:
+
+1. **HTTP Gateway** — a REST endpoint for direct integrations, GPT Actions, and programmatic access.
+2. **MCP Proxy** — a native MCP server (see Section 5) that any MCP-speaking agent can connect to with zero code changes.
+
+Both interfaces route through the same Gate engine. The same policy rules, simulation checks, and secure execution containers apply regardless of which interface the agent uses.
+
+### HTTP Gateway
 
 **Endpoint:** `POST /api/gateway/execute`
 
@@ -230,11 +298,10 @@ External agents (GPT Actions, Claude, MCP servers, custom code) connect through 
 2. Idempotency check (SHA-256 hash of caller + action + params, 24h cache)
 3. Action registry lookup (optional — falls back to generic `exec:run`)
 4. Find active connection for provider + org
-5. Policy evaluation (synthetic tool call)
-6. Layer 1: Scope boundary check
-7. Layer 2: Simulation
-8. Layer 3: Secure execution
-9. Return result
+5. Layer 1: Policy evaluation
+6. Layer 2: Simulation
+7. Layer 3: Secure execution
+8. Return result
 
 **OpenAPI spec:** `GET /api/gateway/spec` returns a spec importable into GPT Actions, Claude tools, or any OpenAPI-consuming client.
 
@@ -248,11 +315,14 @@ External agents (GPT Actions, Claude, MCP servers, custom code) connect through 
 | `aws:s3:cp` | AWS | Copy files to/from S3 |
 | `aws:ecs:deploy` | AWS | Update ECS service |
 | `gcp:cloudrun:deploy` | GCP | Deploy to Cloud Run |
+| `mcp:tool-call` | Any | Execute any MCP tool through L3 isolation |
 | `exec:run` | Any | Run arbitrary shell command with credentials |
+
+The provider column is not a whitelist. Any provider string is accepted — connections for Slack, Stripe, Linear, or any other service use the same credential isolation pipeline.
 
 ---
 
-## 9. Agent Supervision
+## 10. Agent Supervision
 
 ### Trust Scoring
 
@@ -283,7 +353,7 @@ Per-action cost attribution across categories: LLM tokens, compute minutes, API 
 
 ---
 
-## 10. Deployment Modes
+## 11. Deployment Modes
 
 ### Firewall Mode (default)
 
@@ -301,7 +371,7 @@ Full Platform is gated — unlocked per-org with a platform password.
 
 ---
 
-## 11. Tech Stack
+## 12. Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
@@ -310,14 +380,15 @@ Full Platform is gated — unlocked per-org with a platform password.
 | Dashboard | React 19, Vite 6, Tailwind CSS v4, TanStack Query v5 |
 | Auth | Clerk (JWT + Organizations), ed25519 (agent signatures) |
 | Crypto | AES-256-GCM (vault), ed25519 (receipts), SHA-256 (hashing), RFC 8785 (canonical JSON) |
-| Containers | Docker (agent runtime + ephemeral execution) |
+| MCP | @modelcontextprotocol/sdk (stdio + SSE transports) |
+| Containers | Docker (agent runtime + MCP proxy sidecar + ephemeral execution) |
 | Infrastructure | AWS EC2, ECR, ALB, Terraform |
 | AI | OpenAI GPT-4o-mini (risk classification, intent verification, routing, policy optimization, threat assessment) |
-| Agent Runtime | OpenClaw adapter shipped; any framework supported via adapter interface |
+| Agent Runtime | OpenClaw adapter shipped; any MCP-speaking or custom agent supported via proxy or adapter |
 
 ---
 
-## 12. What Exists Today
+## 13. What Exists Today
 
 **Shipped and operational:**
 
@@ -332,7 +403,10 @@ Full Platform is gated — unlocked per-org with a platform password.
 - Multi-instance agent deployment and management from dashboard
 - Trust scoring, flag detection, cost tracking
 - Gateway API with OpenAPI spec for external agents (GPT, Claude, MCP)
-- Scope boundaries per connection
+- MCP Proxy with Layer 3 credential isolation for any MCP tool server (stdio + SSE)
+- External agent support via SSE endpoint (Claude Desktop, Cursor, custom agents)
+- Dynamic provider support — any credential type, not limited to a fixed list
+- Per-instance MCP server configuration from the dashboard
 - Full activity audit trail with export (JSON, CSV)
 - Webhook notifications for approval events, critical flags, trust alerts
 
@@ -342,7 +416,6 @@ Full Platform is gated — unlocked per-org with a platform password.
 - Session playback timeline
 - Contribution analytics page
 - Slack/Teams integration
-- MCP transparent proxy
 - Custom adapter SDK
 - Agent orchestration graphs
 - Rollback and checkpoints
@@ -350,7 +423,7 @@ Full Platform is gated — unlocked per-org with a platform password.
 
 ---
 
-## 13. Why This Matters
+## 14. Why This Matters
 
 The AI agent market is moving from demos to production deployment. Production means credentials, external systems, and real consequences.
 

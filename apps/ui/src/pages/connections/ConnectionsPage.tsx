@@ -15,181 +15,117 @@ import { Spinner } from '../../components/common/Spinner.tsx';
 import { Button } from '../../components/common/Button.tsx';
 import { EmptyState } from '../../components/common/EmptyState.tsx';
 
-type AddStep = false | 'select' | 'github' | 'aws' | 'gcp' | 'custom';
+// ── Event Rules Editor (full platform only, sensing-capable connections) ───
 
-const CONNECTION_TYPES: { id: string; label: string; description: string; available: boolean; hasSensing: boolean; hasExecution: boolean }[] = [
-  { id: 'github', label: 'GitHub', description: 'Monitor repos and execute git/PR actions securely.', available: true, hasSensing: true, hasExecution: true },
-  { id: 'aws', label: 'AWS', description: 'Deploy, manage S3, ECS, read CloudWatch logs securely.', available: true, hasSensing: false, hasExecution: true },
-  { id: 'gcp', label: 'GCP', description: 'Deploy Cloud Run, manage GCS, read logs securely.', available: true, hasSensing: false, hasExecution: true },
-  { id: 'custom', label: 'Custom Provider', description: 'Any API or service — provide a name and credential. Used for MCP tool credential isolation.', available: true, hasSensing: false, hasExecution: true },
-];
-
-// ── Event Rules Editor ────────────────────────────────────────────────
-// User declares WHAT they care about. AI handles the HOW.
-// No manual conditions, no workflow chains — that's n8n territory.
-
-const ALL_EVENTS = [
-  { event: 'ci_failure' as const, label: 'CI Failure', description: 'Check run fails on default or agent branch', defaultIntent: 'fix' as const },
-  { event: 'pr_opened' as const, label: 'PR Opened', description: 'New pull request or synchronize', defaultIntent: 'review' as const },
-  { event: 'push' as const, label: 'Push', description: 'Push to a watched branch', defaultIntent: 'review' as const },
-  { event: 'pr_merged' as const, label: 'PR Merged', description: 'Pull request merged to base', defaultIntent: 'deploy' as const },
-] as const;
-
-const INTENT_OPTIONS = ['fix', 'qa', 'review', 'deploy', 'custom'] as const;
 const PRIORITY_OPTIONS = ['P0', 'P1', 'P2'] as const;
-
-const DEFAULT_RULES: { event: string; intent: string; priority: string; enabled: boolean }[] = [
-  { event: 'ci_failure', intent: 'fix', priority: 'P1', enabled: true },
-  { event: 'pr_opened', intent: 'review', priority: 'P2', enabled: true },
-  { event: 'push', intent: 'review', priority: 'P2', enabled: true },
-  { event: 'pr_merged', intent: 'deploy', priority: 'P2', enabled: false },
-];
-
-const AI_FEATURES = [
-  { label: 'Intent Classification', description: 'AI analyzes event context and classifies what action is needed — not hardcoded, adapts per event' },
-  { label: 'Smart Escalation', description: 'AI auto-escalates priority from context signals: risk level, change size, sensitive files, force push' },
-  { label: 'Agent Matching', description: 'Multi-dimension scoring: role match, specialization, performance history, complexity fit' },
-  { label: 'Follow-Up Chaining', description: 'AI decides when a completed operation needs a follow-up and creates it automatically' },
-];
 
 export function EventRulesEditor({ connectionId, sensorConfig }: { connectionId: string; sensorConfig: any }) {
   const qc = useQueryClient();
-
   const existing: any[] = sensorConfig?.eventRules ?? [];
-  const [rules, setRules] = useState(() => {
-    if (existing.length > 0) return existing.map((r: any) => ({ event: r.event, intent: r.intent, priority: r.priority, enabled: r.enabled }));
-    return DEFAULT_RULES.map((r) => ({ ...r }));
-  });
+  const [rules, setRules] = useState<{ event: string; intent: string; priority: string; enabled: boolean }[]>(() =>
+    existing.length > 0 ? existing.map((r: any) => ({ event: r.event, intent: r.intent ?? '', priority: r.priority ?? 'P2', enabled: r.enabled })) : [],
+  );
+  const [newEvent, setNewEvent] = useState('');
+  const [newIntent, setNewIntent] = useState('');
 
   const saveMut = useMutation({
     mutationFn: (eventRules: any[]) =>
-      updateSensorConfig(connectionId, {
-        sensorConfig: { ...sensorConfig, eventRules },
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['connections'] });
-    },
+      updateSensorConfig(connectionId, { sensorConfig: { ...sensorConfig, eventRules } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['connections'] }),
   });
+
+  const addRule = () => {
+    if (!newEvent.trim()) return;
+    setRules((prev) => [...prev, { event: newEvent.trim(), intent: newIntent.trim() || '', priority: 'P2', enabled: true }]);
+    setNewEvent('');
+    setNewIntent('');
+  };
+
+  const removeRule = (idx: number) => setRules((prev) => prev.filter((_, i) => i !== idx));
 
   const updateRule = (idx: number, field: string, value: any) => {
     setRules((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
-  };
-
-  const handleSave = () => {
-    saveMut.mutate(rules);
   };
 
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h4 className="text-[11px] font-medium text-text-secondary">Event Sensing</h4>
+          <h4 className="text-[11px] font-medium text-text-secondary">Event Rules</h4>
           <p className="text-[10px] text-text-tertiary mt-0.5">
-            Choose which events create operations. Set a default intent or leave it — the AI classifies from context.
+            Filter which webhook events create operations. Leave empty to process all events.
           </p>
         </div>
-        <Button size="xs" onClick={handleSave} disabled={saveMut.isPending}>
-          {saveMut.isPending ? 'Saving…' : saveMut.isSuccess ? '✓ Saved' : 'Save rules'}
+        <Button size="xs" onClick={() => saveMut.mutate(rules)} disabled={saveMut.isPending}>
+          {saveMut.isPending ? 'Saving…' : saveMut.isSuccess ? '✓ Saved' : 'Save'}
         </Button>
       </div>
 
-      <div className="space-y-2">
-        {ALL_EVENTS.map((evt) => {
-          const idx = rules.findIndex((r: any) => r.event === evt.event);
-          const rule = idx >= 0 ? rules[idx] : null;
-          const isEnabled = rule?.enabled ?? false;
-          const ruleIdx = idx >= 0 ? idx : -1;
-
-          const ensureRule = () => {
-            if (idx < 0) {
-              setRules((prev) => [...prev, { event: evt.event, intent: evt.defaultIntent, priority: 'P2', enabled: true }]);
-            }
-          };
-
-          return (
-            <div
-              key={evt.event}
-              className={`bg-surface-2 border rounded-lg px-3 py-2.5 transition-colors ${isEnabled ? 'border-accent/30' : 'border-border opacity-60'}`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className={`relative h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${isEnabled ? 'bg-accent' : 'bg-surface-3'}`}
-                    onClick={() => {
-                      if (idx < 0) {
-                        ensureRule();
-                      } else {
-                        updateRule(ruleIdx, 'enabled', !isEnabled);
-                      }
-                    }}
-                  >
-                    <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${isEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                  </button>
-                  <div>
-                    <span className="text-[11px] font-medium text-text-primary">{evt.label}</span>
-                    <p className="text-[9px] text-text-tertiary">{evt.description}</p>
-                  </div>
-                </div>
-
-                {isEnabled && ruleIdx >= 0 && rule && (
-                  <div className="flex items-center gap-2">
-                    <div>
-                      <label className="text-[8px] text-text-tertiary uppercase tracking-wider block mb-0.5">Default Intent</label>
-                      <select
-                        value={rule.intent}
-                        onChange={(e) => updateRule(ruleIdx, 'intent', e.target.value)}
-                        className="bg-surface-3 border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary focus:border-accent focus:outline-none"
-                      >
-                        {INTENT_OPTIONS.map((i) => (
-                          <option key={i} value={i}>{i}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[8px] text-text-tertiary uppercase tracking-wider block mb-0.5">Default Priority</label>
-                      <select
-                        value={rule.priority ?? 'P2'}
-                        onChange={(e) => updateRule(ruleIdx, 'priority', e.target.value)}
-                        className="bg-surface-3 border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary focus:border-accent focus:outline-none"
-                      >
-                        {PRIORITY_OPTIONS.map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
+      {rules.length > 0 && (
+        <div className="space-y-1.5 mb-3">
+          {rules.map((rule, idx) => (
+            <div key={idx} className={`bg-surface-2 border rounded-lg px-3 py-2 flex items-center justify-between ${rule.enabled ? 'border-accent/30' : 'border-border opacity-50'}`}>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className={`relative h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${rule.enabled ? 'bg-accent' : 'bg-surface-3'}`}
+                  onClick={() => updateRule(idx, 'enabled', !rule.enabled)}
+                >
+                  <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${rule.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+                <code className="text-[11px] font-mono text-text-primary">{rule.event}</code>
+                {rule.intent && <span className="text-[9px] text-text-muted bg-surface-3 px-1.5 py-0.5 rounded">{rule.intent}</span>}
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* AI Intelligence Summary */}
-      <div className="mt-3 bg-surface-1 border border-accent/10 rounded-lg p-3">
-        <div className="flex items-center gap-1.5 mb-2">
-          <div className="w-4 h-4 rounded bg-accent/20 flex items-center justify-center">
-            <span className="text-[8px] text-accent font-bold">AI</span>
-          </div>
-          <span className="text-[10px] font-medium text-text-secondary">Intelligent Processing</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {AI_FEATURES.map((f) => (
-            <div key={f.label} className="flex items-start gap-1.5">
-              <span className="text-[8px] text-accent mt-0.5 shrink-0">+</span>
-              <div>
-                <span className="text-[9px] font-medium text-text-primary">{f.label}</span>
-                <p className="text-[8px] text-text-tertiary leading-tight">{f.description}</p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={rule.priority}
+                  onChange={(e) => updateRule(idx, 'priority', e.target.value)}
+                  className="bg-surface-3 border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary focus:border-accent focus:outline-none"
+                >
+                  {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <button onClick={() => removeRule(idx)} className="text-[10px] text-red-400/60 hover:text-red-400">remove</button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      <div className="flex gap-2 items-end">
+        <div className="flex-1 min-w-0">
+          <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Event</label>
+          <input
+            value={newEvent}
+            onChange={(e) => setNewEvent(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addRule()}
+            placeholder="e.g. CI failure, PR opened, deploy..."
+            className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+          />
+        </div>
+        <div className="w-28">
+          <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Intent (optional)</label>
+          <input
+            value={newIntent}
+            onChange={(e) => setNewIntent(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addRule()}
+            placeholder="fix, review..."
+            className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+          />
+        </div>
+        <button
+          onClick={addRule}
+          disabled={!newEvent.trim()}
+          className="shrink-0 px-3 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors"
+        >
+          Add
+        </button>
       </div>
 
-      <p className="text-[9px] text-text-muted mt-2">
-        If no rules are saved, all matched events create operations and the AI classifies everything from context. Rules let you filter which events you care about and hint at default intent.
-      </p>
+      {rules.length === 0 && (
+        <p className="text-[9px] text-text-muted mt-2">
+          No rules — all webhook events will create operations and the AI classifies from context.
+        </p>
+      )}
     </div>
   );
 }
@@ -200,9 +136,10 @@ export type ConnectionsPageProps = { credentialsOnly?: boolean };
 
 export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProps) {
   const qc = useQueryClient();
-  const [addStep, setAddStep] = useState<AddStep>(false);
-  const [selectedProvider, setSelectedProvider] = useState<string>('github');
-  const [newConn, setNewConn] = useState({ name: '', credential: '', awsSecretKey: '', awsRegion: 'us-east-1', gcpProject: '', customProvider: '' });
+  const [addOpen, setAddOpen] = useState(false);
+  const [provider, setProvider] = useState('');
+  const [name, setName] = useState('');
+  const [credential, setCredential] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [webhookInfo, setWebhookInfo] = useState<Record<string, any>>({});
@@ -230,34 +167,21 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
 
   const createMut = useMutation({
     mutationFn: () => {
-      const effectiveProvider = selectedProvider === 'custom'
-        ? newConn.customProvider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-')
-        : selectedProvider;
-      const payload: any = {
-        provider: effectiveProvider,
-        name: newConn.name,
-        credential: newConn.credential,
-      };
-      if (selectedProvider === 'aws') {
-        payload.metadata = {
-          awsSecretAccessKey: newConn.awsSecretKey,
-          region: newConn.awsRegion || 'us-east-1',
-        };
-      }
-      if (selectedProvider === 'gcp') {
-        payload.metadata = {
-          project: newConn.gcpProject || undefined,
-        };
-      }
-      return createConnection(payload);
+      const normalized = provider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      return createConnection({
+        provider: normalized,
+        name: name.trim(),
+        credential,
+      });
     },
     onSuccess: async (conn: any) => {
       qc.invalidateQueries({ queryKey: ['connections'] });
       qc.invalidateQueries({ queryKey: ['sensors-status'] });
-      setAddStep(false);
-      setSelectedProvider('github');
-      setNewConn({ name: '', credential: '', awsSecretKey: '', awsRegion: 'us-east-1', gcpProject: '', customProvider: '' });
-      if (selectedProvider === 'github') {
+      setAddOpen(false);
+      setProvider('');
+      setName('');
+      setCredential('');
+      if (provider.trim().toLowerCase() === 'github') {
         try { await initSensor(conn.id); } catch { /* best effort */ }
       }
     },
@@ -319,304 +243,83 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
           <h1 className="text-lg font-semibold text-text-primary">{credentialsOnly ? 'Credentials' : 'Connections'}</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
             {credentialsOnly
-              ? 'Manage your service credentials. Keys are encrypted and only used inside Gate-controlled execution — agents never see them.'
-              : isFullPlatform
-                ? 'Manage your service integrations. Each connection powers both sensing (inbound events) and secure execution (agent actions).'
-                : 'Manage your service integrations. Each connection powers secure execution — credentials are encrypted and isolated.'}
+              ? 'Encrypted credentials for Layer 3 execution. Agents never see them.'
+              : 'Service credentials for secure execution. Encrypted, isolated, ephemeral.'}
           </p>
         </div>
-        <Button size="sm" onClick={() => setAddStep('select')} data-tour={credentialsOnly ? 'tour-add-credential' : 'tour-add-connection'}>
+        <Button size="sm" onClick={() => setAddOpen(true)} data-tour={credentialsOnly ? 'tour-add-credential' : 'tour-add-connection'}>
           + Add {credentialsOnly ? 'credential' : 'connection'}
         </Button>
       </div>
 
-      {/* Three-Layer Security Summary */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
-          <div className="text-[10px] text-accent font-medium uppercase tracking-wider mb-1">Layer 1</div>
-          <div className="text-[12px] text-text-primary font-medium">Policy + Scope</div>
-          <div className="text-[10px] text-text-tertiary mt-0.5">Should this happen?</div>
-        </div>
-        <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
-          <div className="text-[10px] text-amber-400 font-medium uppercase tracking-wider mb-1">Layer 2</div>
-          <div className="text-[12px] text-text-primary font-medium">Simulation</div>
-          <div className="text-[10px] text-text-tertiary mt-0.5">Will it do what it claims?</div>
-        </div>
-        <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
-          <div className="text-[10px] text-emerald-400 font-medium uppercase tracking-wider mb-1">Layer 3</div>
-          <div className="text-[12px] text-text-primary font-medium">Secure Execution</div>
-          <div className="text-[10px] text-text-tertiary mt-0.5">Ephemeral, credential-free</div>
-        </div>
-      </div>
-
-      {/* General callout: key must have full access (shown when adding any connection) */}
-      {(addStep === 'select' || addStep === 'github' || addStep === 'aws' || addStep === 'gcp' || addStep === 'custom') && (
-        <div className="bg-accent/5 border border-accent/20 rounded-lg px-4 py-3 mb-4">
-          <p className="text-[10px] text-accent/90 font-medium mb-0.5">Use a full-access key</p>
-          <p className="text-[10px] text-text-tertiary">
-            The agent can perform any action this key allows (push, deploy, merge, etc.). Give the connection a key with the permissions you want the agent to have — Wooblay gates each action, but cannot add permissions the key doesn&apos;t have.
+      {/* ── Add Connection Form ────────────────────────────────────── */}
+      {addOpen && (
+        <div className="bg-surface-1 border border-accent/30 rounded-xl p-5 mb-6">
+          <h3 className="text-sm font-medium text-text-primary mb-1">Add Connection</h3>
+          <p className="text-[10px] text-text-tertiary mb-4">
+            Any service — GitHub, AWS, Slack, Stripe, or anything else. Your credential is encrypted and only injected into ephemeral containers at execution time. Agents never see it.
           </p>
-        </div>
-      )}
 
-      {/* Step 1: Choose type */}
-      {addStep === 'select' && (
-        <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-medium text-text-primary mb-2">{credentialsOnly ? 'Add credential' : 'Add connection'}</h3>
-          <p className="text-[10px] text-text-tertiary mb-3">
-            {credentialsOnly ? 'Choose a service. Your credential is encrypted and only used inside ephemeral execution containers.' : 'Choose a service to connect. Your credential is encrypted and never exposed to agents — it\'s only used inside ephemeral execution containers.'}
-          </p>
-          <div className="grid gap-2">
-            {CONNECTION_TYPES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => { if (t.available) { setSelectedProvider(t.id); setAddStep(t.id as any); } }}
-                disabled={!t.available}
-                className={`text-left rounded-lg border px-4 py-3 transition-colors ${t.available ? 'border-border hover:border-accent/50 hover:bg-surface-2' : 'border-border/50 opacity-60 cursor-not-allowed'
-                  }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-medium text-text-primary">{t.label}</span>
-                    <div className="flex gap-1">
-                      {!credentialsOnly && isFullPlatform && t.hasSensing && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">SENSING</span>}
-                      {t.hasExecution && <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">EXECUTION</span>}
-                    </div>
-                    {!t.available && <span className="text-[10px] text-text-tertiary">Coming soon</span>}
-                  </div>
-                  {t.available && <span className="text-[10px] text-accent">Select →</span>}
-                </div>
-                <p className="text-[11px] text-text-tertiary mt-1">{t.description}</p>
-              </button>
-            ))}
-          </div>
-          <div className="mt-3">
-            <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: GitHub form */}
-      {addStep === 'github' && (
-        <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-medium text-text-primary mb-3">Connect GitHub</h3>
-          <p className="text-[10px] text-text-tertiary mb-3">
-            {credentialsOnly
-              ? <>Your PAT powers <strong>secure execution</strong> — agents execute git push, create PRs via ephemeral containers. Credentials are encrypted and never exposed.</>
-              : isFullPlatform
-                ? <>One key, two roles. Your PAT enables both <strong>sensing</strong> (webhook events create operations) and <strong>secure execution</strong> (agents execute git push, create PRs via ephemeral containers).</>
-                : <>Your PAT powers <strong>secure execution</strong> — agents execute git push, create PRs via ephemeral containers. Credentials are encrypted and never exposed.</>}
-          </p>
           <div className="space-y-3">
             <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Name</label>
+              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Provider</label>
               <input
                 type="text"
-                value={newConn.name}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="My GitHub Org"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Personal Access Token</label>
-              <input
-                type="password"
-                value={newConn.credential}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, credential: e.target.value }))}
-                placeholder="ghp_..."
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-              <p className="text-[10px] text-text-tertiary mt-1">
-                Encrypted at rest. Never exposed to agents. Only used inside Gate-controlled ephemeral containers.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => createMut.mutate()} disabled={!newConn.name || !newConn.credential || createMut.isPending}>
-                {createMut.isPending ? 'Connecting...' : 'Connect GitHub'}
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep('select')}>← Back</Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: AWS form */}
-      {addStep === 'aws' && (
-        <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-medium text-text-primary mb-3">Connect AWS</h3>
-          <p className="text-[10px] text-text-tertiary mb-3">
-            Provide IAM credentials. Your secret key is encrypted at rest and only injected into ephemeral execution containers — agents never see it.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Name</label>
-              <input
-                type="text"
-                value={newConn.name}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Production AWS"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Access Key ID</label>
-              <input
-                type="text"
-                value={newConn.credential}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, credential: e.target.value }))}
-                placeholder="AKIAIOSFODNN7EXAMPLE"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Secret Access Key</label>
-              <input
-                type="password"
-                value={newConn.awsSecretKey}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, awsSecretKey: e.target.value }))}
-                placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-              <p className="text-[10px] text-text-tertiary mt-1">
-                Encrypted at rest. Never exposed to agents. Only used inside Gate-controlled ephemeral containers.
-              </p>
-            </div>
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Region</label>
-              <input
-                type="text"
-                value={newConn.awsRegion}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, awsRegion: e.target.value }))}
-                placeholder="us-east-1"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => createMut.mutate()} disabled={!newConn.name || !newConn.credential || !newConn.awsSecretKey || createMut.isPending}>
-                {createMut.isPending ? 'Connecting...' : 'Connect AWS'}
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep('select')}>← Back</Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: GCP form */}
-      {addStep === 'gcp' && (
-        <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-medium text-text-primary mb-3">Connect GCP</h3>
-          <p className="text-[10px] text-text-tertiary mb-3">
-            Paste your service account JSON key. Encrypted at rest and only injected into ephemeral containers for secure execution.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Name</label>
-              <input
-                type="text"
-                value={newConn.name}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Production GCP"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Service Account Key (JSON)</label>
-              <textarea
-                value={newConn.credential}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, credential: e.target.value }))}
-                placeholder='{"type": "service_account", "project_id": "...", ...}'
-                rows={4}
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-              <p className="text-[10px] text-text-tertiary mt-1">
-                Encrypted at rest. Never exposed to agents. Only used inside Gate-controlled ephemeral containers.
-              </p>
-            </div>
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Project ID (optional)</label>
-              <input
-                type="text"
-                value={newConn.gcpProject}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, gcpProject: e.target.value }))}
-                placeholder="my-project-123"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => createMut.mutate()} disabled={!newConn.name || !newConn.credential || createMut.isPending}>
-                {createMut.isPending ? 'Connecting...' : 'Connect GCP'}
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep('select')}>← Back</Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Custom provider form */}
-      {addStep === 'custom' && (
-        <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-medium text-text-primary mb-3">Connect Custom Provider</h3>
-          <p className="text-[10px] text-text-tertiary mb-3">
-            Add any API credential. Link it to MCP tool servers on your instance's Security tab for Layer 3 credential isolation.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Provider Name</label>
-              <input
-                type="text"
-                value={newConn.customProvider}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, customProvider: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
-                placeholder="slack, stripe, linear, etc."
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                placeholder="github, aws, slack, stripe, linear, vercel..."
+                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
+                autoFocus
               />
             </div>
             <div>
               <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Connection Name</label>
               <input
                 type="text"
-                value={newConn.name}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Production Slack"
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Production GitHub, Staging AWS"
+                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
               />
             </div>
             <div>
-              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Credential (API Key / Token / Secret)</label>
-              <input
-                type="password"
-                value={newConn.credential}
-                onChange={(e) => setNewConn((prev) => ({ ...prev, credential: e.target.value }))}
-                placeholder="xoxb-... or sk_live_..."
-                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
+              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Credential</label>
+              <textarea
+                value={credential}
+                onChange={(e) => setCredential(e.target.value)}
+                placeholder="API key, token, secret, or JSON key..."
+                rows={3}
+                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
               />
               <p className="text-[10px] text-text-tertiary mt-1">
-                Encrypted at rest. Never exposed to agents. Injected into ephemeral containers at Layer 3 execution time only.
+                Encrypted at rest. Never exposed to agents. Only used inside ephemeral L3 containers.
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => createMut.mutate()} disabled={!newConn.name || !newConn.credential || !newConn.customProvider || createMut.isPending}>
-                {createMut.isPending ? 'Connecting...' : 'Add Connection'}
+            <div className="flex gap-2 pt-1">
+              <Button
+                size="sm"
+                onClick={() => createMut.mutate()}
+                disabled={!provider.trim() || !name.trim() || !credential.trim() || createMut.isPending}
+              >
+                {createMut.isPending ? 'Adding...' : 'Add Connection'}
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep('select')}>Back</Button>
-              <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
+              <Button size="sm" variant="secondary" onClick={() => { setAddOpen(false); setProvider(''); setName(''); setCredential(''); }}>
+                Cancel
+              </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Connection List */}
-      {connectionList.length === 0 && !addStep && (
+      {/* ── Empty State ────────────────────────────────────────────── */}
+      {connectionList.length === 0 && !addOpen && (
         <EmptyState
           title={credentialsOnly ? 'No credentials configured' : 'No connections configured'}
-          description={credentialsOnly ? 'Add a service credential (e.g. GitHub, AWS) to enable secure agent execution.' : 'Connect a service like GitHub to start sensing events and enabling secure agent execution.'}
+          description="Add any service credential to enable secure agent execution. Link connections to MCP tool servers for Layer 3 isolation."
         />
       )}
 
+      {/* ── Connection List ────────────────────────────────────────── */}
       <div className="space-y-3">
         {connectionList.map((conn: any) => {
           const sensorData = sensorMap[conn.id];
@@ -624,10 +327,9 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
           const isSensingCapable = conn.provider === 'github';
 
           return (
-            <div key={conn.id} className="rounded-lg bg-surface-1 border border-border overflow-hidden">
-              {/* Connection Header */}
+            <div key={conn.id} className="rounded-xl bg-surface-1 border border-border overflow-hidden">
               <div
-                className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-surface-2 transition-colors"
+                className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-surface-2/50 transition-colors"
                 onClick={() => handleExpand(conn.id)}
               >
                 <div className="flex items-center gap-3">
@@ -637,25 +339,13 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-[13px] font-medium text-text-primary">{conn.name}</p>
-                      {!credentialsOnly && <ConnectionStatusBadge status={conn.status} />}
+                      <span className="text-[9px] font-mono text-text-muted bg-surface-2 px-1.5 py-0.5 rounded">{conn.provider}</span>
+                      <ConnectionStatusBadge status={conn.status} />
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       {!credentialsOnly && isFullPlatform && isSensingCapable && (
-                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${sensing.enabled ? 'bg-blue-500/15 text-blue-400' : 'bg-zinc-500/15 text-zinc-400'
-                          }`}>
+                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${sensing.enabled ? 'bg-blue-500/15 text-blue-400' : 'bg-zinc-500/15 text-zinc-400'}`}>
                           Sensing: {sensing.enabled ? 'Active' : 'Off'}
-                        </span>
-                      )}
-                      {!credentialsOnly && (
-                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
-                          }`}>
-                          Execution: {conn.status === 'active' ? 'Active' : 'Inactive'}
-                        </span>
-                      )}
-                      {credentialsOnly && (
-                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${conn.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-500/15 text-zinc-400'
-                          }`}>
-                          {conn.status === 'active' ? 'Active' : 'Inactive'}
                         </span>
                       )}
                       {!credentialsOnly && isFullPlatform && sensorData && sensorData.operationsLast24h > 0 && (
@@ -672,7 +362,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                       title={sensing.enabled ? 'Pause sensing' : 'Enable sensing'}
                       className={`relative h-6 w-11 shrink-0 rounded-full p-1 transition-colors ${sensing.enabled ? 'bg-accent' : 'bg-surface-3'}`}
                     >
-                      <span className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${sensing.enabled ? 'translate-x-3' : 'translate-x-0'}`} />
+                      <span className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${sensing.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
                     </button>
                   )}
                   <Button size="xs" variant="secondary" onClick={(e) => { e.stopPropagation(); testMut.mutate(conn.id); }}>
@@ -682,30 +372,25 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                 </div>
               </div>
 
-              {/* Expanded Sections */}
               {expandedId === conn.id && (
                 <div className="border-t border-border">
-                  {/* Section Tabs — only Sensing in full platform when not credentialsOnly */}
-                  {!credentialsOnly && (
-                  <div className="flex border-b border-border">
-                    {isFullPlatform && isSensingCapable && (
+                  {!credentialsOnly && isFullPlatform && isSensingCapable && (
+                    <div className="flex border-b border-border">
                       <button
                         className={`px-4 py-2 text-[11px] font-medium transition-colors ${expandedSection === 'sensing' ? 'text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary'}`}
                         onClick={() => setExpandedSection(expandedSection === 'sensing' ? null : 'sensing')}
                       >
                         Sensing
                       </button>
-                    )}
-                  </div>
+                    </div>
                   )}
 
                   <div className="px-4 py-4 space-y-4">
                     <div className="text-[11px] text-text-secondary rounded-lg bg-surface-2 border border-border p-3">
                       <p className="font-medium text-text-primary mb-1">Execution</p>
-                      <p>Any action from your agent is sent through the gate and runs in an isolated container. The policy engine enforces your rules on every call — configure what's allowed, denied, or needs approval on the Policies page.</p>
+                      <p>Actions run in an isolated ephemeral container. The policy engine enforces your rules on every call — configure what's allowed, denied, or needs approval on the Policies page.</p>
                     </div>
 
-                    {/* Sensing Section — hidden when credentialsOnly */}
                     {!credentialsOnly && expandedSection === 'sensing' && (
                       <>
                         {webhookInfo[conn.id] && (
@@ -734,11 +419,10 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                             <div className="mt-2 text-[10px] text-text-tertiary bg-surface-2 border border-border rounded p-2">
                               <p className="font-medium mb-1">Setup in GitHub:</p>
                               <ol className="list-decimal list-inside space-y-0.5">
-                                <li>Go to your repo Settings → Webhooks → Add webhook</li>
-                                <li>Paste the Payload URL above</li>
+                                <li>Repo Settings → Webhooks → Add webhook</li>
+                                <li>Paste the Payload URL and Secret above</li>
                                 <li>Content type: application/json</li>
-                                <li>Paste the Secret above</li>
-                                <li>Select events: Push, Pull requests, Check runs</li>
+                                <li>Events: Push, Pull requests, Check runs</li>
                               </ol>
                             </div>
                           </div>
@@ -758,14 +442,11 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                       </>
                     )}
 
-                    {/* Actions */}
-                    {(credentialsOnly || !expandedSection) && (
+                    {(credentialsOnly || !expandedSection) && conn.status === 'active' && (
                       <div className="flex gap-2 pt-2">
-                        {conn.status === 'active' && (
-                          <Button size="xs" variant="danger" onClick={() => revokeMut.mutate(conn.id)}>
-                            Revoke Connection
-                          </Button>
-                        )}
+                        <Button size="xs" variant="danger" onClick={() => revokeMut.mutate(conn.id)}>
+                          Revoke Connection
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -804,11 +485,6 @@ function ProviderIcon({ provider }: { provider: string }) {
       </svg>
     );
   }
-  if (provider === 'aws') {
-    return <span className="text-[11px] font-bold text-amber-400">AWS</span>;
-  }
-  if (provider === 'gcp') {
-    return <span className="text-[11px] font-bold text-blue-400">GCP</span>;
-  }
-  return <span className="text-[11px] text-text-muted">{provider[0].toUpperCase()}</span>;
+  const initial = (provider || '?')[0].toUpperCase();
+  return <span className="text-[11px] font-bold text-text-secondary">{initial}</span>;
 }

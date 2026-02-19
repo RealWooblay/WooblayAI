@@ -334,7 +334,8 @@ model Instance {
   userId        String?
   user          User?    @relation(fields: [userId], references: [id])
   status        String   @default("provisioning")  // provisioning, running, stopped, error
-  agentRuntime  String   @default("openclaw")       // openclaw, custom, etc.
+  instanceType  String   @default("agent")           // "agent" | "proxy"
+  agentRuntime  String   @default("openclaw")       // openclaw, custom, proxy-only
   model         String   @default("claude-sonnet-4-20250514")
   configJson    String?  // Full runtime config as JSON
   containerId   String?  // Docker container ID

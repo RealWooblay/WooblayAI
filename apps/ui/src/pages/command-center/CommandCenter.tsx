@@ -35,7 +35,7 @@ import { useToast } from '../../components/common/Toast.tsx';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
-const MODELS: { id: string; label: string; tier: string }[] = [
+const POPULAR_MODELS: { id: string; label: string; tier: string }[] = [
   { id: 'claude-opus-4-20250514', label: 'Claude Opus 4', tier: 'flagship' },
   { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', tier: 'standard' },
   { id: 'claude-4.6-opus', label: 'Claude 4.6 Opus', tier: 'flagship' },
@@ -51,6 +51,40 @@ const MODELS: { id: string; label: string; tier: string }[] = [
   { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'flagship' },
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'fast' },
 ];
+
+function ModelSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isCustom = !POPULAR_MODELS.some((m) => m.id === value);
+  const [showCustom, setShowCustom] = useState(isCustom);
+
+  if (showCustom) {
+    return (
+      <div className="flex gap-2">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Model ID (e.g. llama-3.1-70b)"
+          className="flex-1 bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono placeholder:text-text-muted focus:outline-none focus:border-accent/50"
+        />
+        <button type="button" onClick={() => { setShowCustom(false); onChange(POPULAR_MODELS[0].id); }} className="text-[10px] text-text-muted hover:text-text-secondary whitespace-nowrap">presets</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-2">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50"
+      >
+        {POPULAR_MODELS.map((m) => (
+          <option key={m.id} value={m.id}>{m.label} ({m.tier})</option>
+        ))}
+      </select>
+      <button type="button" onClick={() => { setShowCustom(true); onChange(''); }} className="text-[10px] text-text-muted hover:text-text-secondary whitespace-nowrap">custom</button>
+    </div>
+  );
+}
 
 
 // ── Alive Agent Face ─────────────────────────────────────────────────────────
@@ -134,7 +168,7 @@ function InlineDeployForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [name, setName] = useState('');
-  const [model, setModel] = useState(MODELS[0].id);
+  const [model, setModel] = useState(POPULAR_MODELS[0].id);
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [telegramEnabled, setTelegramEnabled] = useState(false);
@@ -177,10 +211,7 @@ function InlineDeployForm({ onClose }: { onClose: () => void }) {
         </div>
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Model</label>
-          <select value={model} onChange={e => setModel(e.target.value)}
-            className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50">
-            {MODELS.map(m => <option key={m.id} value={m.id}>{m.label} ({m.tier})</option>)}
-          </select>
+          <ModelSelector value={model} onChange={setModel} />
         </div>
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Anthropic API Key</label>
@@ -232,7 +263,7 @@ function InlineConfigForm({ instance, onClose }: { instance: Instance; onClose: 
   const { toast } = useToast();
   const existingConfig = instance.configJson ? JSON.parse(instance.configJson) : {};
 
-  const [model, setModel] = useState(instance.model || MODELS[0].id);
+  const [model, setModel] = useState(instance.model || POPULAR_MODELS[0].id);
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [telegramEnabled, setTelegramEnabled] = useState(existingConfig.telegramEnabled ?? !!instance.telegramBot);
   const [telegramBotToken, setTelegramBotToken] = useState('');
@@ -249,7 +280,7 @@ function InlineConfigForm({ instance, onClose }: { instance: Instance; onClose: 
   });
 
   // Check if any restart-requiring fields are changed
-  const willRestart = (model !== (instance.model || MODELS[0].id)) ||
+  const willRestart = (model !== (instance.model || POPULAR_MODELS[0].id)) ||
     anthropicApiKey.trim() !== '' ||
     telegramBotToken.trim() !== '' ||
     telegramEnabled !== (existingConfig.telegramEnabled ?? !!instance.telegramBot);
@@ -274,10 +305,7 @@ function InlineConfigForm({ instance, onClose }: { instance: Instance; onClose: 
       <div className="grid md:grid-cols-2 gap-3">
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Model</label>
-          <select value={model} onChange={e => setModel(e.target.value)}
-            className="w-full bg-surface-0 border border-border rounded-lg px-2 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50">
-            {MODELS.map(m => <option key={m.id} value={m.id}>{m.label} ({m.tier})</option>)}
-          </select>
+          <ModelSelector value={model} onChange={setModel} />
         </div>
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Anthropic API Key</label>

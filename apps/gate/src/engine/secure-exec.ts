@@ -79,7 +79,8 @@ async function resolveCredentials(
   }
 
   if (connection.provider === 'aws') {
-    const meta = connection.metadata ? JSON.parse(connection.metadata) : {};
+    let meta: Record<string, string> = {};
+    try { meta = connection.metadata ? JSON.parse(connection.metadata) : {}; } catch { /* malformed metadata */ }
     if (meta.awsAccessKeyId) creds['AWS_ACCESS_KEY_ID'] = meta.awsAccessKeyId;
     if (meta.awsSecretAccessKey) {
       let secret = meta.awsSecretAccessKey;
@@ -90,7 +91,8 @@ async function resolveCredentials(
   }
 
   if (connection.provider === 'gcp') {
-    const meta = connection.metadata ? JSON.parse(connection.metadata) : {};
+    let meta: Record<string, string> = {};
+    try { meta = connection.metadata ? JSON.parse(connection.metadata) : {}; } catch { /* malformed metadata */ }
     if (meta.gcpServiceAccountKey) {
       let key = meta.gcpServiceAccountKey;
       if (isEncrypted(key)) key = envelopeDecrypt(key);
@@ -116,7 +118,8 @@ async function resolveCredentials(
 
   // ── Always inject exec_only secrets from this connection ───────────────
   if (connection.secrets) {
-    const secrets: { key: string; encryptedValue: string; mode: string }[] = JSON.parse(connection.secrets);
+    let secrets: { key: string; encryptedValue: string; mode: string }[] = [];
+    try { secrets = JSON.parse(connection.secrets); } catch { /* malformed secrets JSON */ }
     for (const s of secrets) {
       if (s.mode === 'exec_only') {
         creds[s.key] = isEncrypted(s.encryptedValue) ? envelopeDecrypt(s.encryptedValue) : s.encryptedValue;

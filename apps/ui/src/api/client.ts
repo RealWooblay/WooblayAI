@@ -245,6 +245,7 @@ export interface Instance {
   id: string;
   name: string;
   userId: string | null;
+  instanceType: 'agent' | 'proxy';
   status: string;
   /** Live Docker container status e.g. "Up 2 minutes", "Restarting (1) 5 seconds ago", "Exited (0)". */
   liveStatus?: string | null;
@@ -263,6 +264,7 @@ export interface Instance {
 
 export interface CreateInstanceRequest {
   name: string;
+  instanceType?: 'agent' | 'proxy';
   agentRuntime?: string;
   model?: string;
   anthropicApiKey?: string;
