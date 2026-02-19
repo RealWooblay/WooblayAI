@@ -351,6 +351,96 @@ export const addInstanceSecret = (id: string, secret: { key: string; value: stri
 export const deleteInstanceSecret = (id: string, key: string) =>
   fetchApi<void>(`/api/instances/${id}/secrets/${key}`, { method: 'DELETE' });
 
+// ── MCP Server Configs ───────────────────────────────────────────────
+
+export interface McpServerConfig {
+  id: string;
+  instanceId: string;
+  name: string;
+  transport: 'stdio' | 'sse';
+  source: string;
+  args: string[] | null;
+  /** Connection IDs whose vault credentials are injected at L3 exec time. */
+  connectionIds: string[];
+  /** Resolved connection info for display (populated by GET). */
+  connections?: Array<{ id: string; name: string; provider: string; status: string }>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMcpServerRequest {
+  name: string;
+  transport: 'stdio' | 'sse';
+  source: string;
+  args?: string[];
+  connectionIds?: string[];
+  enabled?: boolean;
+}
+
+export const getMcpServers = (instanceId: string) =>
+  fetchApi<McpServerConfig[]>(`/api/instances/${instanceId}/mcp-servers`);
+
+export const addMcpServer = (instanceId: string, config: CreateMcpServerRequest) =>
+  fetchApi<McpServerConfig>(`/api/instances/${instanceId}/mcp-servers`, {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+
+export const updateMcpServer = (instanceId: string, serverId: string, patch: Partial<CreateMcpServerRequest>) =>
+  fetchApi<McpServerConfig>(`/api/instances/${instanceId}/mcp-servers/${serverId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+
+export const deleteMcpServer = (instanceId: string, serverId: string) =>
+  fetchApi<void>(`/api/instances/${instanceId}/mcp-servers/${serverId}`, { method: 'DELETE' });
+
+// Image safety scanner (advisory, never blocks)
+export interface ImageScanResult {
+  image: string;
+  trust: 'official' | 'verified' | 'known' | 'community' | 'unknown';
+  reason: string;
+}
+
+export const scanImage = (image: string) =>
+  fetchApi<ImageScanResult>(`/api/tool/scan-image?image=${encodeURIComponent(image)}`);
+
+// ── ClawHub Skills ────────────────────────────────────────────────────
+
+export interface InstalledSkill {
+  name: string;
+  description: string;
+  metadata: Record<string, unknown> | null;
+  path: string;
+}
+
+export interface ClawHubSkill {
+  slug: string;
+  name: string;
+  description: string;
+  tags: string[];
+  downloads: number;
+  stars: number;
+  version: string;
+  author?: string;
+}
+
+export const getInstalledSkills = (instanceId: string) =>
+  fetchApi<InstalledSkill[]>(`/api/instances/${instanceId}/skills`);
+
+export const installSkill = (instanceId: string, slug: string, version?: string) =>
+  fetchApi<{ ok: boolean; slug: string; output: string }>(`/api/instances/${instanceId}/skills/install`, {
+    method: 'POST',
+    body: JSON.stringify({ slug, version }),
+  });
+
+export const removeSkill = (instanceId: string, name: string) =>
+  fetchApi<void>(`/api/instances/${instanceId}/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
+
+export const searchClawHub = (query: string, limit?: number) =>
+  fetchApi<{ skills: ClawHubSkill[]; total: number }>(`/api/clawhub/search${toQueryString({ q: query, limit })}`);
+
 // ---------------------------------------------------------------------------
 // Policies
 // ---------------------------------------------------------------------------

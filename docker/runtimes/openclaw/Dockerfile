@@ -23,6 +23,9 @@ RUN apt-get update -qq && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# ClawHub CLI for community skill management (search, install, update)
+RUN npm i -g clawhub
+
 RUN mkdir -p /opt/wooblay \
     /home/agent/.openclaw/extensions/wooblay
 

@@ -326,21 +326,37 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
     // Look up optional convenience shortcut — NOT a gatekeeper
     const actionDef = getActionDefinition(body.action);
 
-    // Provider resolution: params.provider > action def > default
-    const effectiveProvider = body.params.provider
-      ? String(body.params.provider)
-      : actionDef?.provider ?? 'generic';
-
-    // Find connection for this provider in the caller's org
+    // Connection resolution: direct IDs (from MCP proxy) or provider-based lookup
     const org = getOrgScope(request);
-    const connection = await prisma.connection.findFirst({
-      where: { provider: effectiveProvider, status: 'active', ...org.filter },
-    });
+    let connection;
 
-    if (!connection) {
-      return reply.code(404).send({
-        error: `No active ${effectiveProvider} connection found. Add one on the Connections page.`,
+    const directConnectionIds = body.params.connectionIds;
+    if (Array.isArray(directConnectionIds) && directConnectionIds.length > 0) {
+      const ids = directConnectionIds.map(String);
+      const matches = await prisma.connection.findMany({
+        where: { id: { in: ids }, status: 'active', ...org.filter },
       });
+      if (matches.length !== ids.length) {
+        return reply.code(404).send({
+          error: 'One or more connection IDs not found or not accessible.',
+        });
+      }
+      connection = matches[0];
+    } else {
+      // Provider-based lookup: params.provider > action def > default
+      const effectiveProvider = body.params.provider
+        ? String(body.params.provider)
+        : actionDef?.provider ?? 'generic';
+
+      connection = await prisma.connection.findFirst({
+        where: { provider: effectiveProvider, status: 'active', ...org.filter },
+      });
+
+      if (!connection) {
+        return reply.code(404).send({
+          error: `No active ${effectiveProvider} connection found. Add one on the Connections page.`,
+        });
+      }
     }
 
     // Layer 1: Scope check
@@ -409,5 +425,17 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       } : undefined,
       error: execResult.error ? redactSecrets(execResult.error) : undefined,
     });
+  });
+
+  /**
+   * GET /api/tool/scan-image?image=... — Advisory image safety scanner.
+   * Returns trust classification for a Docker image. Never blocks.
+   */
+  app.get('/api/tool/scan-image', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { image } = request.query as { image?: string };
+    if (!image) return reply.code(400).send({ error: 'image query parameter required' });
+
+    const { scanImage } = await import('../engine/action-registry.js');
+    return reply.send(scanImage(image));
   });
 }

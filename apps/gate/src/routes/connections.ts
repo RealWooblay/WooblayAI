@@ -77,20 +77,22 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'provider, name, and credential are required' });
       }
 
-      const SUPPORTED_PROVIDERS = ['github', 'aws', 'gcp'];
-      if (!SUPPORTED_PROVIDERS.includes(body.provider)) {
-        return reply.code(400).send({ error: `Unsupported provider: ${body.provider}. Supported: ${SUPPORTED_PROVIDERS.join(', ')}` });
+      // Normalize provider name: lowercase, alphanumeric + hyphens only
+      const provider = body.provider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      if (!provider || provider.length > 64) {
+        return reply.code(400).send({ error: 'provider must be 1-64 chars, lowercase alphanumeric + hyphens' });
       }
 
       const orgId = await resolveOrgIdForRequest(prisma, request);
 
-      // Build credential + metadata based on provider
+      // Provider-specific credential handling. Known providers get tailored
+      // storage; any other provider uses generic envelope encryption.
       let encryptedCred: string;
       let metadata: string | null = null;
 
-      if (body.provider === 'github') {
+      if (provider === 'github') {
         encryptedCred = envelopeEncrypt(body.credential);
-      } else if (body.provider === 'aws') {
+      } else if (provider === 'aws') {
         // For AWS, credential = access key ID, metadata stores encrypted secret key
         const awsMeta = body.metadata as { awsSecretAccessKey?: string; region?: string } | undefined;
         encryptedCred = body.credential; // Access Key ID (not secret)
@@ -99,7 +101,7 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
           awsSecretAccessKey: awsMeta?.awsSecretAccessKey ? envelopeEncrypt(awsMeta.awsSecretAccessKey) : '',
           region: awsMeta?.region ?? 'us-east-1',
         });
-      } else if (body.provider === 'gcp') {
+      } else if (provider === 'gcp') {
         // For GCP, credential = service account JSON key (entire content)
         encryptedCred = envelopeEncrypt(body.credential);
         metadata = JSON.stringify({
@@ -113,10 +115,10 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
       const connection = await prisma.connection.create({
         data: {
           ...(orgId ? { orgId } : {}),
-          provider: body.provider,
+          provider,
           name: body.name,
           credentialRef: encryptedCred,
-          scopes: JSON.stringify(body.scopes ?? (body.provider === 'github' ? ['repo'] : ['*'])),
+          scopes: JSON.stringify(body.scopes ?? (provider === 'github' ? ['repo'] : ['*'])),
           metadata,
         },
       });

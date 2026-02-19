@@ -16,6 +16,8 @@ import {
   getInstanceContributions,
   getInstanceCost,
   updateInstance,
+  startInstance,
+  stopInstance,
   restartInstance,
   getActivity,
   getFlags,
@@ -27,13 +29,27 @@ import {
   getInstanceSecrets,
   addInstanceSecret,
   deleteInstanceSecret,
+  getMcpServers,
+  addMcpServer,
+  updateMcpServer,
+  deleteMcpServer,
+  getInstalledSkills,
+  installSkill,
+  removeSkill,
+  searchClawHub,
   getAgentContainerState,
   isContainerReady,
   type FileEntry,
   type MissionData,
   type Instance,
+  type McpServerConfig,
+  type CreateMcpServerRequest,
+  type InstalledSkill,
+  type ClawHubSkill,
+  getConnections,
 } from '../../api/client.ts';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
+import { useToast } from '../../components/common/Toast.tsx';
 import { useTourOptional } from '../../contexts/TourContext.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
@@ -401,7 +417,7 @@ interface MiniTourStep {
   target: string;
   title: string;
   content: string;
-  tab?: 'overview' | 'profile' | 'security' | 'workspace';
+  tab?: 'overview' | 'profile' | 'tools' | 'workspace';
 }
 
 const INSTANCE_TOUR_STEPS: MiniTourStep[] = [
@@ -423,14 +439,14 @@ const INSTANCE_TOUR_STEPS: MiniTourStep[] = [
     content: 'Edit the agent\u2019s name, role, and goal inline. This shapes how it behaves.',
   },
   {
-    target: 'tour-tab-security',
-    tab: 'security',
-    title: 'Security',
-    content: 'Add API keys the agent can use directly, or view exec-only secrets it can\u2019t touch.',
+    target: 'tour-tab-tools',
+    tab: 'tools',
+    title: 'Tools & Credentials',
+    content: 'Built-in tools, ClawHub skills, MCP servers, and agent-exposed credentials. The agent is unrestricted — the Gate decides policy.',
   },
   {
     target: 'tour-agent-keys',
-    tab: 'security',
+    tab: 'tools',
     title: 'Agent API keys',
     content: 'Keys here are fully visible to the agent as env vars. Only add what you trust it with.',
   },
@@ -442,7 +458,7 @@ const INSTANCE_TOUR_STEPS: MiniTourStep[] = [
   },
 ];
 
-function InstanceMiniTour({ setActiveTab }: { setActiveTab: (t: 'overview' | 'profile' | 'security' | 'workspace') => void }) {
+function InstanceMiniTour({ setActiveTab }: { setActiveTab: (t: 'overview' | 'profile' | 'tools' | 'workspace') => void }) {
   const mainTour = useTourOptional();
   const [active, setActive] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -547,14 +563,17 @@ function InstanceMiniTour({ setActiveTab }: { setActiveTab: (t: 'overview' | 'pr
   );
 }
 
-// ── Security Tab — Instance env vars + exec-only summary ─────────────────────
+// ── Tools & Credentials Tab ──────────────────────────────────────────────────
+// Unified view: native tools (always on), MCP servers, agent-exposed credentials.
+// NO restrictions, NO toggles on capabilities. The agent has full power.
+// The Gate evaluates every action at runtime — that's the security model.
 
 function CapabilitiesSection({ instance }: { instance: Instance }) {
   const qc = useQueryClient();
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [configDirty, setConfigDirty] = useState(false);
 
-  // Instance-level secrets (no connection required)
   const { data: secretsData, isLoading: secretsLoading } = useQuery({
     queryKey: ['instance-secrets', instance.id],
     queryFn: () => getInstanceSecrets(instance.id),
@@ -569,41 +588,87 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
       qc.invalidateQueries({ queryKey: ['instance-secrets', instance.id] });
       setNewKey('');
       setNewValue('');
+      setConfigDirty(true);
     },
   });
 
   const delMut = useMutation({
     mutationFn: (key: string) => deleteInstanceSecret(instance.id, key),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['instance-secrets', instance.id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance-secrets', instance.id] });
+      setConfigDirty(true);
+    },
   });
 
   const existingKeys = secretsData?.secrets ?? [];
 
   return (
     <div className="space-y-4">
-      {/* Agent Environment Variables */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-agent-keys">
-        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-1">
-          Agent Environment Variables
-        </h3>
+      {/* Restart banner */}
+      <RestartBanner
+        instanceId={instance.id}
+        visible={configDirty}
+        onRestarted={() => setConfigDirty(false)}
+      />
+
+      {/* ── Built-in Tools (read-only info) ──────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
+            Built-in Tools
+          </h3>
+          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+            unrestricted
+          </span>
+        </div>
         <p className="text-[10px] text-text-muted mb-4">
-          Injected as <code className="bg-surface-2 px-1 rounded">$KEY_NAME</code> into the agent container. No connection required.
+          OpenClaw core tools — always available. Every call goes through the Gate for policy evaluation, risk classification, and audit logging. Add more tools via MCP servers below.
         </p>
 
-        {/* Warning */}
-        <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
-          <p className="text-[11px] text-amber-400 font-medium mb-1">
-            These keys are fully visible to the agent.
-          </p>
-          <p className="text-[10px] text-amber-400/70">
-            The agent can read, use, and potentially exfiltrate these credentials. Only add keys here if you
-            trust the agent with direct access. For sensitive credentials, use{' '}
-            <Link to="/credentials" className="underline hover:text-amber-300">exec-only secrets</Link>{' '}
-            on the Credentials page instead — the agent never sees those.
-          </p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { name: 'exec', desc: 'Shell commands' },
+            { name: 'write', desc: 'Create files' },
+            { name: 'edit', desc: 'Modify files' },
+            { name: 'read', desc: 'Read files' },
+            { name: 'search', desc: 'File search' },
+            { name: 'web_fetch', desc: 'HTTP requests' },
+            { name: 'browser', desc: 'Browser automation' },
+          ].map(t => (
+            <div key={t.name} className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-2/30 border border-border/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+              <div className="min-w-0">
+                <code className="text-[10px] text-text-primary font-mono">{t.name}</code>
+                <p className="text-[9px] text-text-muted truncate">{t.desc}</p>
+              </div>
+            </div>
+          ))}
         </div>
 
-        {/* Existing keys */}
+        <p className="text-[9px] text-text-muted mt-3 pt-3 border-t border-border/30">
+          The agent is unrestricted.{' '}
+          <Link to="/policies" className="text-accent hover:underline">Policies</Link>{' '}
+          decide what gets EXECUTED, DENIED, or held for APPROVAL — per action, at runtime. Install community skills from ClawHub or add MCP servers below to extend capabilities.
+        </p>
+      </div>
+
+      {/* ── ClawHub Skills ──────────────────────────────────────── */}
+      <ClawHubSkillsSection instanceId={instance.id} containerOnline={isContainerReady(instance)} onConfigChange={() => setConfigDirty(true)} />
+
+      {/* ── MCP Tool Servers ────────────────────────────────────── */}
+      <McpToolsSection instanceId={instance.id} onConfigChange={() => setConfigDirty(true)} />
+
+      {/* ── Agent-Exposed Credentials ───────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-agent-keys">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-1">
+          Agent-Exposed Credentials
+        </h3>
+        <p className="text-[10px] text-text-muted mb-4">
+          Environment variables injected directly into the agent container.
+          The agent can read and use these. For secrets the agent should <em>not</em> see, use{' '}
+          <Link to="/credentials" className="text-accent hover:underline">exec-only vault credentials</Link> instead — those are injected only into ephemeral L3 containers.
+        </p>
+
         {secretsLoading ? (
           <div className="text-[10px] text-text-muted font-mono animate-pulse py-3">loading...</div>
         ) : existingKeys.length > 0 ? (
@@ -613,7 +678,7 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
                 <div className="flex items-center gap-3">
                   <code className="text-[11px] text-text-primary font-mono">{s.key}</code>
                   <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20">
-                    agent env
+                    agent-visible
                   </span>
                 </div>
                 <button
@@ -627,7 +692,6 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
           </div>
         ) : null}
 
-        {/* Add key form */}
         <div className="flex gap-2 items-end">
           <div className="flex-1 min-w-0">
             <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Key</label>
@@ -666,18 +730,547 @@ function CapabilitiesSection({ instance }: { instance: Instance }) {
       {/* Quick links */}
       <div className="flex gap-3">
         <Link to="/credentials" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
-          <p className="text-[11px] font-medium text-text-primary">Credentials</p>
-          <p className="text-[10px] text-text-muted mt-0.5">Manage exec-only secrets &amp; services <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+          <p className="text-[11px] font-medium text-text-primary">Vault Credentials</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Exec-only secrets for L3 containers <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
         </Link>
         <Link to="/policies" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
           <p className="text-[11px] font-medium text-text-primary">Policies</p>
-          <p className="text-[10px] text-text-muted mt-0.5">Define what actions need approval <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+          <p className="text-[10px] text-text-muted mt-0.5">Runtime rules for allow / deny / approve <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
         </Link>
         <Link to="/audit" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
           <p className="text-[11px] font-medium text-text-primary">Audit</p>
-          <p className="text-[10px] text-text-muted mt-0.5">Full audit trail <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+          <p className="text-[10px] text-text-muted mt-0.5">Every action, every decision <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
         </Link>
       </div>
+    </div>
+  );
+}
+
+// ── ClawHub Skills Section ────────────────────────────────────────────────────
+
+function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: { instanceId: string; containerOnline: boolean; onConfigChange: () => void }) {
+  const qc = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Skills list reads from host volume — works even when container is stopped
+  const { data: installed, isLoading: installedLoading } = useQuery({
+    queryKey: ['installed-skills', instanceId],
+    queryFn: () => getInstalledSkills(instanceId),
+  });
+
+  const { data: searchResults, isLoading: searchLoading, error: searchError } = useQuery({
+    queryKey: ['clawhub-search', searchTerm],
+    queryFn: () => searchClawHub(searchTerm),
+    enabled: searchTerm.length >= 2,
+  });
+
+  const installMut = useMutation({
+    mutationFn: (slug: string) => installSkill(instanceId, slug),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['installed-skills', instanceId] });
+      onConfigChange();
+    },
+  });
+
+  const removeMut = useMutation({
+    mutationFn: (name: string) => removeSkill(instanceId, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['installed-skills', instanceId] });
+      onConfigChange();
+    },
+  });
+
+  const handleSearch = () => {
+    if (searchQuery.trim().length >= 2) {
+      setSearchTerm(searchQuery.trim());
+    }
+  };
+
+  const installedNames = new Set((installed ?? []).map((s: InstalledSkill) => s.name));
+  const results: ClawHubSkill[] = (searchResults as any)?.skills ?? (Array.isArray(searchResults) ? searchResults : []);
+
+  return (
+    <div className="bg-surface-1 border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
+          ClawHub Skills
+        </h3>
+        <div className="flex items-center gap-3">
+          <a
+            href="https://clawhub.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] font-mono text-text-muted hover:text-text-secondary transition-colors"
+          >
+            browse registry
+          </a>
+          <button
+            onClick={() => setShowSearch(!showSearch)}
+            disabled={!containerOnline}
+            title={!containerOnline ? 'Start the agent to install skills' : undefined}
+            className="text-[10px] font-mono text-accent hover:text-accent-bright transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {showSearch ? 'cancel' : containerOnline ? '+ install skill' : '+ install (start agent)'}
+          </button>
+        </div>
+      </div>
+      <p className="text-[10px] text-text-muted mb-4">
+        Community-developed skills from ClawHub — the public skill registry for OpenClaw.
+        Skills extend the agent's capabilities with specialized knowledge and tool integrations.
+        Changes take effect on the next session (restart).
+      </p>
+
+      {/* Installed skills */}
+      {installedLoading ? (
+        <div className="text-[10px] text-text-muted font-mono animate-pulse py-3">scanning skills...</div>
+      ) : installed && installed.length > 0 ? (
+        <div className="space-y-2 mb-4">
+          {installed.map((skill: InstalledSkill) => (
+            <div key={skill.name} className="bg-surface-2/50 rounded-lg p-3 group">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
+                  <code className="text-[11px] text-text-primary font-mono">{skill.name}</code>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">
+                    skill
+                  </span>
+                </div>
+                <button
+                  onClick={() => removeMut.mutate(skill.name)}
+                  disabled={removeMut.isPending}
+                  className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
+                >
+                  remove
+                </button>
+              </div>
+              {skill.description && (
+                <p className="text-[10px] text-text-muted mt-1.5 ml-3.5 truncate">{skill.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : !showSearch ? (
+        <p className="text-[10px] text-text-muted font-mono py-3 text-center">
+          No skills installed. Search ClawHub to add community-developed capabilities.
+        </p>
+      ) : null}
+
+      {/* Search + install */}
+      {showSearch && (
+        <div className="border border-border rounded-lg p-4 space-y-3 bg-surface-0/50">
+          <div className="flex gap-2">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder="Search ClawHub... (e.g. postgres, summarize, calendar)"
+              className="flex-1 bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+            />
+            <button
+              onClick={handleSearch}
+              disabled={searchQuery.trim().length < 2 || searchLoading}
+              className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors shrink-0"
+            >
+              {searchLoading ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+
+          {searchError && (
+            <p className="text-[10px] text-amber-400 font-mono">
+              Could not reach ClawHub — check your connection or try again later.
+            </p>
+          )}
+
+          {results.length > 0 && (
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {results.map((skill: ClawHubSkill) => {
+                const isInstalled = installedNames.has(skill.slug);
+                const isInstalling = installMut.isPending && installMut.variables === skill.slug;
+                return (
+                  <div key={skill.slug} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-surface-2/50 hover:bg-surface-2/80 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <code className="text-[11px] text-text-primary font-mono">{skill.slug}</code>
+                        {skill.version && (
+                          <span className="text-[9px] text-text-muted font-mono">v{skill.version}</span>
+                        )}
+                        {skill.downloads > 0 && (
+                          <span className="text-[9px] text-text-muted font-mono">{skill.downloads} installs</span>
+                        )}
+                        {skill.stars > 0 && (
+                          <span className="text-[9px] text-text-muted font-mono">{skill.stars} stars</span>
+                        )}
+                      </div>
+                      {skill.description && (
+                        <p className="text-[10px] text-text-muted mt-0.5 truncate">{skill.description}</p>
+                      )}
+                      {skill.tags && skill.tags.length > 0 && (
+                        <div className="flex gap-1 mt-1">
+                          {skill.tags.slice(0, 4).map(tag => (
+                            <span key={tag} className="text-[8px] font-mono text-text-muted bg-surface-3 px-1.5 py-0.5 rounded">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => !isInstalled && installMut.mutate(skill.slug)}
+                      disabled={isInstalled || isInstalling}
+                      className={`shrink-0 ml-3 px-3 py-1.5 rounded text-[10px] font-mono font-medium transition-colors ${
+                        isInstalled
+                          ? 'bg-emerald-500/10 text-emerald-400 cursor-default'
+                          : 'bg-accent text-surface-0 hover:bg-accent/90 disabled:opacity-40'
+                      }`}
+                    >
+                      {isInstalled ? 'installed' : isInstalling ? 'installing...' : 'install'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {searchTerm && !searchLoading && results.length === 0 && !searchError && (
+            <p className="text-[10px] text-text-muted font-mono py-2 text-center">
+              No skills found for "{searchTerm}". Try a different search term.
+            </p>
+          )}
+
+          {installMut.isError && (
+            <p className="text-[10px] text-red-400 font-mono">
+              Install failed: {(installMut.error as any)?.body ?? (installMut.error as Error)?.message ?? 'Unknown error'}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── MCP Tools Section ────────────────────────────────────────────────────────
+
+function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; onConfigChange: () => void }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newTransport, setNewTransport] = useState<'stdio' | 'sse'>('stdio');
+  const [newSource, setNewSource] = useState('');
+  const [selectedConnIds, setSelectedConnIds] = useState<string[]>([]);
+
+  const { data: servers, isLoading } = useQuery({
+    queryKey: ['mcp-servers', instanceId],
+    queryFn: () => getMcpServers(instanceId),
+  });
+
+  // Fetch available connections for the credential dropdown
+  const { data: connections } = useQuery({
+    queryKey: ['connections'],
+    queryFn: () => getConnections(),
+  });
+  const activeConns = (connections ?? []).filter((c: any) => c.status === 'active');
+
+  const addMut = useMutation({
+    mutationFn: (config: CreateMcpServerRequest) => addMcpServer(instanceId, config),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', instanceId] });
+      setNewName('');
+      setNewSource('');
+      setSelectedConnIds([]);
+      setShowAdd(false);
+      onConfigChange();
+    },
+  });
+
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      updateMcpServer(instanceId, id, { enabled }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', instanceId] });
+      onConfigChange();
+    },
+    onError: (err: Error) => {
+      toast(`Failed to toggle: ${err.message}`, 'error');
+    },
+  });
+
+  const delMut = useMutation({
+    mutationFn: (id: string) => deleteMcpServer(instanceId, id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', instanceId] });
+      setDeleteConfirmId(null);
+      onConfigChange();
+    },
+    onError: (err: Error) => {
+      toast(`Failed to remove: ${err.message}`, 'error');
+    },
+  });
+
+  const toggleConn = (connId: string) => {
+    setSelectedConnIds(prev =>
+      prev.includes(connId) ? prev.filter(id => id !== connId) : [...prev, connId]
+    );
+  };
+
+  const handleSubmit = () => {
+    if (!newName.trim() || !newSource.trim()) return;
+    addMut.mutate({
+      name: newName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+      transport: newTransport,
+      source: newSource.trim(),
+      connectionIds: selectedConnIds.length > 0 ? selectedConnIds : undefined,
+    });
+  };
+
+  return (
+    <div className="bg-surface-1 border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
+          MCP Tool Servers
+        </h3>
+        <button
+          onClick={() => setShowAdd(!showAdd)}
+          className="text-[10px] font-mono text-accent hover:text-accent-bright transition-colors"
+        >
+          {showAdd ? 'cancel' : '+ add server'}
+        </button>
+      </div>
+      <p className="text-[10px] text-text-muted mb-4">
+        Upstream MCP servers whose tools your agent can use. Link vault connections to enable L3 isolation — credentials are resolved at execution time, never stored here or exposed to the agent.
+      </p>
+
+      {/* Security callout */}
+      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3 mb-4">
+        <p className="text-[11px] text-emerald-400 font-medium mb-1">
+          Layer 3 Secure Execution
+        </p>
+        <p className="text-[10px] text-emerald-400/70">
+          Tools linked to vault connections run in ephemeral containers. Credentials are resolved from the vault at execution time, injected into a one-shot container, the tool executes, the result is captured, and the container is destroyed. Zero credential exposure to the agent or proxy.
+        </p>
+      </div>
+
+      {/* Existing servers */}
+      {isLoading ? (
+        <div className="text-[10px] text-text-muted font-mono animate-pulse py-3">loading...</div>
+      ) : servers && servers.length > 0 ? (
+        <div className="space-y-2 mb-4">
+          {servers.map((s: McpServerConfig) => (
+            <div key={s.id} className="bg-surface-2/50 rounded-lg p-3 group">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleMut.mutate({ id: s.id, enabled: !s.enabled })}
+                    disabled={toggleMut.isPending}
+                    className={`w-7 h-4 rounded-full transition-colors relative ${
+                      s.enabled ? 'bg-emerald-500' : 'bg-surface-3'
+                    } ${toggleMut.isPending ? 'opacity-50' : ''}`}
+                  >
+                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
+                      s.enabled ? 'left-3.5' : 'left-0.5'
+                    }`} />
+                  </button>
+                  <code className="text-[11px] text-text-primary font-mono">{s.name}</code>
+                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                    s.transport === 'stdio'
+                      ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
+                      : 'text-purple-400 bg-purple-500/10 border-purple-500/20'
+                  }`}>
+                    {s.transport}
+                  </span>
+                  {s.connectionIds.length > 0 && (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+                      L3 secure
+                    </span>
+                  )}
+                </div>
+                {deleteConfirmId === s.id ? (
+                  <span className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => delMut.mutate(s.id)}
+                      disabled={delMut.isPending}
+                      className="text-[10px] text-red-400 font-mono font-medium"
+                    >
+                      {delMut.isPending ? 'removing...' : 'confirm'}
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirmId(null)}
+                      className="text-[10px] text-text-muted font-mono"
+                    >
+                      cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirmId(s.id)}
+                    className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
+                  >
+                    remove
+                  </button>
+                )}
+              </div>
+              <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] text-text-muted font-mono truncate">{s.source}</span>
+                {s.connections && s.connections.map((c: any) => (
+                  <span key={c.id} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-3 text-text-secondary">
+                    {c.provider}: {c.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : !showAdd ? (
+        <p className="text-[10px] text-text-muted font-mono py-3 text-center">
+          No MCP servers configured. Add one to extend your agent's tool capabilities.
+        </p>
+      ) : null}
+
+      {/* Add server form */}
+      {showAdd && (
+        <div className="border border-border rounded-lg p-4 space-y-3 bg-surface-0/50">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Name</label>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                placeholder="github-tools"
+                className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Transport</label>
+              <select
+                value={newTransport}
+                onChange={(e) => setNewTransport(e.target.value as 'stdio' | 'sse')}
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1.5 text-[11px] font-mono text-text-primary outline-none"
+              >
+                <option value="stdio">stdio</option>
+                <option value="sse">SSE</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
+              {newTransport === 'stdio' ? 'Package / Command' : 'SSE URL'}
+            </label>
+            <input
+              value={newSource}
+              onChange={(e) => setNewSource(e.target.value)}
+              placeholder={newTransport === 'stdio' ? 'npx @modelcontextprotocol/server-github' : 'https://mcp.example.com/sse'}
+              className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+            />
+          </div>
+
+          {/* Connection selection — vault-backed credentials */}
+          <div>
+            <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
+              Vault Connections <span className="normal-case text-text-muted">(optional — enables L3 isolation)</span>
+            </label>
+            <p className="text-[9px] text-text-muted mb-2">
+              Selected connections' credentials are injected into an ephemeral container at execution time. They never touch the proxy or agent.
+            </p>
+            {activeConns.length > 0 ? (
+              <div className="space-y-1">
+                {activeConns.map((c: any) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => toggleConn(c.id)}
+                    className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-[10px] font-mono transition-colors ${
+                      selectedConnIds.includes(c.id)
+                        ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                        : 'bg-surface-2 border border-transparent text-text-secondary hover:bg-surface-3'
+                    }`}
+                  >
+                    <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
+                      selectedConnIds.includes(c.id)
+                        ? 'border-emerald-500 bg-emerald-500'
+                        : 'border-border'
+                    }`}>
+                      {selectedConnIds.includes(c.id) && (
+                        <span className="text-white text-[8px]">{'\u2713'}</span>
+                      )}
+                    </span>
+                    <span className="text-text-primary">{c.name}</span>
+                    <span className="text-text-muted">{c.provider}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[9px] text-text-muted py-2">
+                No active connections. <Link to="/credentials" className="text-accent hover:underline">Add one on Credentials</Link> first.
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => { setShowAdd(false); setSelectedConnIds([]); }}
+              className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary transition-colors">
+              Cancel
+            </button>
+            <button onClick={handleSubmit}
+              disabled={!newName.trim() || !newSource.trim() || addMut.isPending}
+              className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors">
+              {addMut.isPending ? 'Adding...' : 'Add Server'}
+            </button>
+          </div>
+
+          {addMut.isError && (
+            <p className="text-[10px] text-red-400 font-mono">
+              Failed: {(addMut.error as any)?.body ?? (addMut.error as Error)?.message ?? 'Unknown error'}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Restart Banner ───────────────────────────────────────────────────────────
+
+function RestartBanner({
+  instanceId,
+  visible,
+  onRestarted,
+}: {
+  instanceId: string;
+  visible: boolean;
+  onRestarted: () => void;
+}) {
+  const qc = useQueryClient();
+  const restartMut = useMutation({
+    mutationFn: () => restartInstance(instanceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance', instanceId] });
+      qc.invalidateQueries({ queryKey: ['instances'] });
+      onRestarted();
+    },
+  });
+
+  if (!visible) return null;
+
+  return (
+    <div className="bg-amber-500/8 border border-amber-500/25 rounded-xl px-5 py-3 flex items-center justify-between gap-4 animate-fade-in">
+      <div>
+        <p className="text-[11px] text-amber-400 font-medium">Configuration changed</p>
+        <p className="text-[10px] text-amber-400/70">
+          Skill, MCP server, or environment changes require a restart to take effect. Memory and session state are preserved.
+        </p>
+      </div>
+      <button
+        onClick={() => restartMut.mutate()}
+        disabled={restartMut.isPending}
+        className="shrink-0 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-mono font-bold disabled:opacity-50 transition-colors"
+      >
+        {restartMut.isPending ? 'Restarting\u2026' : 'Restart to apply'}
+      </button>
     </div>
   );
 }
@@ -1167,7 +1760,7 @@ export function InstanceDetailPage() {
 
   const { data: instance, isLoading } = useQuery({
     queryKey: ['instance', id], queryFn: () => getInstance(id!),
-    enabled: !!id, refetchInterval: 10_000,
+    enabled: !!id, refetchInterval: 3_000,
   });
   const { data: mission } = useQuery({
     queryKey: ['mission', id], queryFn: () => getMission(id!),
@@ -1194,15 +1787,15 @@ export function InstanceDetailPage() {
     queryFn: () => getFlags({ dismissed: 'false', limit: '5' }),
     refetchInterval: 15_000,
   });
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'security' | 'workspace'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'tools' | 'workspace'>('overview');
 
   // Listen for tour tab-switch events
   const handleTourTab = useCallback((e: Event) => {
     const tab = (e as CustomEvent).type.replace('tour:tab:', '') as typeof activeTab;
-    if (['overview', 'profile', 'security', 'workspace'].includes(tab)) setActiveTab(tab);
+    if (['overview', 'profile', 'tools', 'workspace'].includes(tab)) setActiveTab(tab);
   }, []);
   useEffect(() => {
-    const tabs = ['tour:tab:overview', 'tour:tab:profile', 'tour:tab:security', 'tour:tab:workspace'];
+    const tabs = ['tour:tab:overview', 'tour:tab:profile', 'tour:tab:tools', 'tour:tab:workspace'];
     tabs.forEach(t => window.addEventListener(t, handleTourTab));
     return () => tabs.forEach(t => window.removeEventListener(t, handleTourTab));
   }, [handleTourTab]);
@@ -1212,6 +1805,22 @@ export function InstanceDetailPage() {
     mutationFn: dismissFlag,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }),
   });
+
+  // ── Lifecycle controls ─────────────────────────────────────────────────
+  const lifecycleOpts = {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance', id] });
+      qc.invalidateQueries({ queryKey: ['instances'] });
+    },
+  };
+  const startMut = useMutation({ mutationFn: () => startInstance(id!), ...lifecycleOpts });
+  const stopMut = useMutation({ mutationFn: () => stopInstance(id!), ...lifecycleOpts });
+  const restartHeaderMut = useMutation({ mutationFn: () => restartInstance(id!), ...lifecycleOpts });
+  const anyLifecycleLoading = startMut.isPending || stopMut.isPending || restartHeaderMut.isPending;
+  const containerState = instance ? getAgentContainerState(instance, {
+    startPending: startMut.isPending,
+    stopPending: stopMut.isPending,
+  }) : 'offline';
 
   const byDay = contributions?.byDay ?? [];
   const dailyCounts = byDay.map((d: any) => d.count);
@@ -1252,7 +1861,7 @@ export function InstanceDetailPage() {
         {/* ── Header ─────────────────────────────────────────────────────────── */}
         <div className="bg-surface-1 border border-border rounded-xl p-6" data-tour="tour-instance-header">
           <div className="flex items-center gap-6">
-            {/* Face — clean, well-padded */}
+            {/* Face */}
             <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
               <AgentCharacter mission={mission} instance={instance} />
             </div>
@@ -1262,6 +1871,9 @@ export function InstanceDetailPage() {
               <div className="flex items-center gap-3 mb-1">
                 <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
                 <InstanceStatusBadge instance={instance} />
+                <span className="text-[10px] font-mono text-text-muted bg-surface-2 px-2 py-0.5 rounded-full shrink-0">
+                  {instance.agentRuntime}
+                </span>
                 {(mission?.subAgents?.length ?? 0) > 0 && (
                   <span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full shrink-0">
                     +{mission!.subAgents.length} sub-agent{mission!.subAgents.length !== 1 ? 's' : ''}
@@ -1274,8 +1886,41 @@ export function InstanceDetailPage() {
               )}
               {isContainerReady(instance) && (
                 <p className="text-xs text-amber-400/90 font-mono mt-2">
-                  Your Anthropic API key is in use while this instance is running. Stop the instance when not in use to avoid API spend. Memory will not be lost.
+                  API key active — stop when not in use to avoid spend. Memory is preserved.
                 </p>
+              )}
+            </div>
+
+            {/* Lifecycle controls */}
+            <div className="shrink-0 flex flex-col gap-2">
+              {containerState === 'offline' ? (
+                <button
+                  onClick={() => startMut.mutate()}
+                  disabled={anyLifecycleLoading}
+                  className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white text-[12px] font-mono font-bold disabled:opacity-40 transition-colors"
+                >
+                  {startMut.isPending ? 'Starting\u2026' : 'Start'}
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => restartHeaderMut.mutate()}
+                    disabled={anyLifecycleLoading}
+                    className="px-5 py-2 rounded-lg bg-accent/15 hover:bg-accent/25 text-accent text-[11px] font-mono font-medium disabled:opacity-40 transition-colors"
+                  >
+                    {restartHeaderMut.isPending ? 'Restarting\u2026' : 'Restart'}
+                  </button>
+                  <button
+                    onClick={() => stopMut.mutate()}
+                    disabled={anyLifecycleLoading}
+                    className="px-5 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[11px] font-mono font-medium disabled:opacity-40 transition-colors"
+                  >
+                    {stopMut.isPending ? 'Stopping\u2026' : 'Stop'}
+                  </button>
+                </>
+              )}
+              {instance.liveStatus && (
+                <span className="text-[9px] font-mono text-text-muted text-center">{instance.liveStatus}</span>
               )}
             </div>
           </div>
@@ -1283,7 +1928,7 @@ export function InstanceDetailPage() {
 
         {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
         <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
-          {(['overview', 'profile', 'security', 'workspace'] as const).map(tab => (
+          {(['overview', 'profile', 'tools', 'workspace'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -1302,7 +1947,7 @@ export function InstanceDetailPage() {
           <WorkspaceTab instanceId={instance.id} instance={instance} />
         ) : activeTab === 'profile' ? (
           <ProfileTab instanceId={instance.id} instance={instance} isRunning={isContainerReady(instance)} />
-        ) : activeTab === 'security' ? (
+        ) : activeTab === 'tools' ? (
           <CapabilitiesSection instance={instance} />
         ) : (
           <>

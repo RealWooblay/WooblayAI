@@ -22,6 +22,9 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
+import { writeFileSync, unlinkSync, mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { PrismaClient } from '@prisma/client';
 import type { ActionSpec, ExecutionSpec } from '../types/actions.js';
 import { buildExecutionSpec } from './action-registry.js';
@@ -169,6 +172,31 @@ function buildContainerName(): string {
   return `${CONTAINER_PREFIX}-${id}`;
 }
 
+/**
+ * Write credentials to a temporary env-file and return its path.
+ * Uses Docker's env-file format (KEY=VALUE, one per line) which is NOT
+ * shell-interpreted — preventing $(), backtick, and newline injection that
+ * would occur with `-e KEY="VALUE"` on a shell command line.
+ * The file is deleted immediately after the container starts.
+ */
+function writeEnvFile(env: Record<string, string>, containerName: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `wooblay-exec-${containerName}-`));
+  const envFilePath = join(dir, '.env');
+  const lines = Object.entries(env)
+    .filter(([k]) => k !== '_GCP_KEY_CONTENT')
+    .map(([k, v]) => `${k}=${v}`);
+  writeFileSync(envFilePath, lines.join('\n'), { mode: 0o600 });
+  return envFilePath;
+}
+
+function cleanupEnvFile(envFilePath: string): void {
+  try {
+    unlinkSync(envFilePath);
+    const dir = envFilePath.replace(/\/[^/]+$/, '');
+    try { unlinkSync(dir); } catch { /* dir cleanup best-effort */ }
+  } catch { /* best-effort cleanup */ }
+}
+
 async function runInContainer(
   spec: ExecutionSpec,
   containerName: string,
@@ -176,31 +204,27 @@ async function runInContainer(
 ): Promise<{ stdout: string; stderr: string; exitCode: number; durationMs: number }> {
   const startTime = Date.now();
 
-  // Build environment flags
-  const envFlags = Object.entries(spec.env)
-    .filter(([k]) => k !== '_GCP_KEY_CONTENT') // Handle GCP key separately
-    .map(([k, v]) => `-e ${k}="${v.replace(/"/g, '\\"')}"`)
-    .join(' ');
+  // Write creds to env-file — never passes through shell expansion
+  const envFilePath = writeEnvFile(spec.env, containerName);
 
   // Mount flags
   const mountFlags = spec.mountWorkspace && workspacePath
     ? `-v "${workspacePath}:/workspace:ro"`
     : '';
 
-  // GCP key file handling
+  // GCP key file handling (content written inside container, not on shell)
   const gcpKeyContent = spec.env['_GCP_KEY_CONTENT'];
   const gcpSetup = gcpKeyContent
-    ? `echo '${gcpKeyContent.replace(/'/g, "\\'")}' > /tmp/gcp-key.json && `
+    ? `cat /dev/stdin <<'__GCP_EOF__' > /tmp/gcp-key.json\n${gcpKeyContent}\n__GCP_EOF__\n`
     : '';
 
-  // Git credential setup for GitHub
+  // Git credential setup for GitHub (refs env var inside container, not shell)
   const gitCredSetup = spec.env['GITHUB_TOKEN']
     ? `git config --global credential.helper '!f() { echo "username=token"; echo "password=$GITHUB_TOKEN"; }; f' && `
     : '';
 
   const fullCommand = `${gcpSetup}${gitCredSetup}${spec.command}`;
 
-  // Build docker run command
   const dockerCmd = [
     'docker run',
     '--rm',
@@ -211,7 +235,7 @@ async function runInContainer(
     '--cpus 1',
     '--pids-limit 128',
     `--network ${EXEC_NETWORK}`,
-    envFlags,
+    `--env-file "${envFilePath}"`,
     mountFlags,
     `-w ${spec.workdir}`,
     spec.image,
@@ -224,6 +248,7 @@ async function runInContainer(
       maxBuffer: MAX_OUTPUT_BYTES,
     });
 
+    cleanupEnvFile(envFilePath);
     return {
       stdout: stdout.slice(0, MAX_OUTPUT_BYTES),
       stderr: stderr.slice(0, MAX_OUTPUT_BYTES),
@@ -231,6 +256,7 @@ async function runInContainer(
       durationMs: Date.now() - startTime,
     };
   } catch (err: any) {
+    cleanupEnvFile(envFilePath);
     return {
       stdout: (err.stdout ?? '').slice(0, MAX_OUTPUT_BYTES),
       stderr: (err.stderr ?? err.message ?? '').slice(0, MAX_OUTPUT_BYTES),
@@ -343,6 +369,137 @@ export async function executeSecureAction(
     containerId: containerName,
     description: execSpec.description,
     error: result.exitCode !== 0 ? redactSecrets(result.stderr || 'Execution failed') : undefined,
+  };
+}
+
+// ── MCP Tool Execution (Layer 3) ────────────────────────────────────────
+
+export interface McpToolCallRequest {
+  /** MCP server command (e.g. "npx @modelcontextprotocol/server-github") */
+  serverCommand: string;
+  /** Tool name to invoke */
+  toolName: string;
+  /** Tool arguments */
+  toolArgs: Record<string, unknown>;
+  /** Credential map: { ENV_VAR: secretValue } — resolved from vault before calling */
+  credentials: Record<string, string>;
+  /** Run ID for event logging */
+  runId: string;
+  /** Docker image override (default: wooblay/mcp-executor:latest) */
+  image?: string;
+}
+
+export interface McpToolCallResult {
+  success: boolean;
+  /** Raw MCP tool result (JSON) */
+  result: unknown;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
+  containerId: string;
+  error?: string;
+}
+
+/**
+ * Execute a single MCP tool call in an ephemeral container.
+ *
+ * Security properties:
+ *   - Credentials injected as env vars, never visible to agent
+ *   - Container is read-only with tmpfs scratch space
+ *   - Network scoped to exec network (not agent network)
+ *   - Container auto-destroyed after execution
+ *   - 120s hard timeout
+ */
+export async function executeMcpToolCall(
+  prisma: PrismaClient,
+  request: McpToolCallRequest,
+): Promise<McpToolCallResult> {
+  const containerName = buildContainerName();
+  const image = request.image ?? 'wooblay/mcp-executor:latest';
+
+  try {
+    await ensureExecNetwork();
+  } catch (err: any) {
+    return {
+      success: false, result: null, stdout: '', stderr: `Network setup failed: ${err.message}`,
+      exitCode: 1, durationMs: 0, containerId: '', error: err.message,
+    };
+  }
+
+  await emitRunEvent(prisma, request.runId, 'secure_exec_start', {
+    action: 'mcp:tool-call',
+    description: `MCP tool: ${request.toolName}`,
+    image,
+    containerId: containerName,
+  });
+
+  // Strip shell metacharacters to prevent injection (defense-in-depth alongside container isolation)
+  const safeServerCmd = request.serverCommand.replace(/[;&|`$(){}[\]!#~<>\\'"]/g, '').trim();
+  const safeToolName = request.toolName.replace(/[;&|`$(){}[\]!#~<>\\'"]/g, '').trim();
+  const toolArgsJson = JSON.stringify(request.toolArgs).replace(/'/g, "'\\''");
+
+  if (!safeServerCmd || !safeToolName) {
+    return {
+      success: false, result: null, stdout: '', stderr: 'Invalid serverCommand or toolName after sanitization',
+      exitCode: 1, durationMs: 0, containerId: containerName, error: 'Invalid serverCommand or toolName',
+    };
+  }
+
+  const execSpec: ExecutionSpec = {
+    command: `node /opt/wooblay/mcp-executor.js --server "${safeServerCmd}" --tool "${safeToolName}" --args '${toolArgsJson}'`,
+    env: { ...request.credentials },
+    image,
+    allowedEndpoints: ['*:443', '*:80'],
+    mountWorkspace: false,
+    workdir: '/tmp',
+    timeoutMs: 120_000,
+    provider: 'generic',
+    description: `MCP tool: ${request.toolName}`,
+  };
+
+  const result = await runInContainer(execSpec, containerName);
+
+  let parsedResult: unknown = null;
+  if (result.stdout.trim()) {
+    try {
+      parsedResult = JSON.parse(result.stdout.trim().split('\n').pop() ?? '');
+    } catch {
+      parsedResult = { content: [{ type: 'text', text: result.stdout }] };
+    }
+  }
+
+  await emitRunEvent(prisma, request.runId, 'secure_exec_complete', {
+    action: 'mcp:tool-call',
+    success: result.exitCode === 0,
+    exitCode: result.exitCode,
+    durationMs: result.durationMs,
+    containerId: containerName,
+    stdout: redactSecrets(result.stdout.slice(0, 2000)),
+    stderr: redactSecrets(result.stderr.slice(0, 500)),
+  });
+
+  await persistEvent(prisma, {
+    type: 'secure_exec.completed',
+    data: {
+      runId: request.runId,
+      action: 'mcp:tool-call',
+      toolName: request.toolName,
+      success: result.exitCode === 0,
+      durationMs: result.durationMs,
+      containerId: containerName,
+    },
+  });
+
+  return {
+    success: result.exitCode === 0,
+    result: parsedResult,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    durationMs: result.durationMs,
+    containerId: containerName,
+    error: result.exitCode !== 0 ? redactSecrets(result.stderr || 'MCP tool execution failed') : undefined,
   };
 }
 

@@ -15,13 +15,13 @@ import { Spinner } from '../../components/common/Spinner.tsx';
 import { Button } from '../../components/common/Button.tsx';
 import { EmptyState } from '../../components/common/EmptyState.tsx';
 
-type AddStep = false | 'select' | 'github' | 'aws' | 'gcp' | 'webhook';
+type AddStep = false | 'select' | 'github' | 'aws' | 'gcp' | 'custom';
 
 const CONNECTION_TYPES: { id: string; label: string; description: string; available: boolean; hasSensing: boolean; hasExecution: boolean }[] = [
   { id: 'github', label: 'GitHub', description: 'Monitor repos and execute git/PR actions securely.', available: true, hasSensing: true, hasExecution: true },
   { id: 'aws', label: 'AWS', description: 'Deploy, manage S3, ECS, read CloudWatch logs securely.', available: true, hasSensing: false, hasExecution: true },
   { id: 'gcp', label: 'GCP', description: 'Deploy Cloud Run, manage GCS, read logs securely.', available: true, hasSensing: false, hasExecution: true },
-  { id: 'webhook', label: 'Generic Webhook', description: 'Receive events from any system via URL. Coming soon.', available: false, hasSensing: true, hasExecution: false },
+  { id: 'custom', label: 'Custom Provider', description: 'Any API or service — provide a name and credential. Used for MCP tool credential isolation.', available: true, hasSensing: false, hasExecution: true },
 ];
 
 // ── Event Rules Editor ────────────────────────────────────────────────
@@ -202,7 +202,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
   const qc = useQueryClient();
   const [addStep, setAddStep] = useState<AddStep>(false);
   const [selectedProvider, setSelectedProvider] = useState<string>('github');
-  const [newConn, setNewConn] = useState({ name: '', credential: '', awsSecretKey: '', awsRegion: 'us-east-1', gcpProject: '' });
+  const [newConn, setNewConn] = useState({ name: '', credential: '', awsSecretKey: '', awsRegion: 'us-east-1', gcpProject: '', customProvider: '' });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [webhookInfo, setWebhookInfo] = useState<Record<string, any>>({});
@@ -230,8 +230,11 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
 
   const createMut = useMutation({
     mutationFn: () => {
+      const effectiveProvider = selectedProvider === 'custom'
+        ? newConn.customProvider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-')
+        : selectedProvider;
       const payload: any = {
-        provider: selectedProvider,
+        provider: effectiveProvider,
         name: newConn.name,
         credential: newConn.credential,
       };
@@ -253,7 +256,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
       qc.invalidateQueries({ queryKey: ['sensors-status'] });
       setAddStep(false);
       setSelectedProvider('github');
-      setNewConn({ name: '', credential: '', awsSecretKey: '', awsRegion: 'us-east-1', gcpProject: '' });
+      setNewConn({ name: '', credential: '', awsSecretKey: '', awsRegion: 'us-east-1', gcpProject: '', customProvider: '' });
       if (selectedProvider === 'github') {
         try { await initSensor(conn.id); } catch { /* best effort */ }
       }
@@ -347,7 +350,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
       </div>
 
       {/* General callout: key must have full access (shown when adding any connection) */}
-      {(addStep === 'select' || addStep === 'github' || addStep === 'aws' || addStep === 'gcp') && (
+      {(addStep === 'select' || addStep === 'github' || addStep === 'aws' || addStep === 'gcp' || addStep === 'custom') && (
         <div className="bg-accent/5 border border-accent/20 rounded-lg px-4 py-3 mb-4">
           <p className="text-[10px] text-accent/90 font-medium mb-0.5">Use a full-access key</p>
           <p className="text-[10px] text-text-tertiary">
@@ -554,6 +557,58 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
         </div>
       )}
 
+      {/* Step 2: Custom provider form */}
+      {addStep === 'custom' && (
+        <div className="bg-surface-1 border border-accent/30 rounded-lg p-4 mb-6">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Connect Custom Provider</h3>
+          <p className="text-[10px] text-text-tertiary mb-3">
+            Add any API credential. Link it to MCP tool servers on your instance's Security tab for Layer 3 credential isolation.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Provider Name</label>
+              <input
+                type="text"
+                value={newConn.customProvider}
+                onChange={(e) => setNewConn((prev) => ({ ...prev, customProvider: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
+                placeholder="slack, stripe, linear, etc."
+                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Connection Name</label>
+              <input
+                type="text"
+                value={newConn.name}
+                onChange={(e) => setNewConn((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Production Slack"
+                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">Credential (API Key / Token / Secret)</label>
+              <input
+                type="password"
+                value={newConn.credential}
+                onChange={(e) => setNewConn((prev) => ({ ...prev, credential: e.target.value }))}
+                placeholder="xoxb-... or sk_live_..."
+                className="w-full bg-surface-2 border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
+              />
+              <p className="text-[10px] text-text-tertiary mt-1">
+                Encrypted at rest. Never exposed to agents. Injected into ephemeral containers at Layer 3 execution time only.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => createMut.mutate()} disabled={!newConn.name || !newConn.credential || !newConn.customProvider || createMut.isPending}>
+                {createMut.isPending ? 'Connecting...' : 'Add Connection'}
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setAddStep('select')}>Back</Button>
+              <Button size="sm" variant="secondary" onClick={() => setAddStep(false)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Connection List */}
       {connectionList.length === 0 && !addStep && (
         <EmptyState
@@ -645,10 +700,9 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                   )}
 
                   <div className="px-4 py-4 space-y-4">
-                    {/* One key, any action — no fixed list, no scope boundaries or extra secrets UI */}
                     <div className="text-[11px] text-text-secondary rounded-lg bg-surface-2 border border-border p-3">
                       <p className="font-medium text-text-primary mb-1">Execution</p>
-                      <p>One full-access key. Any action from your agent is sent through the gate and runs in an isolated container; the gate enforces your policy on every call. No fixed list of actions — no scope boundaries or extra secrets needed.</p>
+                      <p>Any action from your agent is sent through the gate and runs in an isolated container. The policy engine enforces your rules on every call — configure what's allowed, denied, or needs approval on the Policies page.</p>
                     </div>
 
                     {/* Sensing Section — hidden when credentialsOnly */}

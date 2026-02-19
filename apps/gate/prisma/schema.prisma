@@ -348,10 +348,35 @@ model Instance {
   updatedAt     DateTime @updatedAt
 
   policyRules   PolicyRule[]
+  mcpServers    McpServerConfig[]
 
   @@index([userId])
   @@index([status])
   @@index([agentRuntime])
+}
+
+// ── MCP Server Configurations ────────────────────────────────────────────
+// Per-instance upstream MCP server configs. The MCP proxy connects to each,
+// discovers tools via tools/list, and gates every call through the policy engine.
+// Credentials are never exposed to the agent — credentialed tools execute in
+// ephemeral containers via Layer 3 secure execution.
+
+model McpServerConfig {
+  id            String   @id @default(cuid())
+  instanceId    String
+  instance      Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  name          String
+  transport     String   // "stdio" | "sse"
+  source        String   // npm package name (stdio) or SSE URL
+  args          String?  // JSON — CLI args for stdio transport
+  connectionIds String   @default("[]") // JSON — Connection IDs whose vault creds are injected at L3 exec time
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([instanceId, name])
+  @@index([instanceId])
+  @@index([enabled])
 }
 
 // ── Governance: Identity + Approvals ─────────────────────────────────────

@@ -274,6 +274,46 @@ ACTIONS['exec:run'] = {
   },
 };
 
+// ── MCP Tool Execution ──────────────────────────────────────────────────
+// Executes a single MCP tool call inside an ephemeral container.
+// The container starts the upstream MCP server, connects as client,
+// calls the tool, returns the result, and is destroyed.
+// Vault credentials are injected as env vars — the agent never sees them.
+
+ACTIONS['mcp:tool-call'] = {
+  provider: 'generic',
+  image: 'node:20-slim',
+  allowedEndpoints: ['*:443', '*:80'],
+  mountWorkspace: false,
+  timeoutMs: 120_000,
+  buildCommand: (p) => {
+    const serverCmd = sanitize(String(p.serverCommand ?? ''));
+    const toolName = sanitize(String(p.toolName ?? ''));
+    const toolArgs = JSON.stringify(p.toolArgs ?? {});
+    if (!serverCmd || !toolName) throw new Error('serverCommand and toolName are required');
+    return `node /opt/wooblay/mcp-executor.js --server "${serverCmd}" --tool "${toolName}" --args '${toolArgs.replace(/'/g, "'\\''")}'`;
+  },
+  buildEnv: (p) => {
+    const env: Record<string, string> = {};
+    if (p.env && typeof p.env === 'object') {
+      for (const [k, v] of Object.entries(p.env as Record<string, string>)) {
+        env[k] = String(v);
+      }
+    }
+    return env;
+  },
+  describe: (p) => `MCP tool: ${p.toolName} via ${String(p.serverCommand ?? '').slice(0, 60)}`,
+  validate: (p) => {
+    if (!p.serverCommand || typeof p.serverCommand !== 'string') {
+      return { valid: false, error: 'serverCommand (string) is required' };
+    }
+    if (!p.toolName || typeof p.toolName !== 'string') {
+      return { valid: false, error: 'toolName (string) is required' };
+    }
+    return { valid: true };
+  },
+};
+
 // ── Registry API ────────────────────────────────────────────────────────
 
 /**
@@ -307,7 +347,10 @@ export function buildExecutionSpec(
     const command = def.buildCommand(spec.params);
     const env = { ...def.buildEnv(spec.params), ...credentials };
 
-    const image = spec.params.image ? String(spec.params.image) : def.image;
+    // Image comes from the action definition, not agent input.
+    // This is architectural: the registry defines what image each action runs in.
+    // The agent chooses WHAT to do; the registry decides HOW it runs.
+    const image = def.image;
     const timeoutMs = spec.params.timeout
       ? Math.min(Number(spec.params.timeout), 600_000)
       : def.timeoutMs;
@@ -344,6 +387,9 @@ export function buildExecutionSpec(
     }
   }
 
+  // Generic actions: image defaults to node:20-slim. Agent-specified images
+  // are allowed because generic actions are admin-level passthrough — the
+  // three-layer moat (policy, simulation, secure exec) still applies.
   return {
     command,
     env,
@@ -355,6 +401,66 @@ export function buildExecutionSpec(
     provider: spec.params.provider ? String(spec.params.provider) : 'generic',
     description: `${spec.action}: ${command.slice(0, 100)}`,
   };
+}
+
+// ── Image Safety Scanner ─────────────────────────────────────────────────
+// Advisory only — classifies Docker images by trust signal. Never blocks.
+// The policy layer can use this classification in its decision.
+
+export type ImageTrust = 'official' | 'verified' | 'known' | 'community' | 'unknown';
+
+interface ImageScanResult {
+  image: string;
+  trust: ImageTrust;
+  reason: string;
+}
+
+const OFFICIAL_IMAGES = new Set([
+  'node', 'python', 'ubuntu', 'alpine', 'debian', 'golang', 'rust', 'ruby',
+  'postgres', 'redis', 'nginx', 'busybox', 'httpd', 'mongo', 'mysql', 'mariadb',
+]);
+
+const VERIFIED_PREFIXES = [
+  'ghcr.io/cli/',         // GitHub CLI
+  'amazon/',              // AWS CLI
+  'google/',              // Google Cloud SDK
+  'alpine/',              // Alpine tools
+  'bitnami/',             // Bitnami
+  'hashicorp/',           // HashiCorp
+  'grafana/',             // Grafana
+  'docker/',              // Docker official
+  'wooblay/',             // Wooblay images
+];
+
+export function scanImage(image: string): ImageScanResult {
+  const name = image.split(':')[0].toLowerCase();
+
+  if (OFFICIAL_IMAGES.has(name)) {
+    return { image, trust: 'official', reason: `Official Docker Library image` };
+  }
+
+  for (const prefix of VERIFIED_PREFIXES) {
+    if (name.startsWith(prefix)) {
+      return { image, trust: 'verified', reason: `Verified publisher: ${prefix.replace(/\/$/, '')}` };
+    }
+  }
+
+  // ghcr.io, gcr.io, etc. are known registries
+  if (name.startsWith('ghcr.io/') || name.startsWith('gcr.io/') || name.startsWith('mcr.microsoft.com/')) {
+    return { image, trust: 'known', reason: `Known registry: ${name.split('/')[0]}` };
+  }
+
+  // Docker Hub namespaced (org/image) — community
+  if (name.includes('/') && !name.includes('.')) {
+    return { image, trust: 'community', reason: `Docker Hub community image` };
+  }
+
+  // Custom registry with domain
+  if (name.includes('.')) {
+    return { image, trust: 'community', reason: `Custom registry: ${name.split('/')[0]}` };
+  }
+
+  return { image, trust: 'unknown', reason: 'Unrecognized image source' };
 }
 
 // ── Sanitization ────────────────────────────────────────────────────────

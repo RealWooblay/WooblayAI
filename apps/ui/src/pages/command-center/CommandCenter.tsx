@@ -25,7 +25,6 @@ import {
   getApiKeys,
   getAgentContainerState,
   isContainerReady,
-  ApiError,
   type Instance,
   type MissionData,
   type CreateInstanceRequest,
@@ -340,18 +339,7 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
   const startMut = useMutation({
     mutationFn: () => startInstance(instance.id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['instances'] }),
-    onError: (err: Error) => {
-      if (err instanceof ApiError && err.status === 503) {
-        try {
-          const body = JSON.parse(err.body) as { error?: string };
-          toast(body?.error ?? err.message, 'error');
-        } catch {
-          toast(err.message, 'error');
-        }
-      } else {
-        toast(err.message, 'error');
-      }
-    },
+    onError: (err: Error) => toast(err.message, 'error'),
   });
   const stopMut = useMutation({ mutationFn: () => stopInstance(instance.id), ...actionOpts });
   const restartMut = useMutation({ mutationFn: () => restartInstance(instance.id), ...actionOpts });

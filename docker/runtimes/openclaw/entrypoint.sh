@@ -177,18 +177,30 @@ chmod 444 "${OPENCLAW_DIR}/extensions/wooblay/index.ts"
 chmod 444 "${OPENCLAW_DIR}/exec-approvals.json"
 chmod 444 "${OPENCLAW_DIR}/openclaw.json"
 
-# Agent owns everything else — free to install plugins, MCP servers, tools
+# Agent owns everything else — free to install plugins, MCP servers, tools, skills
 chown agent:agent "${OPENCLAW_DIR}"
 chown agent:agent "${OPENCLAW_DIR}/extensions"
 chown -R agent:agent "${AGENT_HOME}/clawd" 2>/dev/null || true
 mkdir -p "${AGENT_HOME}/workspace"
 chown -R agent:agent "${AGENT_HOME}/workspace"
 
-# ── Install user-provided MCP servers ─────────────────────────────────────
-# Users can pass MCP server config as a JSON env var. This gets written to
-# a file the agent can read. MCP servers extend what tools are available —
-# all tool calls still go through Gate regardless of source.
-if [ -n "${OPENCLAW_MCP_SERVERS:-}" ]; then
+# Skills directory — persisted so skills survive restart
+mkdir -p "${OPENCLAW_DIR}/skills"
+chown -R agent:agent "${OPENCLAW_DIR}/skills"
+
+# ── MCP Proxy sidecar integration ─────────────────────────────────────────
+# When a MCP proxy sidecar is running alongside this container, the agent
+# connects to it instead of upstream MCP servers directly. This ensures
+# all tool calls are gated and credentials are never exposed.
+MCP_PROXY_URL="${MCP_PROXY_URL:-}"
+if [ -n "${MCP_PROXY_URL}" ]; then
+  cat > "${OPENCLAW_DIR}/mcp-servers.json" << MCPEOF
+[{"name":"wooblay-proxy","url":"${MCP_PROXY_URL}","transport":"sse","headers":{"Authorization":"Bearer ${OPENCLAW_GATEWAY_TOKEN}"}}]
+MCPEOF
+  chown agent:agent "${OPENCLAW_DIR}/mcp-servers.json"
+  echo "  MCP:          proxy sidecar at ${MCP_PROXY_URL} (authenticated, all tools gated)"
+elif [ -n "${OPENCLAW_MCP_SERVERS:-}" ]; then
+  # Legacy: direct MCP server config (still gated through Gate plugin)
   echo "${OPENCLAW_MCP_SERVERS}" > "${OPENCLAW_DIR}/mcp-servers.json"
   chown agent:agent "${OPENCLAW_DIR}/mcp-servers.json"
   echo "  MCP:          custom servers configured"

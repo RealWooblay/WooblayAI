@@ -44,7 +44,7 @@ export type WooblayEvent =
   // ── Simulation events ──────────────────────────────────────────────
   | { type: 'simulation.completed';    data: { runId: string; action: string; strategy: string; passed: boolean } }
   // ── Secure Execution events ───────────────────────────────────────
-  | { type: 'secure_exec.completed';   data: { runId: string; action: string; success: boolean; durationMs: number; containerId: string } }
+  | { type: 'secure_exec.completed';   data: { runId: string; action: string; success: boolean; durationMs: number; containerId: string; toolName?: string } }
   // ── Gateway events ──────────────────────────────────────────────────
   | { type: 'gateway.executed';        data: { callerId?: string; capabilityId?: string; authMode?: string; runId?: string | null; actionClass: string; success: boolean; containerId?: string } }
   | { type: 'gateway.bypass_attempt';  data: { runId?: string; target: string; blocked: boolean } }
