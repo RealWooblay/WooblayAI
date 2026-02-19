@@ -1,6 +1,6 @@
 /**
  * Gateway — single guided page for the Wooblay firewall.
- * Flow: API Keys → Your Firewall (status + connect) → MCP Tools → Security → Unlock
+ * Flow: API Keys → Your Firewall (status + connect) → MCP Tools → Security
  */
 
 import { useState } from 'react';
@@ -44,6 +44,23 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
     >
       {copied ? 'Copied' : 'Copy'}
     </button>
+  );
+}
+
+function CredentialPicker({ connections, selected, onToggle }: { connections: any[]; selected: string[]; onToggle: (id: string) => void }) {
+  if (connections.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {connections.map((c: any) => (
+        <button key={c.id} type="button" onClick={() => onToggle(c.id)}
+          className={clsx(
+            'px-2.5 py-1 rounded text-[10px] font-mono transition-colors border',
+            selected.includes(c.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-border text-text-secondary hover:bg-surface-3',
+          )}>
+          {c.name}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -137,11 +154,10 @@ function FirewallSection() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats, refetchInterval: 10_000 });
 
   const proxy = instances.find((i: Instance) => i.instanceType === 'proxy');
-  const sseEndpoint = proxy ? (proxy.endpoint || `${API_BASE}/mcp/${proxy.id}`) : '';
+  const sseEndpoint = proxy ? `${API_BASE}/mcp/${proxy.id}/sse` : '';
 
   const [proxyName, setProxyName] = useState('');
   const [tab, setTab] = useState<ConnectTab>('claude');
-
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const deployMut = useMutation({
@@ -156,23 +172,19 @@ function FirewallSection() {
     onError: (err: any) => toast(`Failed: ${err.message}`, 'error'),
   });
 
+  const configSnippet = (url: string) => JSON.stringify({
+    mcpServers: {
+      wooblay: {
+        url: url || 'https://your-domain.com/mcp/.../sse',
+        transport: 'sse',
+        headers: { Authorization: 'Bearer wbl_ak_...' },
+      },
+    },
+  }, null, 2);
+
   const snippets: Record<ConnectTab, string> = {
-    claude: JSON.stringify({
-      mcpServers: {
-        wooblay: {
-          url: sseEndpoint || 'https://your-domain.com/mcp/...',
-          transport: 'sse',
-          headers: { Authorization: 'Bearer wbl_ak_...' },
-        },
-      },
-    }, null, 2),
-    cursor: JSON.stringify({
-      mcpServers: {
-        wooblay: {
-          url: sseEndpoint || 'https://your-domain.com/mcp/...',
-        },
-      },
-    }, null, 2),
+    claude: configSnippet(sseEndpoint),
+    cursor: configSnippet(sseEndpoint),
     http: `curl -X POST ${API_BASE}/api/gateway/execute \\
   -H "Authorization: Bearer wbl_ak_..." \\
   -H "Content-Type: application/json" \\
@@ -206,7 +218,6 @@ function FirewallSection() {
         </>
       ) : (
         <>
-          {/* Status + stats row */}
           <div className="flex items-center gap-4 mb-4">
             <div className="flex items-center gap-2">
               <span className={clsx('w-2 h-2 rounded-full', proxy.status === 'running' ? 'bg-emerald-400' : proxy.status === 'error' ? 'bg-red-400' : 'bg-amber-400')} />
@@ -231,7 +242,6 @@ function FirewallSection() {
             )}
           </div>
 
-          {/* Endpoint */}
           <div className="mb-4">
             <div className="flex items-center gap-2">
               <code className="flex-1 bg-surface-0 border border-border px-3 py-2.5 rounded-lg text-[12px] font-mono text-text-primary break-all select-all">
@@ -239,9 +249,9 @@ function FirewallSection() {
               </code>
               <CopyButton text={sseEndpoint} />
             </div>
+            <p className="text-[9px] text-text-muted mt-1.5">Use your API key as the Bearer token. Both Cursor and Claude Desktop require it.</p>
           </div>
 
-          {/* Connect tabs */}
           <div className="bg-surface-0 border border-border rounded-xl overflow-hidden">
             <div className="flex border-b border-border">
               {([['claude', 'Claude Desktop'], ['cursor', 'Cursor'], ['http', 'HTTP / cURL']] as const).map(([key, label]) => (
@@ -285,6 +295,14 @@ function McpToolsSection() {
   const [customSource, setCustomSource] = useState('');
   const [selectedConnIds, setSelectedConnIds] = useState<string[]>([]);
 
+  // Catalog credential picker state: which catalog item is open for credential selection
+  const [catalogCredsPicker, setCatalogCredsPicker] = useState<string | null>(null);
+  const [catalogConnIds, setCatalogConnIds] = useState<string[]>([]);
+
+  // Inline credential editor for configured servers
+  const [editingCredsFor, setEditingCredsFor] = useState<string | null>(null);
+  const [editConnIds, setEditConnIds] = useState<string[]>([]);
+
   const addMut = useMutation({
     mutationFn: (config: CreateMcpServerRequest) => addMcpServer(proxy!.id, config),
     onSuccess: () => {
@@ -294,6 +312,19 @@ function McpToolsSection() {
       setCustomName('');
       setCustomSource('');
       setSelectedConnIds([]);
+      setCatalogCredsPicker(null);
+      setCatalogConnIds([]);
+    },
+    onError: (err: any) => toast(`Failed: ${err?.body ?? err.message}`, 'error'),
+  });
+
+  const updateCredsMut = useMutation({
+    mutationFn: ({ id, connectionIds }: { id: string; connectionIds: string[] }) => updateMcpServer(proxy!.id, id, { connectionIds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', proxy?.id] });
+      toast('Credentials updated', 'success');
+      setEditingCredsFor(null);
+      setEditConnIds([]);
     },
     onError: (err: any) => toast(`Failed: ${err?.body ?? err.message}`, 'error'),
   });
@@ -308,13 +339,31 @@ function McpToolsSection() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['mcp-servers', proxy?.id] }); toast('Removed', 'info'); },
   });
 
-  const toggleConn = (id: string) => setSelectedConnIds(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+  const toggleConn = (id: string, list: string[], setter: (v: string[]) => void) =>
+    setter(list.includes(id) ? list.filter(c => c !== id) : [...list, id]);
 
   const addFromCatalog = (item: typeof MCP_CATALOG[number]) => {
     if (!proxy) return;
     const alreadyAdded = servers.some((s: McpServerConfig) => s.name === item.name);
     if (alreadyAdded) { toast(`${item.label} is already added`, 'info'); return; }
-    addMut.mutate({ name: item.name, transport: item.transport as 'stdio' | 'sse', source: item.source });
+
+    if (activeConns.length > 0) {
+      setCatalogCredsPicker(item.name);
+      setCatalogConnIds([]);
+    } else {
+      addMut.mutate({ name: item.name, transport: item.transport as 'stdio' | 'sse', source: item.source });
+    }
+  };
+
+  const confirmCatalogAdd = () => {
+    const item = MCP_CATALOG.find(c => c.name === catalogCredsPicker);
+    if (!item) return;
+    addMut.mutate({
+      name: item.name,
+      transport: item.transport as 'stdio' | 'sse',
+      source: item.source,
+      connectionIds: catalogConnIds.length > 0 ? catalogConnIds : undefined,
+    });
   };
 
   const handleCustomSubmit = () => {
@@ -325,6 +374,11 @@ function McpToolsSection() {
       source: customSource.trim(),
       connectionIds: selectedConnIds.length > 0 ? selectedConnIds : undefined,
     });
+  };
+
+  const startEditCreds = (s: McpServerConfig) => {
+    setEditingCredsFor(s.id);
+    setEditConnIds([...(s.connectionIds ?? [])]);
   };
 
   if (!proxy) return null;
@@ -338,7 +392,7 @@ function McpToolsSection() {
         <span className="text-[10px] text-text-muted font-mono">step 3</span>
       </div>
       <p className="text-[10px] text-text-muted mb-4">
-        Add MCP tool servers to your firewall. Every tool call is policy-checked. Credentialed tools run in ephemeral containers.
+        Add MCP servers to your firewall. Every tool call is policy-checked. Attach credentials for L3 secure execution.
       </p>
 
       {/* Catalog grid */}
@@ -364,6 +418,33 @@ function McpToolsSection() {
           );
         })}
       </div>
+
+      {/* Catalog credential picker (shown after clicking a catalog item when connections exist) */}
+      {catalogCredsPicker && (
+        <div className="border border-accent/30 rounded-lg p-4 bg-accent/5 mb-4 space-y-3">
+          <div className="text-[11px] font-medium text-text-primary">
+            Add <span className="text-accent">{MCP_CATALOG.find(c => c.name === catalogCredsPicker)?.label}</span> — attach credentials?
+          </div>
+          <CredentialPicker
+            connections={activeConns}
+            selected={catalogConnIds}
+            onToggle={(id) => toggleConn(id, catalogConnIds, setCatalogConnIds)}
+          />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setCatalogCredsPicker(null); setCatalogConnIds([]); }}
+              className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Skip</button>
+            <button onClick={() => {
+              const item = MCP_CATALOG.find(c => c.name === catalogCredsPicker);
+              if (item) addMut.mutate({ name: item.name, transport: item.transport as 'stdio' | 'sse', source: item.source });
+            }}
+              className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Add without credentials</button>
+            <button onClick={confirmCatalogAdd} disabled={catalogConnIds.length === 0 || addMut.isPending}
+              className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors">
+              {addMut.isPending ? 'Adding...' : 'Add with credentials'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Custom server entry */}
       {!showCustom ? (
@@ -402,17 +483,7 @@ function McpToolsSection() {
               <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
                 Vault Credentials <span className="normal-case text-text-muted">(optional — enables L3)</span>
               </label>
-              <div className="flex flex-wrap gap-1.5">
-                {activeConns.map((c: any) => (
-                  <button key={c.id} type="button" onClick={() => toggleConn(c.id)}
-                    className={clsx(
-                      'px-2.5 py-1 rounded text-[10px] font-mono transition-colors border',
-                      selectedConnIds.includes(c.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-border text-text-secondary hover:bg-surface-3',
-                    )}>
-                    {c.name}
-                  </button>
-                ))}
-              </div>
+              <CredentialPicker connections={activeConns} selected={selectedConnIds} onToggle={(id) => toggleConn(id, selectedConnIds, setSelectedConnIds)} />
             </div>
           )}
 
@@ -432,22 +503,48 @@ function McpToolsSection() {
         <div className="mt-4 space-y-1.5">
           <div className="text-[9px] text-text-muted font-mono uppercase tracking-wider mb-1">Configured</div>
           {servers.map((s: McpServerConfig) => (
-            <div key={s.id} className={clsx('flex items-center justify-between bg-surface-0 border rounded-lg px-3 py-2 group', s.enabled ? 'border-border' : 'border-border opacity-50')}>
-              <div className="flex items-center gap-2.5">
-                <button onClick={() => toggleMut.mutate({ id: s.id, enabled: !s.enabled })}
-                  className={clsx('relative h-4 w-7 shrink-0 rounded-full transition-colors', s.enabled ? 'bg-accent' : 'bg-surface-3')}>
-                  <span className={clsx('absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform duration-200', s.enabled ? 'translate-x-3' : 'translate-x-0')} />
-                </button>
-                <span className="text-[11px] font-mono text-text-primary">{s.name}</span>
-                <span className="text-[9px] text-text-muted">{s.transport}</span>
-                {s.connectionIds && s.connectionIds.length > 0 && (
-                  <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-mono">L3</span>
-                )}
+            <div key={s.id} className="bg-surface-0 border border-border rounded-lg overflow-hidden">
+              <div className={clsx('flex items-center justify-between px-3 py-2 group', !s.enabled && 'opacity-50')}>
+                <div className="flex items-center gap-2.5">
+                  <button onClick={() => toggleMut.mutate({ id: s.id, enabled: !s.enabled })}
+                    className={clsx('relative h-4 w-7 shrink-0 rounded-full transition-colors', s.enabled ? 'bg-accent' : 'bg-surface-3')}>
+                    <span className={clsx('absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform duration-200', s.enabled ? 'translate-x-3' : 'translate-x-0')} />
+                  </button>
+                  <span className="text-[11px] font-mono text-text-primary">{s.name}</span>
+                  <span className="text-[9px] text-text-muted">{s.transport}</span>
+                  {s.connectionIds && s.connectionIds.length > 0 && (
+                    <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-mono">L3</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeConns.length > 0 && (
+                    <button onClick={() => editingCredsFor === s.id ? setEditingCredsFor(null) : startEditCreds(s)}
+                      className="text-[10px] text-accent/60 hover:text-accent font-mono transition-colors opacity-0 group-hover:opacity-100">
+                      {editingCredsFor === s.id ? 'close' : 'credentials'}
+                    </button>
+                  )}
+                  <button onClick={() => removeMut.mutate(s.id)}
+                    className="text-[10px] text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 transition-colors font-mono">
+                    remove
+                  </button>
+                </div>
               </div>
-              <button onClick={() => removeMut.mutate(s.id)}
-                className="text-[10px] text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 transition-colors font-mono">
-                remove
-              </button>
+
+              {/* Inline credential editor */}
+              {editingCredsFor === s.id && (
+                <div className="border-t border-border px-3 py-2.5 bg-surface-1/50 space-y-2">
+                  <div className="text-[9px] text-text-muted font-mono uppercase">Vault Credentials</div>
+                  <CredentialPicker connections={activeConns} selected={editConnIds} onToggle={(id) => toggleConn(id, editConnIds, setEditConnIds)} />
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button onClick={() => setEditingCredsFor(null)} className="text-[10px] font-mono text-text-secondary">Cancel</button>
+                    <button onClick={() => updateCredsMut.mutate({ id: s.id, connectionIds: editConnIds })}
+                      disabled={updateCredsMut.isPending}
+                      className="px-3 py-1 rounded bg-accent text-surface-0 text-[10px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors">
+                      {updateCredsMut.isPending ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

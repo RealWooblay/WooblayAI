@@ -338,7 +338,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
             agentRuntime: 'proxy-only',
             model: 'none',
             configJson: JSON.stringify({ port, gatewayToken, syncToken: generateToken() }),
-            endpoint: `http://wooblay-mcp-proxy-${name}:3100/sse`,
+            endpoint: null,
           },
         });
 

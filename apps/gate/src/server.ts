@@ -50,6 +50,7 @@ import { repoConfigRoutes } from './routes/repo-config.js';
 import { verificationRoutes } from './routes/verifications.js';
 import { workspaceRunnerRoutes } from './routes/workspace-runner.js';
 import { apiKeyRoutes } from './routes/api-keys.js';
+import { mcpProxyRoutes } from './routes/mcp-proxy.js';
 
 // Route modules — platform mode only
 import { userRoutes } from './routes/users.js';
@@ -114,6 +115,7 @@ export async function buildApp() {
   await app.register(verificationRoutes);
   await app.register(workspaceRunnerRoutes);
   await app.register(apiKeyRoutes);
+  await app.register(mcpProxyRoutes);
 
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);

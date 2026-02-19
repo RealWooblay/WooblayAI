@@ -10,10 +10,10 @@ Use this doc to test the app end-to-end or hand to testers. Includes step-by-ste
 
 Before testing Cursor or Claude Desktop you need:
 
-1. **API key** — Gateway page → create a key, copy it (shown once).
+1. **API key** — Gateway page → create a key, copy it (shown once). You need this for all integrations.
 2. **MCP proxy** — Gateway page → "Your Firewall" → deploy a proxy (name + Deploy). Wait until status is `running`.
-3. **SSE endpoint** — After proxy is running, copy the endpoint shown (e.g. `https://wooblay.com/mcp/cmllpu4xl0001p901ehrxb86k`).
-4. **MCP tools** (optional) — Add at least one MCP server in "MCP Tools" (e.g. GitHub, Filesystem) so the proxy exposes tools.
+3. **SSE endpoint** — After proxy is running, copy the endpoint shown (e.g. `https://wooblay.com/mcp/<instance-id>/sse`).
+4. **MCP servers** — In "MCP Tools" add at least one MCP server (e.g. GitHub, Filesystem). You can attach vault credentials when adding — click the catalog item and a credential picker appears. You can also add/change credentials later via the "credentials" link on each configured server.
 
 ---
 
@@ -29,21 +29,6 @@ Before testing Cursor or Claude Desktop you need:
   "mcpServers": {
     "wooblay": {
       "url": "YOUR_SSE_ENDPOINT",
-      "transport": "sse"
-    }
-  }
-}
-```
-
-Replace `YOUR_SSE_ENDPOINT` with your Gateway SSE URL (e.g. `https://wooblay.com/mcp/YOUR_INSTANCE_ID`).
-
-5. **Auth:** Cursor may prompt for auth or you may need to pass the API key. If your Wooblay deployment expects a Bearer token, use a config that supports headers. Example with env-based token:
-
-```json
-{
-  "mcpServers": {
-    "wooblay": {
-      "url": "https://wooblay.com/mcp/YOUR_INSTANCE_ID",
       "transport": "sse",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -53,17 +38,19 @@ Replace `YOUR_SSE_ENDPOINT` with your Gateway SSE URL (e.g. `https://wooblay.com
 }
 ```
 
-Replace `YOUR_API_KEY` with the key you created on the Gateway page, and `YOUR_INSTANCE_ID` with your proxy instance ID from the SSE URL.
+Replace `YOUR_SSE_ENDPOINT` with your Gateway SSE URL (e.g. `https://wooblay.com/mcp/<instance-id>/sse`) and `YOUR_API_KEY` with the API key you created on the Gateway page.
 
-6. Restart Cursor or reload MCP servers (if there is an option).
-7. In a chat, ask the model to list tools or use a tool that you added (e.g. GitHub). Requests go through Wooblay; check **Gateway** page usage (calls, blocked, pending) and **Audit** for the activity log.
+**Auth is required.** Both Cursor and Claude Desktop need the `Authorization: Bearer` header. Without it you'll get 401.
+
+5. Restart Cursor or reload MCP servers (if there is an option).
+6. In a chat, ask the model to list tools or use a tool that you added (e.g. GitHub). Requests go through Wooblay; check **Gateway** page usage (calls, blocked, pending) and **Audit** for the activity log.
 
 **Checklist:**
 
 - [ ] API key created and copied.
 - [ ] Proxy deployed and status `running`.
 - [ ] SSE endpoint copied from Gateway page.
-- [ ] `mcp.json` (or equivalent) updated with Wooblay URL and optional `headers.Authorization`.
+- [ ] `mcp.json` updated with Wooblay URL and `headers.Authorization`.
 - [ ] Cursor restarted / MCP reloaded.
 - [ ] Model can list or call Wooblay tools; Activity/Audit shows the call.
 
@@ -75,7 +62,7 @@ Replace `YOUR_API_KEY` with the key you created on the Gateway page, and `YOUR_I
 2. Open Claude Desktop config:
    - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
    - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-3. Add the Wooblay MCP server:
+3. Add the Wooblay MCP server (identical config to Cursor):
 
 ```json
 {
@@ -91,7 +78,7 @@ Replace `YOUR_API_KEY` with the key you created on the Gateway page, and `YOUR_I
 }
 ```
 
-Replace `YOUR_SSE_ENDPOINT` and `YOUR_API_KEY` with your values.
+Replace `YOUR_SSE_ENDPOINT` (e.g. `https://wooblay.com/mcp/<instance-id>/sse`) and `YOUR_API_KEY` with your values.
 
 4. Restart Claude Desktop.
 5. Start a new conversation; Claude should have access to the tools exposed by your Wooblay proxy. Trigger a tool call and verify in Wooblay **Gateway** (usage) and **Audit**.
@@ -123,7 +110,7 @@ curl -X POST https://YOUR_DOMAIN/api/gateway/execute \
   }'
 ```
 
-Replace `YOUR_DOMAIN` (e.g. `wooblay.com`) and `YOUR_API_KEY`. Adjust `toolName`, `args`, and `connectionIds` to match your policies and connections.
+Replace `YOUR_DOMAIN` (e.g. `wooblay.com`) and `YOUR_API_KEY`. Adjust `toolName`, `args`, and `connectionIds` to match your setup.
 
 3. Expect either a successful result or a clear error (e.g. 403 policy, 404 tool, missing connection). A valid key should not return 401.
 
