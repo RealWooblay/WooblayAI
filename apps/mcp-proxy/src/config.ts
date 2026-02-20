@@ -2,14 +2,36 @@
  * Configuration loader for the MCP Proxy.
  *
  * Reads from environment:
- *   GATE_URL          — Gate API base URL
- *   INSTANCE_ID       — Instance this proxy belongs to
- *   MCP_SERVERS_JSON  — JSON array of McpServerConfigEntry
- *
- * Falls back to fetching from Gate API if MCP_SERVERS_JSON is not set.
+ *   GATE_URL             — Gate API base URL
+ *   INSTANCE_ID          — Instance DB id (cuid) for status API and fetchConfigFromGate
+ *   MCP_SERVERS_JSON_B64 — Base64-encoded JSON array of McpServerConfigEntry (preferred)
+ *   MCP_SERVERS_JSON     — Fallback: raw JSON
  */
 
 import type { ProxyConfig, McpServerConfigEntry } from './types.js';
+
+function parseServersFromEnv(): McpServerConfigEntry[] {
+  const b64 = process.env['MCP_SERVERS_JSON_B64'];
+  if (b64) {
+    try {
+      const json = Buffer.from(b64, 'base64').toString('utf-8');
+      const servers = JSON.parse(json);
+      if (Array.isArray(servers)) return servers;
+    } catch (err) {
+      process.stderr.write(`[config] Failed to parse MCP_SERVERS_JSON_B64: ${err}\n`);
+    }
+  }
+  const raw = process.env['MCP_SERVERS_JSON'];
+  if (raw) {
+    try {
+      const servers = JSON.parse(raw);
+      if (Array.isArray(servers)) return servers;
+    } catch (err) {
+      process.stderr.write(`[config] Failed to parse MCP_SERVERS_JSON: ${err}\n`);
+    }
+  }
+  return [];
+}
 
 export function loadConfig(): ProxyConfig {
   const gateUrl = process.env['GATE_URL'] ?? 'http://localhost:4800';
@@ -19,19 +41,9 @@ export function loadConfig(): ProxyConfig {
     process.stderr.write('[config] WARNING: INSTANCE_ID not set\n');
   }
 
-  let servers: McpServerConfigEntry[] = [];
-
-  const serversJson = process.env['MCP_SERVERS_JSON'];
-  if (serversJson) {
-    try {
-      servers = JSON.parse(serversJson);
-      if (!Array.isArray(servers)) {
-        process.stderr.write('[config] MCP_SERVERS_JSON is not an array, ignoring\n');
-        servers = [];
-      }
-    } catch (err) {
-      process.stderr.write(`[config] Failed to parse MCP_SERVERS_JSON: ${err}\n`);
-    }
+  const servers = parseServersFromEnv();
+  if (servers.length > 0) {
+    process.stderr.write(`[config] Loaded ${servers.length} MCP server(s) from env\n`);
   }
 
   return { gateUrl, instanceId, servers };

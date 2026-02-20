@@ -106,6 +106,7 @@ interface McpServerForCompose {
 
 function writeInstanceCompose(
   dir: string,
+  instanceId: string,
   instanceName: string,
   _port: number,
   mcpServers?: McpServerForCompose[],
@@ -126,14 +127,13 @@ function writeInstanceCompose(
       connectionIds: JSON.parse(s.connectionIds),
       enabled: true,
     })));
-    // Quote so values with spaces (e.g. source: "npx -y @modelcontextprotocol/server-github") parse correctly
-    const serversJsonEscaped = serversJson.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const serversB64 = Buffer.from(serversJson, 'utf-8').toString('base64');
 
     writeFileSync(join(dir, '.env.mcp-proxy'), [
       `GATE_URL=${GATE_INTERNAL_URL}`,
-      `INSTANCE_ID=${instanceName}`,
+      `INSTANCE_ID=${instanceId}`,
       `INSTANCE_NAME=${instanceName}`,
-      `MCP_SERVERS_JSON="${serversJsonEscaped}"`,
+      `MCP_SERVERS_JSON_B64=${serversB64}`,
       ...(gatewayToken ? [`GATEWAY_TOKEN=${gatewayToken}`] : []),
     ].join('\n') + '\n', 'utf-8');
   }
@@ -310,7 +310,7 @@ async function refreshProxyConfigAfterMcpChange(
   }
 
   const isProxy = instance.instanceType === 'proxy';
-  writeInstanceCompose(dir, instance.name, 0, mcpServers, gatewayToken, isProxy ? 'proxy' : 'agent');
+  writeInstanceCompose(dir, instanceId, instance.name, 0, mcpServers, gatewayToken, isProxy ? 'proxy' : 'agent');
 
   const hasMcpProxy = mcpServers.filter((s) => s.enabled).length > 0 || isProxy;
   try {
@@ -434,7 +434,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         const dir = getInstanceDir(instance.id);
         mkdirSync(dir, { recursive: true });
         writeInstanceEnv(dir, { GATE_URL: GATE_INTERNAL_URL, INSTANCE_NAME: name });
-        writeInstanceCompose(dir, name, port, [], gatewayToken, 'proxy');
+        writeInstanceCompose(dir, instance.id, name, port, [], gatewayToken, 'proxy');
 
         try {
           execSync(`cd "${dir}" && docker compose up -d`, { timeout: 90_000, stdio: 'pipe' });
@@ -510,7 +510,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
       writeInstanceEnv(dir, envConfig);
       ensureAgentStateDir(dir);
-      writeInstanceCompose(dir, name, port, undefined, gatewayToken, 'agent');
+      writeInstanceCompose(dir, instance.id, name, port, undefined, gatewayToken, 'agent');
 
       try {
         execSync(`cd "${dir}" && docker compose up -d`, { timeout: 90_000, stdio: 'pipe' });
@@ -813,7 +813,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         if (isProxy) {
           const gwToken = (parsedConfig.gatewayToken as string) ?? generateToken();
           writeInstanceEnv(dir, { GATE_URL: GATE_INTERNAL_URL, INSTANCE_NAME: instance.name });
-          writeInstanceCompose(dir, instance.name, port, mcpServers, gwToken, 'proxy');
+          writeInstanceCompose(dir, instance.id, instance.name, port, mcpServers, gwToken, 'proxy');
         } else {
           ensureAgentStateDir(dir);
           const envConfig: Record<string, string> = {
@@ -837,7 +837,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           };
           const instanceGwToken = (parsedConfig.gatewayToken as string) ?? generateToken();
           writeInstanceEnv(dir, envConfig);
-          writeInstanceCompose(dir, instance.name, port, mcpServers, instanceGwToken, 'agent');
+          writeInstanceCompose(dir, instance.id, instance.name, port, mcpServers, instanceGwToken, 'agent');
         }
         request.log.info({ instanceId: id, name: instance.name }, 'Re-provisioned instance dir (was missing after migration)');
       } else {
@@ -848,7 +848,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
           const match = envContent.match(/OPENCLAW_GATEWAY_TOKEN=(.+)/);
           if (match) gwToken = match[1].trim();
         } catch { /* use undefined */ }
-        writeInstanceCompose(dir, instance.name, 0, mcpServers, gwToken, isProxy ? 'proxy' : 'agent');
+        writeInstanceCompose(dir, id, instance.name, 0, mcpServers, gwToken, isProxy ? 'proxy' : 'agent');
       }
 
       if (!isProxy) ensureAgentStateDir(dir);
@@ -1495,7 +1495,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
   /**
    * POST /api/instances/:id/mcp-servers/status — Bulk status update from the proxy.
    * Called by the MCP proxy after connecting to upstreams, so the UI can show real status.
-   * Auth: GATEWAY_TOKEN (proxy internal token), not user session.
+   * Auth: Bearer token must match the instance's gateway token (proxy internal).
    * Body: { servers: [{ name, status, toolCount, error? }] }
    */
   app.post('/api/instances/:id/mcp-servers/status', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -1512,14 +1512,22 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       const instance = await prisma.instance.findUnique({ where: { id } });
       if (!instance) return reply.code(404).send({ error: 'Instance not found' });
 
+      let expectedToken = '';
+      try {
+        const config = instance.configJson ? (JSON.parse(instance.configJson) as { gatewayToken?: string }) : {};
+        expectedToken = config.gatewayToken ?? '';
+      } catch { /* ignore */ }
+      const authHeader = (request.headers['authorization'] ?? '').toString();
+      const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+      if (!expectedToken || token !== expectedToken) {
+        return reply.code(401).send({ error: 'Unauthorized' });
+      }
+
       for (const s of body.servers) {
         await prisma.mcpServerConfig.updateMany({
           where: { instanceId: id, name: s.name },
-          data: {
-            status: s.status,
-            toolCount: s.toolCount,
-            lastError: s.error ?? null,
-          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: { status: s.status, toolCount: s.toolCount, lastError: s.error ?? null } as any,
         });
       }
 
