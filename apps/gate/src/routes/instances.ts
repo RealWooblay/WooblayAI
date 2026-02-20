@@ -240,6 +240,30 @@ function ensureAgentStateDir(dir: string): void {
   }
 }
 
+// Debounce proxy refresh so adding several MCP servers in quick succession
+// triggers a single container recreate.
+const MCP_REFRESH_DEBOUNCE_MS = 10_000;
+const pendingProxyRefresh = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Schedule a single proxy config refresh for this instance. If another change
+ * happens within MCP_REFRESH_DEBOUNCE_MS, the timer resets so we only run once.
+ */
+function scheduleProxyConfigRefresh(
+  instanceId: string,
+  log: { info: (o: object, msg?: string) => void; warn: (o: object, msg?: string) => void },
+): void {
+  const existing = pendingProxyRefresh.get(instanceId);
+  if (existing) clearTimeout(existing);
+
+  const t = setTimeout(() => {
+    pendingProxyRefresh.delete(instanceId);
+    refreshProxyConfigAfterMcpChange(instanceId, log).catch(() => {});
+  }, MCP_REFRESH_DEBOUNCE_MS);
+
+  pendingProxyRefresh.set(instanceId, t);
+}
+
 /**
  * After adding/updating/removing an MCP server, regenerate the proxy env and
  * force-recreate the proxy container so it picks up the new MCP_SERVERS_JSON.
@@ -1312,7 +1336,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
       request.log.info({ instanceId: id, serverId: server.id, name: server.name }, 'MCP server config added');
 
-      await refreshProxyConfigAfterMcpChange(id, request.log);
+      scheduleProxyConfigRefresh(id, request.log);
 
       return reply.code(201).send({
         ...server,
@@ -1426,7 +1450,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         },
       });
 
-      await refreshProxyConfigAfterMcpChange(id, request.log);
+      scheduleProxyConfigRefresh(id, request.log);
 
       return reply.send({
         ...updated,
@@ -1459,7 +1483,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       await prisma.mcpServerConfig.delete({ where: { id: serverId } });
 
       request.log.info({ instanceId: id, serverId, name: existing.name }, 'MCP server config removed');
-      await refreshProxyConfigAfterMcpChange(id, request.log);
+      scheduleProxyConfigRefresh(id, request.log);
       return reply.code(204).send();
     } catch (err: any) {
       request.log.error(err, 'Failed to delete MCP server');
