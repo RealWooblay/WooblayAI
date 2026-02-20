@@ -240,6 +240,70 @@ function ensureAgentStateDir(dir: string): void {
   }
 }
 
+/**
+ * After adding/updating/removing an MCP server, regenerate the proxy env and
+ * force-recreate the proxy container so it picks up the new MCP_SERVERS_JSON.
+ * No-op if the instance has never been started (no compose dir).
+ */
+async function refreshProxyConfigAfterMcpChange(
+  instanceId: string,
+  log: { info: (o: object, msg?: string) => void; warn: (o: object, msg?: string) => void },
+): Promise<void> {
+  const instance = await prisma.instance.findUnique({ where: { id: instanceId } });
+  if (!instance) return;
+
+  const dir = getInstanceDir(instanceId);
+  if (!existsSync(dir)) {
+    return;
+  }
+
+  const mcpServers = await prisma.mcpServerConfig.findMany({
+    where: { instanceId },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  let gatewayToken: string | undefined;
+  const mcpEnvPath = join(dir, '.env.mcp-proxy');
+  if (existsSync(mcpEnvPath)) {
+    const envContent = readFileSync(mcpEnvPath, 'utf-8');
+    const m = envContent.match(/GATEWAY_TOKEN=(.+)/);
+    if (m) gatewayToken = m[1].trim();
+  }
+  if (!gatewayToken && instance.configJson) {
+    try {
+      const parsed = JSON.parse(instance.configJson) as { gatewayToken?: string };
+      gatewayToken = parsed.gatewayToken;
+    } catch { /* ignore */ }
+  }
+  if (!gatewayToken) {
+    gatewayToken = generateToken();
+    const next = instance.configJson ? { ...JSON.parse(instance.configJson), gatewayToken } : { gatewayToken };
+    await prisma.instance.update({
+      where: { id: instanceId },
+      data: { configJson: JSON.stringify(next) },
+    });
+  }
+
+  const isProxy = instance.instanceType === 'proxy';
+  writeInstanceCompose(dir, instance.name, 0, mcpServers, gatewayToken, isProxy ? 'proxy' : 'agent');
+
+  const hasMcpProxy = mcpServers.filter((s) => s.enabled).length > 0 || isProxy;
+  try {
+    if (hasMcpProxy) {
+      execSync(
+        `cd "${dir}" && docker compose up -d --force-recreate mcp-proxy-${instance.name}`,
+        { timeout: 60_000, stdio: 'pipe' },
+      );
+      log.info({ instanceId, instanceName: instance.name }, 'MCP proxy config refreshed and container recreated');
+    } else {
+      execSync(`cd "${dir}" && docker compose up -d`, { timeout: 60_000, stdio: 'pipe' });
+      log.info({ instanceId }, 'Compose applied (proxy removed)');
+    }
+  } catch (err) {
+    log.warn({ instanceId, err: err instanceof Error ? err.message : String(err) }, 'Failed to apply MCP proxy config');
+  }
+}
+
 export async function instanceRoutes(app: FastifyInstance): Promise<void> {
   // Ensure instances directory exists
   if (!existsSync(INSTANCES_DIR)) {
@@ -1248,6 +1312,8 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
 
       request.log.info({ instanceId: id, serverId: server.id, name: server.name }, 'MCP server config added');
 
+      await refreshProxyConfigAfterMcpChange(id, request.log);
+
       return reply.code(201).send({
         ...server,
         connectionIds,
@@ -1360,6 +1426,8 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
         },
       });
 
+      await refreshProxyConfigAfterMcpChange(id, request.log);
+
       return reply.send({
         ...updated,
         connectionIds: JSON.parse(updated.connectionIds),
@@ -1391,6 +1459,7 @@ export async function instanceRoutes(app: FastifyInstance): Promise<void> {
       await prisma.mcpServerConfig.delete({ where: { id: serverId } });
 
       request.log.info({ instanceId: id, serverId, name: existing.name }, 'MCP server config removed');
+      await refreshProxyConfigAfterMcpChange(id, request.log);
       return reply.code(204).send();
     } catch (err: any) {
       request.log.error(err, 'Failed to delete MCP server');
