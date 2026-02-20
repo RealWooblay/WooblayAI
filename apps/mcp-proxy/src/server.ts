@@ -46,29 +46,40 @@ if (!PROXY_TOKEN) {
 const upstreamClients = new Map<string, Client>();
 const toolRegistry = new Map<string, { tool: UpstreamTool; serverName: string; config: McpServerConfigEntry }>();
 
+interface ServerStatus {
+  name: string;
+  status: 'connecting' | 'connected' | 'error';
+  toolCount: number;
+  error?: string;
+}
+const serverStatuses: ServerStatus[] = [];
+
 // ── Upstream Connection ──────────────────────────────────────────────────
 
 async function connectUpstream(serverConfig: McpServerConfigEntry): Promise<void> {
   if (!serverConfig.enabled) return;
 
   const log = (msg: string) => process.stderr.write(`[proxy:${serverConfig.name}] ${msg}\n`);
+  const entry: ServerStatus = { name: serverConfig.name, status: 'connecting', toolCount: 0 };
+  serverStatuses.push(entry);
 
   try {
     let transport;
     if (serverConfig.transport === 'stdio') {
       const parts = serverConfig.source.split(/\s+/);
-      // Only pass safe env vars to upstream MCP servers — never leak proxy secrets
       const safeEnv: Record<string, string> = {
         PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
         HOME: process.env['HOME'] ?? '/tmp',
         NODE_ENV: process.env['NODE_ENV'] ?? 'production',
       };
+      log(`spawning: ${parts[0]} ${parts.slice(1).join(' ')}`);
       transport = new StdioClientTransport({
         command: parts[0],
         args: [...parts.slice(1), ...(serverConfig.args ?? [])],
         env: safeEnv,
       });
     } else {
+      log(`connecting to SSE: ${serverConfig.source}`);
       transport = new SSEClientTransport(new URL(serverConfig.source));
     }
 
@@ -91,8 +102,32 @@ async function connectUpstream(serverConfig: McpServerConfigEntry): Promise<void
       });
     }
     log(`discovered ${tools.length} tools`);
+    entry.status = 'connected';
+    entry.toolCount = tools.length;
   } catch (err) {
-    log(`connection failed: ${err instanceof Error ? err.message : String(err)}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    log(`connection failed: ${msg}`);
+    entry.status = 'error';
+    entry.error = msg.slice(0, 500);
+  }
+}
+
+async function reportStatusToGate(gateUrl: string, instanceId: string): Promise<void> {
+  if (!instanceId || serverStatuses.length === 0) return;
+  try {
+    const token = process.env['GATEWAY_TOKEN'] ?? '';
+    await fetch(`${gateUrl}/api/instances/${instanceId}/mcp-servers/status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ servers: serverStatuses }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    process.stderr.write(`[proxy] Reported status for ${serverStatuses.length} server(s) to Gate\n`);
+  } catch (err) {
+    process.stderr.write(`[proxy] Failed to report status to Gate: ${err instanceof Error ? err.message : err}\n`);
   }
 }
 
@@ -235,6 +270,8 @@ async function main(): Promise<void> {
   // Connect to all upstream MCP servers
   await Promise.allSettled(config.servers.map(connectUpstream));
   process.stderr.write(`[proxy] Total tools discovered: ${toolRegistry.size}\n`);
+
+  await reportStatusToGate(config.gateUrl, config.instanceId);
 
   // Track active SSE transports for cleanup
   const activeTransports = new Map<string, SSEServerTransport>();

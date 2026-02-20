@@ -284,6 +284,10 @@ function McpToolsSection() {
     queryKey: ['mcp-servers', proxy?.id],
     queryFn: () => getMcpServers(proxy!.id),
     enabled: !!proxy,
+    refetchInterval: (query) => {
+      const data = query.state.data as McpServerConfig[] | undefined;
+      return data?.some((s) => s.status === 'pending' || s.status === 'connecting') ? 5_000 : false;
+    },
   });
 
   const { data: connections = [] } = useQuery({ queryKey: ['connections'], queryFn: getConnections });
@@ -413,7 +417,14 @@ function McpToolsSection() {
             >
               <div className="text-[11px] font-medium text-text-primary mb-0.5">{item.label}</div>
               <div className="text-[9px] text-text-muted leading-snug">{item.desc}</div>
-              {added && <div className="text-[8px] text-emerald-400 font-medium mt-1">added</div>}
+              {added && (() => {
+                const srv = servers.find((s: McpServerConfig) => s.name === item.name);
+                if (!srv) return <div className="text-[8px] text-emerald-400 font-medium mt-1">added</div>;
+                if (srv.status === 'connected') return <div className="text-[8px] text-emerald-400 font-medium mt-1">{srv.toolCount} tool{srv.toolCount !== 1 ? 's' : ''}</div>;
+                if (srv.status === 'connecting') return <div className="text-[8px] text-amber-400 font-medium mt-1">connecting…</div>;
+                if (srv.status === 'error') return <div className="text-[8px] text-red-400 font-medium mt-1" title={srv.lastError ?? undefined}>error</div>;
+                return <div className="text-[8px] text-zinc-400 font-medium mt-1">pending</div>;
+              })()}
             </button>
           );
         })}
@@ -514,6 +525,18 @@ function McpToolsSection() {
                   <span className="text-[9px] text-text-muted">{s.transport}</span>
                   {s.connectionIds && s.connectionIds.length > 0 && (
                     <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-mono">L3</span>
+                  )}
+                  {s.status === 'connected' && (
+                    <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-mono">{s.toolCount} tool{s.toolCount !== 1 ? 's' : ''}</span>
+                  )}
+                  {s.status === 'connecting' && (
+                    <span className="text-[8px] bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded font-mono">connecting…</span>
+                  )}
+                  {s.status === 'error' && (
+                    <span className="text-[8px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded font-mono" title={s.lastError ?? undefined}>error</span>
+                  )}
+                  {s.status === 'pending' && (
+                    <span className="text-[8px] bg-zinc-500/10 text-zinc-400 px-1.5 py-0.5 rounded font-mono">pending</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

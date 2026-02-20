@@ -367,6 +367,9 @@ export interface McpServerConfig {
   /** Resolved connection info for display (populated by GET). */
   connections?: Array<{ id: string; name: string; provider: string; status: string }>;
   enabled: boolean;
+  status: 'pending' | 'connecting' | 'connected' | 'error';
+  toolCount: number;
+  lastError: string | null;
   createdAt: string;
   updatedAt: string;
 }

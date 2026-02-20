@@ -372,6 +372,9 @@ model McpServerConfig {
   args          String?  // JSON — CLI args for stdio transport
   connectionIds String   @default("[]") // JSON — Connection IDs whose vault creds are injected at L3 exec time
   enabled       Boolean  @default(true)
+  status        String   @default("pending") // pending, connecting, connected, error
+  toolCount     Int      @default(0)         // tools discovered from upstream
+  lastError     String?  // last connection/discovery error message
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
