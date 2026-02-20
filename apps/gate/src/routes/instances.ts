@@ -126,12 +126,14 @@ function writeInstanceCompose(
       connectionIds: JSON.parse(s.connectionIds),
       enabled: true,
     })));
+    // Quote so values with spaces (e.g. source: "npx -y @modelcontextprotocol/server-github") parse correctly
+    const serversJsonEscaped = serversJson.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
     writeFileSync(join(dir, '.env.mcp-proxy'), [
       `GATE_URL=${GATE_INTERNAL_URL}`,
       `INSTANCE_ID=${instanceName}`,
       `INSTANCE_NAME=${instanceName}`,
-      `MCP_SERVERS_JSON=${serversJson}`,
+      `MCP_SERVERS_JSON="${serversJsonEscaped}"`,
       ...(gatewayToken ? [`GATEWAY_TOKEN=${gatewayToken}`] : []),
     ].join('\n') + '\n', 'utf-8');
   }

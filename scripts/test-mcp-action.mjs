@@ -30,7 +30,14 @@ const pending = new Map();
 
 // 1) Open SSE and drain stream; capture sessionId and any JSON-RPC responses
 let sessionId = null;
-const sseRes = await fetch(SSE_URL, { headers, signal: AbortSignal.timeout(10000) });
+let sseRes;
+try {
+  sseRes = await fetch(SSE_URL, { headers, signal: AbortSignal.timeout(30000) });
+} catch (err) {
+  const isTimeout = err?.name === 'TimeoutError' || err?.message?.includes('timeout');
+  console.error(isTimeout ? 'SSE connection timed out (30s). If you just added or changed MCP servers, wait for the proxy to finish restarting and try again.' : err?.message || err);
+  process.exit(1);
+}
 if (!sseRes.ok) {
   console.error('SSE failed:', sseRes.status, await sseRes.text());
   process.exit(1);
@@ -123,6 +130,11 @@ await sendJsonRpc('notifications/initialized');
 const listRes = await sendJsonRpc('tools/list');
 const tools = listRes.result?.tools ?? [];
 console.log('Tools available:', tools.length);
+if (tools.length === 0 && listRes.error) {
+  console.error('(tools/list returned an error; proxy may have no upstreams connected)');
+} else if (tools.length === 0) {
+  console.error('(No tools. Check proxy logs: docker logs wooblay-mcp-proxy-<instance-name> 2>&1 | tail -30)');
+}
 tools.forEach((t) => console.log('  -', t.name, ':', (t.description || '').slice(0, 60)));
 
 if (!TOOL_NAME) {
