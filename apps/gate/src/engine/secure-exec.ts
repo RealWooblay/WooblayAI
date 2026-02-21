@@ -158,6 +158,39 @@ export async function resolveAgentSecrets(
   return envVars;
 }
 
+/**
+ * Resolve and merge credentials from multiple connections.
+ *
+ * MCP servers may need credentials from multiple providers — e.g., a GitHub
+ * token from one connection and a database password from another. Each
+ * connection's credentials are resolved independently and merged. Later
+ * connections override earlier ones if env var names collide (last-write-wins).
+ *
+ * This is the primary credential path for MCP tool execution. The proxy
+ * sends `connectionIds: [...]` and the gate merges all of them.
+ */
+export async function resolveMultiConnectionCredentials(
+  prisma: PrismaClient,
+  connectionIds: string[],
+): Promise<Record<string, string>> {
+  if (connectionIds.length === 0) {
+    throw new Error('At least one connectionId is required for credential resolution');
+  }
+
+  const merged: Record<string, string> = {};
+
+  for (const connId of connectionIds) {
+    const conn = await prisma.connection.findUnique({ where: { id: connId } });
+    if (!conn || conn.status !== 'active') {
+      throw new Error(`Connection ${connId} not found or inactive`);
+    }
+    const creds = await resolveCredentials(prisma, connId, conn.provider);
+    Object.assign(merged, creds);
+  }
+
+  return merged;
+}
+
 // ── Container Management ────────────────────────────────────────────────
 
 async function ensureExecNetwork(): Promise<void> {
@@ -439,13 +472,41 @@ export async function executeMcpToolCall(
     });
   }
 
-  const safeServerCmd = request.serverCommand.replace(/[;&|`$(){}[\]!#~<>\\'"]/g, '').trim();
-  const safeToolName = request.toolName.replace(/[;&|`$(){}[\]!#~<>\\'"]/g, '').trim();
+  // Validate server command and tool name. These go into the env-file (Docker
+  // KEY=VALUE format, not shell-interpreted) and the executor reads them via
+  // process.env — no shell expansion occurs. We validate rather than silently
+  // strip characters, because stripping can corrupt valid commands silently.
+  const serverCmd = request.serverCommand.trim();
+  const toolName = request.toolName.trim();
 
-  if (!safeServerCmd || !safeToolName) {
+  if (!serverCmd) {
     return {
-      success: false, result: null, stdout: '', stderr: 'Invalid serverCommand or toolName after sanitization',
-      exitCode: 1, durationMs: 0, containerId: containerName, error: 'Invalid serverCommand or toolName',
+      success: false, result: null, stdout: '', stderr: 'serverCommand is required',
+      exitCode: 1, durationMs: 0, containerId: containerName, error: 'serverCommand is required',
+    };
+  }
+  if (!toolName) {
+    return {
+      success: false, result: null, stdout: '', stderr: 'toolName is required',
+      exitCode: 1, durationMs: 0, containerId: containerName, error: 'toolName is required',
+    };
+  }
+
+  // Block shell metacharacters that indicate injection attempts. The env-file
+  // transport is safe, but the executor splits serverCmd on whitespace and
+  // passes to StdioClientTransport (direct exec, no shell). These chars have
+  // no legitimate use in an MCP server command or tool name.
+  const SHELL_INJECT_PATTERN = /[;&|`$]/;
+  if (SHELL_INJECT_PATTERN.test(serverCmd)) {
+    return {
+      success: false, result: null, stdout: '', stderr: 'serverCommand contains forbidden characters (;&|`$)',
+      exitCode: 1, durationMs: 0, containerId: containerName, error: 'serverCommand contains forbidden shell metacharacters',
+    };
+  }
+  if (SHELL_INJECT_PATTERN.test(toolName)) {
+    return {
+      success: false, result: null, stdout: '', stderr: 'toolName contains forbidden characters (;&|`$)',
+      exitCode: 1, durationMs: 0, containerId: containerName, error: 'toolName contains forbidden shell metacharacters',
     };
   }
 
@@ -453,8 +514,8 @@ export async function executeMcpToolCall(
   // The executor reads MCP_SERVER_CMD / MCP_TOOL_NAME / MCP_TOOL_ARGS from env.
   const env: Record<string, string> = {
     ...request.credentials,
-    MCP_SERVER_CMD: safeServerCmd,
-    MCP_TOOL_NAME: safeToolName,
+    MCP_SERVER_CMD: serverCmd,
+    MCP_TOOL_NAME: toolName,
     MCP_TOOL_ARGS: JSON.stringify(request.toolArgs),
   };
   const envFilePath = writeEnvFile(env, containerName);
@@ -531,7 +592,7 @@ export async function executeMcpToolCall(
   await persistEvent(prisma, {
     type: 'secure_exec.completed',
     data: {
-      runId: request.runId ?? null,
+      runId: request.runId ?? `mcp-${containerName}`,
       action: 'mcp:tool-call',
       toolName: request.toolName,
       success: exitCode === 0,
@@ -551,6 +612,117 @@ export async function executeMcpToolCall(
     error: exitCode !== 0 ? redactSecrets(stderr || 'MCP tool execution failed') : undefined,
   };
 }
+
+// ── MCP Server Probe ────────────────────────────────────────────────────
+
+export interface McpProbeResult {
+  /** Env var names detected from error output (e.g. ["SLACK_BOT_TOKEN"]) */
+  detectedEnvVars: string[];
+  /** Whether the server started successfully without credentials */
+  serverStarted: boolean;
+  /** Raw stderr from the probe run */
+  stderr: string;
+  /** Duration of the probe */
+  durationMs: number;
+}
+
+/**
+ * Probe an MCP server to detect its required environment variables.
+ *
+ * Runs the server command inside the executor container with NO credentials.
+ * Most MCP servers fail fast with a clear error when required env vars are
+ * missing (e.g., "Error: SLACK_BOT_TOKEN is not set"). We parse these errors
+ * to auto-detect what the server needs, so the user doesn't have to guess.
+ *
+ * The probe runs in a resource-limited container with a 20s timeout.
+ * It has outbound network access (for npx to download the package).
+ */
+export async function probeMcpServer(serverCommand: string): Promise<McpProbeResult> {
+  const containerName = `${CONTAINER_PREFIX}-probe-${randomBytes(4).toString('hex')}`;
+  const image = 'wooblay/mcp-executor:latest';
+  const startTime = Date.now();
+
+  const env: Record<string, string> = {
+    MCP_SERVER_CMD: serverCommand,
+    MCP_TOOL_NAME: '__wooblay_probe__',
+    MCP_TOOL_ARGS: '{}',
+  };
+  const envFilePath = writeEnvFile(env, containerName);
+
+  const dockerCmd = [
+    'docker run',
+    '--rm',
+    `--name ${containerName}`,
+    '--read-only',
+    '--tmpfs /tmp:rw,nosuid,size=512m',
+    '--tmpfs /home/node/.npm:rw,nosuid,size=128m',
+    '--tmpfs /root/.npm:rw,nosuid,size=128m',
+    '--memory 512m',
+    '--cpus 0.5',
+    '--pids-limit 128',
+    `--env-file "${envFilePath}"`,
+    '-w /opt/wooblay',
+    image,
+    'node', '/opt/wooblay/mcp-executor.js',
+  ].join(' ');
+
+  let stdout = '';
+  let stderr = '';
+
+  try {
+    const out = await execAsync(dockerCmd, { timeout: 30_000, maxBuffer: MAX_OUTPUT_BYTES });
+    stdout = out.stdout.slice(0, MAX_OUTPUT_BYTES);
+    stderr = out.stderr.slice(0, MAX_OUTPUT_BYTES);
+  } catch (err: any) {
+    stdout = (err.stdout ?? '').slice(0, MAX_OUTPUT_BYTES);
+    stderr = (err.stderr ?? err.message ?? '').slice(0, MAX_OUTPUT_BYTES);
+  } finally {
+    cleanupEnvFile(envFilePath);
+  }
+
+  const durationMs = Date.now() - startTime;
+  const combined = `${stderr}\n${stdout}`;
+
+  // Extract env var names from error output. MCP servers typically produce errors like:
+  //   "Error: SLACK_BOT_TOKEN is not set"
+  //   "Missing required environment variable: GITHUB_PERSONAL_ACCESS_TOKEN"
+  //   "BRAVE_API_KEY must be provided"
+  //   "Error: Configuration error: POSTGRES_CONNECTION_STRING is required"
+  const contextPattern = /(?:missing|required|not set|must be|expected|provide|configure|undefined|error)[^A-Z]*([A-Z][A-Z0-9_]{3,})/gi;
+  const directPattern = /\b([A-Z][A-Z0-9_]{3,})\b[^a-z]*(?:is not set|is required|is missing|not found|must be|not defined|not provided|undefined)/gi;
+
+  const foundVars = new Set<string>();
+  for (const pattern of [contextPattern, directPattern]) {
+    let match;
+    while ((match = pattern.exec(combined)) !== null) {
+      const varName = match[1];
+      // Filter out common false positives
+      if (!PROBE_IGNORE_VARS.has(varName)) {
+        foundVars.add(varName);
+      }
+    }
+  }
+
+  // If the executor reached the "tool not found" stage, the server started OK
+  const serverStarted = combined.includes('__wooblay_probe__') ||
+    combined.includes('Tool not found') ||
+    combined.includes('Unknown tool');
+
+  return {
+    detectedEnvVars: [...foundVars],
+    serverStarted,
+    stderr: stderr.slice(0, 2000),
+    durationMs,
+  };
+}
+
+const PROBE_IGNORE_VARS = new Set([
+  'PATH', 'HOME', 'NODE_ENV', 'NODE_PATH', 'NPM_CONFIG_CACHE',
+  'TERM', 'SHELL', 'USER', 'HOSTNAME', 'PWD', 'LANG', 'LC_ALL',
+  'MCP_SERVER_CMD', 'MCP_TOOL_NAME', 'MCP_TOOL_ARGS', 'MCP_PROBE_MODE',
+  'WOOBLAY_SANDBOX', 'JSON', 'HTTP', 'HTTPS', 'URL', 'ERROR',
+  'TRUE', 'FALSE', 'NULL', 'UNDEFINED', 'STRING', 'NUMBER',
+]);
 
 // ── Sandbox Execution (Layer 2 Simulation) ──────────────────────────────
 

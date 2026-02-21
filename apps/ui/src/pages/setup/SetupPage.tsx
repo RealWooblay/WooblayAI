@@ -11,7 +11,7 @@ import {
   getApiKeys, createApiKey, revokeApiKey,
   getInstances, createInstance, deleteInstance,
   getMcpServers, addMcpServer, updateMcpServer, deleteMcpServer,
-  getConnections, getStats,
+  getConnections, createConnection, addConnectionSecret, probeMcpServer, getStats,
   type ApiKeyInfo, type ApiKeyCreated, type Instance, type McpServerConfig, type CreateMcpServerRequest,
 } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
@@ -20,17 +20,37 @@ const API_BASE = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' 
 
 // ── MCP Server Catalog ──────────────────────────────────────────────────────
 
-const MCP_CATALOG: { name: string; label: string; desc: string; transport: 'stdio' | 'sse'; source: string }[] = [
-  { name: 'github', label: 'GitHub', desc: 'Repos, PRs, issues, files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-github' },
-  { name: 'filesystem', label: 'Filesystem', desc: 'Read, write, search files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-filesystem /' },
-  { name: 'brave-search', label: 'Brave Search', desc: 'Web search', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-brave-search' },
-  { name: 'slack', label: 'Slack', desc: 'Messages, channels, users', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-slack' },
-  { name: 'postgres', label: 'PostgreSQL', desc: 'Query databases', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-postgres' },
-  { name: 'gdrive', label: 'Google Drive', desc: 'Files, search, share', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-gdrive' },
-  { name: 'puppeteer', label: 'Puppeteer', desc: 'Browser automation', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-puppeteer' },
-  { name: 'memory', label: 'Memory', desc: 'Persistent knowledge graph', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-memory' },
-  { name: 'fetch', label: 'Fetch', desc: 'HTTP requests', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-fetch' },
-  { name: 'sequential-thinking', label: 'Thinking', desc: 'Step-by-step reasoning', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-sequential-thinking' },
+interface McpCatalogEntry {
+  name: string;
+  label: string;
+  desc: string;
+  transport: 'stdio' | 'sse';
+  source: string;
+  /** Env vars this server requires at runtime. Empty = no credentials needed. */
+  requiredEnvVars: { key: string; placeholder: string; hint: string }[];
+}
+
+const MCP_CATALOG: McpCatalogEntry[] = [
+  { name: 'github', label: 'GitHub', desc: 'Repos, PRs, issues, files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-github',
+    requiredEnvVars: [{ key: 'GITHUB_PERSONAL_ACCESS_TOKEN', placeholder: 'ghp_...', hint: 'Fine-grained PAT with repo access' }] },
+  { name: 'filesystem', label: 'Filesystem', desc: 'Read, write, search files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-filesystem /',
+    requiredEnvVars: [] },
+  { name: 'brave-search', label: 'Brave Search', desc: 'Web search', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-brave-search',
+    requiredEnvVars: [{ key: 'BRAVE_API_KEY', placeholder: 'BSA...', hint: 'Brave Search API key from brave.com/search/api' }] },
+  { name: 'slack', label: 'Slack', desc: 'Messages, channels, users', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-slack',
+    requiredEnvVars: [{ key: 'SLACK_BOT_TOKEN', placeholder: 'xoxb-...', hint: 'Bot User OAuth Token from Slack app settings' }, { key: 'SLACK_TEAM_ID', placeholder: 'T0...', hint: 'Workspace ID from Slack admin' }] },
+  { name: 'postgres', label: 'PostgreSQL', desc: 'Query databases', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-postgres',
+    requiredEnvVars: [{ key: 'POSTGRES_CONNECTION_STRING', placeholder: 'postgresql://user:pass@host:5432/db', hint: 'Full connection string' }] },
+  { name: 'gdrive', label: 'Google Drive', desc: 'Files, search, share', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-gdrive',
+    requiredEnvVars: [{ key: 'GOOGLE_APPLICATION_CREDENTIALS', placeholder: '{"type":"service_account",...}', hint: 'Service account JSON key' }] },
+  { name: 'puppeteer', label: 'Puppeteer', desc: 'Browser automation', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-puppeteer',
+    requiredEnvVars: [] },
+  { name: 'memory', label: 'Memory', desc: 'Persistent knowledge graph', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-memory',
+    requiredEnvVars: [] },
+  { name: 'fetch', label: 'Fetch', desc: 'HTTP requests', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-fetch',
+    requiredEnvVars: [] },
+  { name: 'sequential-thinking', label: 'Thinking', desc: 'Step-by-step reasoning', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-sequential-thinking',
+    requiredEnvVars: [] },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -298,10 +318,16 @@ function McpToolsSection() {
   const [customTransport, setCustomTransport] = useState<'stdio' | 'sse'>('stdio');
   const [customSource, setCustomSource] = useState('');
   const [selectedConnIds, setSelectedConnIds] = useState<string[]>([]);
+  // Probe state for custom servers
+  const [probeLoading, setProbeLoading] = useState(false);
+  const [probeResult, setProbeResult] = useState<{ detectedEnvVars: string[]; serverStarted: boolean; stderr: string } | null>(null);
+  const [customEnvValues, setCustomEnvValues] = useState<Record<string, string>>({});
 
-  // Catalog credential picker state: which catalog item is open for credential selection
+  // Catalog credential picker state
   const [catalogCredsPicker, setCatalogCredsPicker] = useState<string | null>(null);
   const [catalogConnIds, setCatalogConnIds] = useState<string[]>([]);
+  // Inline credential values keyed by env var name (for catalog items with requiredEnvVars)
+  const [catalogEnvValues, setCatalogEnvValues] = useState<Record<string, string>>({});
 
   // Inline credential editor for configured servers
   const [editingCredsFor, setEditingCredsFor] = useState<string | null>(null);
@@ -346,38 +372,115 @@ function McpToolsSection() {
   const toggleConn = (id: string, list: string[], setter: (v: string[]) => void) =>
     setter(list.includes(id) ? list.filter(c => c !== id) : [...list, id]);
 
-  const addFromCatalog = (item: typeof MCP_CATALOG[number]) => {
+  const addFromCatalog = (item: McpCatalogEntry) => {
     if (!proxy) return;
     const alreadyAdded = servers.some((s: McpServerConfig) => s.name === item.name);
     if (alreadyAdded) { toast(`${item.label} is already added`, 'info'); return; }
 
-    if (activeConns.length > 0) {
+    if (item.requiredEnvVars.length === 0) {
+      // No credentials needed — add immediately
+      addMut.mutate({ name: item.name, transport: item.transport, source: item.source });
+    } else {
+      // Show inline credential form with the exact env vars this server needs
       setCatalogCredsPicker(item.name);
       setCatalogConnIds([]);
-    } else {
-      addMut.mutate({ name: item.name, transport: item.transport as 'stdio' | 'sse', source: item.source });
+      setCatalogEnvValues({});
     }
   };
 
-  const confirmCatalogAdd = () => {
+  const confirmCatalogAdd = async () => {
     const item = MCP_CATALOG.find(c => c.name === catalogCredsPicker);
     if (!item) return;
-    addMut.mutate({
-      name: item.name,
-      transport: item.transport as 'stdio' | 'sse',
-      source: item.source,
-      connectionIds: catalogConnIds.length > 0 ? catalogConnIds : undefined,
-    });
+
+    // If user entered inline credentials, auto-create a connection + exec_only secrets
+    const hasInlineValues = item.requiredEnvVars.some(v => catalogEnvValues[v.key]?.trim());
+
+    if (hasInlineValues) {
+      try {
+        const conn: any = await createConnection({
+          provider: item.name,
+          name: `${item.label} (auto)`,
+          credential: catalogEnvValues[item.requiredEnvVars[0]?.key] || 'managed-via-secrets',
+        });
+        // Create exec_only secrets for each env var
+        for (const envVar of item.requiredEnvVars) {
+          const val = catalogEnvValues[envVar.key]?.trim();
+          if (val) {
+            await addConnectionSecret(conn.id, { key: envVar.key, value: val, mode: 'exec_only' });
+          }
+        }
+        addMut.mutate({
+          name: item.name,
+          transport: item.transport,
+          source: item.source,
+          connectionIds: [conn.id],
+        });
+        qc.invalidateQueries({ queryKey: ['connections'] });
+      } catch (err: any) {
+        toast(`Failed to create credentials: ${err?.message ?? err}`, 'error');
+      }
+    } else if (catalogConnIds.length > 0) {
+      // User linked existing connections
+      addMut.mutate({
+        name: item.name,
+        transport: item.transport,
+        source: item.source,
+        connectionIds: catalogConnIds,
+      });
+    } else {
+      // No credentials at all
+      addMut.mutate({ name: item.name, transport: item.transport, source: item.source });
+    }
   };
 
-  const handleCustomSubmit = () => {
+  const handleCustomSubmit = async () => {
     if (!customName.trim() || !customSource.trim()) return;
-    addMut.mutate({
-      name: customName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-      transport: customTransport,
-      source: customSource.trim(),
-      connectionIds: selectedConnIds.length > 0 ? selectedConnIds : undefined,
-    });
+    const name = customName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+    // If user entered env var values from probe, auto-create connection + secrets
+    const envEntries = Object.entries(customEnvValues).filter(([, v]) => v.trim());
+    let connectionIds = selectedConnIds.length > 0 ? [...selectedConnIds] : undefined;
+
+    if (envEntries.length > 0) {
+      try {
+        const conn: any = await createConnection({
+          provider: name,
+          name: `${customName.trim()} credentials`,
+          credential: envEntries[0][1],
+        });
+        for (const [key, value] of envEntries) {
+          await addConnectionSecret(conn.id, { key, value, mode: 'exec_only' });
+        }
+        connectionIds = [...(connectionIds ?? []), conn.id];
+        qc.invalidateQueries({ queryKey: ['connections'] });
+      } catch (err: any) {
+        toast(`Failed to save credentials: ${err?.message ?? err}`, 'error');
+        return;
+      }
+    }
+
+    addMut.mutate({ name, transport: customTransport, source: customSource.trim(), connectionIds });
+  };
+
+  const runProbe = async () => {
+    if (!customSource.trim()) return;
+    setProbeLoading(true);
+    setProbeResult(null);
+    try {
+      const result = await probeMcpServer(customSource.trim());
+      setProbeResult(result);
+      if (result.detectedEnvVars.length > 0) {
+        toast(`Detected ${result.detectedEnvVars.length} required env var(s)`, 'success');
+      } else if (result.serverStarted) {
+        toast('Server started OK — no credentials required', 'success');
+      } else {
+        toast('Could not auto-detect requirements. Check the server docs.', 'info');
+      }
+    } catch (err: any) {
+      toast(`Probe failed: ${err?.message ?? err}`, 'error');
+    } finally {
+      setProbeLoading(false);
+    }
   };
 
   const startEditCreds = (s: McpServerConfig) => {
@@ -430,32 +533,75 @@ function McpToolsSection() {
         })}
       </div>
 
-      {/* Catalog credential picker (shown after clicking a catalog item when connections exist) */}
-      {catalogCredsPicker && (
-        <div className="border border-accent/30 rounded-lg p-4 bg-accent/5 mb-4 space-y-3">
-          <div className="text-[11px] font-medium text-text-primary">
-            Add <span className="text-accent">{MCP_CATALOG.find(c => c.name === catalogCredsPicker)?.label}</span> — attach credentials?
+      {/* Catalog credential setup (shown after clicking a catalog item that needs credentials) */}
+      {catalogCredsPicker && (() => {
+        const catalogItem = MCP_CATALOG.find(c => c.name === catalogCredsPicker);
+        if (!catalogItem) return null;
+        const hasRequiredVars = catalogItem.requiredEnvVars.length > 0;
+        const allFilled = catalogItem.requiredEnvVars.every(v => catalogEnvValues[v.key]?.trim());
+        const hasLinkedConn = catalogConnIds.length > 0;
+
+        return (
+          <div className="border border-accent/30 rounded-lg p-4 bg-accent/5 mb-4 space-y-3">
+            <div className="text-[11px] font-medium text-text-primary">
+              Add <span className="text-accent">{catalogItem.label}</span>
+              {hasRequiredVars && <span className="text-text-muted font-normal"> — enter credentials</span>}
+            </div>
+
+            {/* Inline env var fields — the user doesn't need to know what the server expects, we tell them */}
+            {hasRequiredVars && (
+              <div className="space-y-2">
+                {catalogItem.requiredEnvVars.map((envVar) => (
+                  <div key={envVar.key}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <label className="text-[9px] font-mono text-accent/80 uppercase">{envVar.key}</label>
+                      <span className="text-[9px] text-text-muted">{envVar.hint}</span>
+                    </div>
+                    <input
+                      type="password"
+                      value={catalogEnvValues[envVar.key] ?? ''}
+                      onChange={(e) => setCatalogEnvValues(prev => ({ ...prev, [envVar.key]: e.target.value }))}
+                      placeholder={envVar.placeholder}
+                      className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Existing connection link (advanced) */}
+            {activeConns.length > 0 && (
+              <details className="text-[10px]">
+                <summary className="text-text-muted cursor-pointer hover:text-text-secondary">
+                  Or link an existing connection
+                </summary>
+                <div className="mt-2">
+                  <CredentialPicker
+                    connections={activeConns}
+                    selected={catalogConnIds}
+                    onToggle={(id) => toggleConn(id, catalogConnIds, setCatalogConnIds)}
+                  />
+                </div>
+              </details>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setCatalogCredsPicker(null); setCatalogConnIds([]); setCatalogEnvValues({}); }}
+                className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Cancel</button>
+              <button onClick={() => {
+                setCatalogEnvValues({});
+                setCatalogConnIds([]);
+                confirmCatalogAdd();
+              }}
+                className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Add without credentials</button>
+              <button onClick={confirmCatalogAdd} disabled={(!allFilled && !hasLinkedConn) || addMut.isPending}
+                className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors">
+                {addMut.isPending ? 'Adding...' : 'Add'}
+              </button>
+            </div>
           </div>
-          <CredentialPicker
-            connections={activeConns}
-            selected={catalogConnIds}
-            onToggle={(id) => toggleConn(id, catalogConnIds, setCatalogConnIds)}
-          />
-          <div className="flex justify-end gap-2">
-            <button onClick={() => { setCatalogCredsPicker(null); setCatalogConnIds([]); }}
-              className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Skip</button>
-            <button onClick={() => {
-              const item = MCP_CATALOG.find(c => c.name === catalogCredsPicker);
-              if (item) addMut.mutate({ name: item.name, transport: item.transport as 'stdio' | 'sse', source: item.source });
-            }}
-              className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Add without credentials</button>
-            <button onClick={confirmCatalogAdd} disabled={catalogConnIds.length === 0 || addMut.isPending}
-              className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors">
-              {addMut.isPending ? 'Adding...' : 'Add with credentials'}
-            </button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Custom server entry */}
       {!showCustom ? (
@@ -484,22 +630,134 @@ function McpToolsSection() {
             <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
               {customTransport === 'stdio' ? 'Command' : 'SSE URL'}
             </label>
-            <input value={customSource} onChange={(e) => setCustomSource(e.target.value)}
-              placeholder={customTransport === 'stdio' ? 'npx -y @org/server-name' : 'https://mcp.example.com/sse'}
-              className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            <div className="flex gap-2">
+              <input value={customSource} onChange={(e) => { setCustomSource(e.target.value); setProbeResult(null); }}
+                placeholder={customTransport === 'stdio' ? 'npx -y @org/server-name' : 'https://mcp.example.com/sse'}
+                className="flex-1 bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+              {customTransport === 'stdio' && (
+                <button
+                  onClick={runProbe}
+                  disabled={!customSource.trim() || probeLoading}
+                  className="px-3 py-1.5 rounded border border-accent/40 text-accent text-[10px] font-mono font-medium hover:bg-accent/10 disabled:opacity-40 transition-colors whitespace-nowrap"
+                >
+                  {probeLoading ? 'Scanning…' : 'Detect credentials'}
+                </button>
+              )}
+            </div>
+            {!probeResult && !probeLoading && (
+              <p className="text-[9px] text-text-muted mt-1">
+                Enter the server command and click Detect to auto-discover what credentials it needs.
+              </p>
+            )}
           </div>
 
-          {activeConns.length > 0 && (
-            <div>
-              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
-                Vault Credentials <span className="normal-case text-text-muted">(optional — enables L3)</span>
-              </label>
-              <CredentialPicker connections={activeConns} selected={selectedConnIds} onToggle={(id) => toggleConn(id, selectedConnIds, setSelectedConnIds)} />
+          {/* Probe results — detected env vars */}
+          {probeResult && probeResult.detectedEnvVars.length > 0 && (
+            <div className="border border-accent/20 rounded-lg p-3 bg-accent/5 space-y-2">
+              <div className="text-[10px] text-accent font-mono font-medium">
+                Detected {probeResult.detectedEnvVars.length} required env var{probeResult.detectedEnvVars.length !== 1 ? 's' : ''}
+              </div>
+              {probeResult.detectedEnvVars.map((varName) => (
+                <div key={varName}>
+                  <label className="text-[9px] font-mono text-accent/80 uppercase block mb-0.5">{varName}</label>
+                  <input
+                    type="password"
+                    value={customEnvValues[varName] ?? ''}
+                    onChange={(e) => setCustomEnvValues(prev => ({ ...prev, [varName]: e.target.value }))}
+                    placeholder={`Enter ${varName}`}
+                    className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                  />
+                </div>
+              ))}
+              <p className="text-[8px] text-text-muted">
+                Values are vault-encrypted and injected as env vars into L3 execution containers only.
+              </p>
             </div>
           )}
 
+          {probeResult && probeResult.serverStarted && probeResult.detectedEnvVars.length === 0 && (
+            <div className="text-[10px] text-emerald-400 font-mono bg-emerald-500/5 border border-emerald-500/10 rounded px-3 py-2">
+              Server starts without credentials — no secrets required.
+            </div>
+          )}
+
+          {probeResult && !probeResult.serverStarted && probeResult.detectedEnvVars.length === 0 && (
+            <div className="text-[10px] text-amber-400 font-mono bg-amber-500/5 border border-amber-500/10 rounded px-3 py-2 space-y-1">
+              <div>Could not auto-detect requirements from server output.</div>
+              <details className="text-[9px] text-text-muted">
+                <summary className="cursor-pointer hover:text-text-secondary">Show raw output</summary>
+                <pre className="mt-1 whitespace-pre-wrap break-all text-[8px] max-h-24 overflow-y-auto">{probeResult.stderr}</pre>
+              </details>
+              <p className="text-[9px] text-text-muted">You can still add env vars manually below, or check the server docs.</p>
+            </div>
+          )}
+
+          {/* Manual env var entry (always available) */}
+          {!probeResult?.detectedEnvVars.length && (
+            <details className="text-[10px]">
+              <summary className="text-text-muted cursor-pointer hover:text-text-secondary font-mono">
+                Manually add env vars
+              </summary>
+              <div className="mt-2 space-y-2">
+                {Object.entries(customEnvValues).map(([key]) => (
+                  <div key={key} className="flex gap-2 items-center">
+                    <input
+                      value={key}
+                      readOnly
+                      className="w-1/3 bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-secondary"
+                    />
+                    <input
+                      type="password"
+                      value={customEnvValues[key] ?? ''}
+                      onChange={(e) => setCustomEnvValues(prev => ({ ...prev, [key]: e.target.value }))}
+                      placeholder="value"
+                      className="flex-1 bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                    <button
+                      onClick={() => setCustomEnvValues(prev => { const n = { ...prev }; delete n[key]; return n; })}
+                      className="text-red-400 hover:text-red-300 text-[10px]"
+                    >×</button>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <input
+                    id="custom-env-key-input"
+                    placeholder="ENV_VAR_NAME"
+                    className="w-1/3 bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none uppercase"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const inp = e.currentTarget;
+                        const key = inp.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_').trim();
+                        if (key) { setCustomEnvValues(prev => ({ ...prev, [key]: '' })); inp.value = ''; }
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      const inp = document.getElementById('custom-env-key-input') as HTMLInputElement;
+                      const key = inp?.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_').trim();
+                      if (key) { setCustomEnvValues(prev => ({ ...prev, [key]: '' })); inp.value = ''; }
+                    }}
+                    className="px-2 py-1 rounded border border-border text-[10px] font-mono text-text-secondary hover:text-text-primary hover:border-accent/40 transition-colors"
+                  >+ add</button>
+                </div>
+              </div>
+            </details>
+          )}
+
+          {activeConns.length > 0 && (
+            <details className="text-[10px]">
+              <summary className="text-text-muted cursor-pointer hover:text-text-secondary font-mono">
+                Link existing vault connection
+              </summary>
+              <div className="mt-2">
+                <CredentialPicker connections={activeConns} selected={selectedConnIds} onToggle={(id) => toggleConn(id, selectedConnIds, setSelectedConnIds)} />
+              </div>
+            </details>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={() => { setShowCustom(false); setSelectedConnIds([]); }}
+            <button onClick={() => { setShowCustom(false); setSelectedConnIds([]); setProbeResult(null); setCustomEnvValues({}); }}
               className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Cancel</button>
             <button onClick={handleCustomSubmit} disabled={!customName.trim() || !customSource.trim() || addMut.isPending}
               className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors">

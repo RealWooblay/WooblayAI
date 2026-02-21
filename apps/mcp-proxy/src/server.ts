@@ -31,7 +31,7 @@ import { z } from 'zod';
 
 import type { McpServerConfigEntry, UpstreamTool, GateDecision } from './types.js';
 import { loadConfig, fetchConfigFromGate } from './config.js';
-import { callGate, callGateStructuredExec, waitForApproval } from './gate-interceptor.js';
+import { callGate, callGateStructuredExec, checkApprovalOnce } from './gate-interceptor.js';
 
 const PORT = parseInt(process.env['MCP_PROXY_PORT'] ?? '3100', 10);
 const PROXY_TOKEN = process.env['GATEWAY_TOKEN'] ?? '';
@@ -53,6 +53,22 @@ interface ServerStatus {
   error?: string;
 }
 const serverStatuses: ServerStatus[] = [];
+
+// ── Deferred Approval Flow ───────────────────────────────────────────────
+// When a tool call needs human approval, the proxy returns immediately with
+// a pending status instead of blocking the agent. The call context is stored
+// and the agent uses wooblay__check_approval to poll and retrieve the result
+// once approved. This lets agents continue other work during approval waits.
+
+interface DeferredToolCall {
+  approvalId: string;
+  qualifiedName: string;
+  args: Record<string, unknown>;
+  serverName: string;
+  config: McpServerConfigEntry;
+  tool: UpstreamTool;
+  createdAt: number;
+}
 
 // ── Upstream Connection ──────────────────────────────────────────────────
 
@@ -131,62 +147,23 @@ async function reportStatusToGate(gateUrl: string, instanceId: string): Promise<
   }
 }
 
-// ── Gate-Intercepted Tool Execution ──────────────────────────────────────
+// ── Tool Execution (Approved Path) ───────────────────────────────────────
 
-async function executeToolCall(
-  qualifiedName: string,
+type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
+
+/**
+ * Execute a tool call that has already been approved (or doesn't need approval).
+ * Splits between credentialed (L3 ephemeral container) and non-credentialed (direct upstream).
+ */
+async function executeApprovedToolCall(
+  tool: UpstreamTool,
+  serverName: string,
+  config: McpServerConfigEntry,
   args: Record<string, unknown>,
-): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-  const entry = toolRegistry.get(qualifiedName);
-  if (!entry) {
-    return { content: [{ type: 'text', text: `Unknown tool: ${qualifiedName}` }], isError: true };
-  }
-
-  const { tool, serverName, config } = entry;
+): Promise<ToolResult> {
   const hasCredentials = config.connectionIds && config.connectionIds.length > 0;
 
-  // Gate check: every tool call goes through policy evaluation
-  let decision: GateDecision;
-  try {
-    decision = await callGate({
-      toolName: `mcp:${serverName}:${tool.name}`,
-      args,
-      adapter: 'mcp-proxy',
-    });
-  } catch (err) {
-    return {
-      content: [{ type: 'text', text: `Gate error: ${err instanceof Error ? err.message : String(err)}` }],
-      isError: true,
-    };
-  }
-
-  if (decision.decision === 'DENY') {
-    return {
-      content: [{ type: 'text', text: `Denied by policy: ${decision.reason ?? 'No reason given'}` }],
-      isError: true,
-    };
-  }
-
-  if (decision.decision === 'PENDING_APPROVAL') {
-    if (!decision.approvalId) {
-      return { content: [{ type: 'text', text: 'Approval required but no approval ID returned.' }], isError: true };
-    }
-
-    const outcome = await waitForApproval(decision.approvalId);
-
-    if (outcome === 'DENIED') {
-      return { content: [{ type: 'text', text: 'Denied by human reviewer.' }], isError: true };
-    }
-    if (outcome === 'EXPIRED') {
-      return { content: [{ type: 'text', text: 'Approval timed out — no decision was made within 5 minutes.' }], isError: true };
-    }
-
-    // APPROVED — fall through to execution below
-  }
-
-  // Execution path splits based on whether credentials are involved
   if (hasCredentials) {
-    // Layer 3: ephemeral container execution — creds resolved from vault, never leave container
     try {
       const result = await callGateStructuredExec({
         action: 'mcp:tool-call',
@@ -218,7 +195,6 @@ async function executeToolCall(
       };
     }
   } else {
-    // Non-credentialed: forward directly to upstream MCP server
     const client = upstreamClients.get(serverName);
     if (!client) {
       return { content: [{ type: 'text', text: `Upstream server ${serverName} not connected` }], isError: true };
@@ -226,7 +202,7 @@ async function executeToolCall(
 
     try {
       const result = await client.callTool({ name: tool.name, arguments: args });
-      return result as { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
+      return result as ToolResult;
     } catch (err) {
       return {
         content: [{ type: 'text', text: `Upstream error: ${err instanceof Error ? err.message : String(err)}` }],
@@ -234,6 +210,94 @@ async function executeToolCall(
       };
     }
   }
+}
+
+// ── Gate-Intercepted Tool Execution (Non-Blocking) ───────────────────────
+
+/**
+ * Execute a tool call through the Gate. On PENDING_APPROVAL, stores the call
+ * context in the deferred map and returns immediately — the agent is NOT
+ * blocked. It can continue other work and use wooblay__check_approval to
+ * retrieve the result once a human decides.
+ *
+ * This is the key innovation: agents stay productive during human review.
+ */
+async function executeToolCall(
+  qualifiedName: string,
+  args: Record<string, unknown>,
+  deferredCalls: Map<string, DeferredToolCall>,
+): Promise<ToolResult> {
+  const entry = toolRegistry.get(qualifiedName);
+  if (!entry) {
+    return { content: [{ type: 'text', text: `Unknown tool: ${qualifiedName}` }], isError: true };
+  }
+
+  const { tool, serverName, config } = entry;
+
+  // Gate check: every tool call goes through policy evaluation
+  let decision: GateDecision;
+  try {
+    decision = await callGate({
+      toolName: `mcp:${serverName}:${tool.name}`,
+      args,
+      adapter: 'mcp-proxy',
+    });
+  } catch (err) {
+    return {
+      content: [{ type: 'text', text: `Gate error: ${err instanceof Error ? err.message : String(err)}` }],
+      isError: true,
+    };
+  }
+
+  if (decision.decision === 'DENY') {
+    return {
+      content: [{ type: 'text', text: `Denied by policy: ${decision.reason ?? 'No reason given'}` }],
+      isError: true,
+    };
+  }
+
+  if (decision.decision === 'PENDING_APPROVAL') {
+    if (!decision.approvalId) {
+      return { content: [{ type: 'text', text: 'Approval required but no approval ID returned.' }], isError: true };
+    }
+
+    // Store the call context for deferred execution
+    deferredCalls.set(decision.approvalId, {
+      approvalId: decision.approvalId,
+      qualifiedName,
+      args,
+      serverName,
+      config,
+      tool,
+      createdAt: Date.now(),
+    });
+
+    const pendingCount = deferredCalls.size;
+    process.stderr.write(`[proxy] Deferred tool call: ${tool.name} (approval: ${decision.approvalId}, ${pendingCount} pending)\n`);
+
+    return {
+      content: [{
+        type: 'text',
+        text: [
+          `This action requires human approval before it can execute.`,
+          ``,
+          `Approval ID: ${decision.approvalId}`,
+          `Action: ${tool.name}`,
+          `Reason: ${decision.reason ?? 'Policy requires review for this action'}`,
+          `Status: PENDING`,
+          ``,
+          `A reviewer has been notified. You can continue working on other tasks.`,
+          `To check the status and retrieve the result once approved, call:`,
+          `  wooblay__check_approval({ "approvalId": "${decision.approvalId}" })`,
+          ``,
+          `To see all pending approvals: wooblay__list_pending()`,
+        ].join('\n'),
+      }],
+    };
+  }
+
+  // EXECUTE — approved by policy, run immediately
+  return executeApprovedToolCall(tool, serverName, config, args);
 }
 
 // ── MCP Server Factory ───────────────────────────────────────────────────
@@ -244,6 +308,11 @@ function createMcpServerInstance(): McpServer {
     version: '0.1.0',
   });
 
+  // Per-session deferred call storage. Each SSE session gets its own map
+  // so deferred calls are isolated between agent connections.
+  const deferredCalls = new Map<string, DeferredToolCall>();
+
+  // ── Register upstream tools ─────────────────────────────────────────
   for (const [qualifiedName, { tool }] of toolRegistry) {
     const schemaShape: Record<string, any> = {};
     if (tool.inputSchema && typeof tool.inputSchema === 'object' && 'properties' in tool.inputSchema) {
@@ -261,10 +330,91 @@ function createMcpServerInstance(): McpServer {
       async (args) => {
         const cleanArgs = { ...args };
         delete cleanArgs._empty;
-        return executeToolCall(qualifiedName, cleanArgs);
+        return executeToolCall(qualifiedName, cleanArgs, deferredCalls);
       },
     );
   }
+
+  // ── Wooblay System Tools ────────────────────────────────────────────
+  // These are always available regardless of which upstream MCP servers
+  // are configured. They let the agent manage the approval lifecycle
+  // without blocking.
+
+  server.tool(
+    'wooblay__check_approval',
+    'Check the status of a pending approval. If approved, executes the deferred tool call and returns the result. If still pending, returns the current status. Call this after receiving a PENDING_APPROVAL response to retrieve results once a reviewer decides.',
+    { approvalId: z.string().describe('The approval ID returned by the original tool call') },
+    async ({ approvalId }) => {
+      const deferred = deferredCalls.get(approvalId as string);
+      if (!deferred) {
+        return {
+          content: [{ type: 'text', text: `No pending approval found with ID: ${approvalId}. It may have already been resolved or expired.` }],
+          isError: true,
+        };
+      }
+
+      let status: string;
+      try {
+        status = await checkApprovalOnce(approvalId as string);
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Failed to check approval status: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+
+      if (status === 'PENDING') {
+        const waitingSec = Math.round((Date.now() - deferred.createdAt) / 1000);
+        return {
+          content: [{
+            type: 'text',
+            text: `Approval ${approvalId} is still pending (waiting ${waitingSec}s). A reviewer has been notified. Check back shortly or continue with other tasks.`,
+          }],
+        };
+      }
+
+      if (status === 'DENIED') {
+        deferredCalls.delete(approvalId as string);
+        return {
+          content: [{ type: 'text', text: `Approval ${approvalId} was denied by a reviewer. The action "${deferred.tool.name}" will not be executed.` }],
+          isError: true,
+        };
+      }
+
+      if (status === 'EXPIRED') {
+        deferredCalls.delete(approvalId as string);
+        return {
+          content: [{ type: 'text', text: `Approval ${approvalId} expired — no reviewer responded in time. You may retry the original action.` }],
+          isError: true,
+        };
+      }
+
+      // APPROVED — execute the deferred tool call and return the real result
+      deferredCalls.delete(approvalId as string);
+      process.stderr.write(`[proxy] Executing deferred call: ${deferred.tool.name} (approval: ${approvalId})\n`);
+      return executeApprovedToolCall(deferred.tool, deferred.serverName, deferred.config, deferred.args);
+    },
+  );
+
+  server.tool(
+    'wooblay__list_pending',
+    'List all tool calls currently waiting for human approval in this session. Returns approval IDs, tool names, and how long each has been waiting.',
+    { _empty: z.any().optional() },
+    async () => {
+      if (deferredCalls.size === 0) {
+        return { content: [{ type: 'text', text: 'No pending approvals.' }] };
+      }
+
+      const lines = ['Pending approvals:', ''];
+      for (const [id, deferred] of deferredCalls) {
+        const waitingSec = Math.round((Date.now() - deferred.createdAt) / 1000);
+        lines.push(`  - ${deferred.tool.name} (approval: ${id}, waiting: ${waitingSec}s)`);
+      }
+      lines.push('', `Use wooblay__check_approval({ "approvalId": "..." }) to check status and retrieve results.`);
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
 
   return server;
 }

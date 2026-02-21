@@ -30,21 +30,21 @@ export function Hero() {
       <div className="relative text-center px-6 max-w-4xl mx-auto">
         <FadeIn>
           <p className="text-accent/80 text-[13px] font-mono tracking-widest uppercase mb-6">
-            The execution firewall for AI agents
+            Secure execution for AI agent tools
           </p>
         </FadeIn>
 
         <FadeIn delay={0.04}>
           <h1 className="font-display text-[clamp(2.8rem,7vw,5.5rem)] font-bold tracking-[-0.04em] leading-[0.92]">
-            <span className="text-gradient">Agents decide.</span>
+            <span className="text-gradient">Any MCP tool.</span>
             <br />
-            <span className="text-white/20">Wooblay executes.</span>
+            <span className="text-white/20">Zero credential exposure.</span>
           </h1>
         </FadeIn>
 
         <FadeIn delay={0.08}>
           <p className="mt-7 text-white/50 text-[17px] sm:text-[19px] leading-relaxed max-w-2xl mx-auto">
-            Intercept, simulate, and verify every real-world action before it happens. No long-lived credentials. No blind trust. Every action verified.
+            Connect any MCP server. Credentials are vault-encrypted and injected only into ephemeral containers at execution time. Agents never see secrets. Every action policy-checked, simulated, and cryptographically receipted.
           </p>
         </FadeIn>
 

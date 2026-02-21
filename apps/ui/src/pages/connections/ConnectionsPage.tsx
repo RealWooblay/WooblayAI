@@ -10,6 +10,9 @@ import {
   getWebhookUrl,
   initSensor,
   getOrgPolicySettings,
+  getConnectionSecrets,
+  addConnectionSecret,
+  deleteConnectionSecret,
 } from '../../api/client.ts';
 import { Spinner } from '../../components/common/Spinner.tsx';
 import { Button } from '../../components/common/Button.tsx';
@@ -130,6 +133,129 @@ export function EventRulesEditor({ connectionId, sensorConfig }: { connectionId:
   );
 }
 
+// ── Connection Secrets Editor ──────────────────────────────────────────
+// Manages exec_only secrets for a connection. Each secret maps to an env
+// var injected into L3 ephemeral containers. This is how users configure
+// which env var name an MCP server expects (e.g. SLACK_BOT_TOKEN).
+
+function ConnectionSecretsEditor({ connectionId }: { connectionId: string }) {
+  const qc = useQueryClient();
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+  const [newMode, setNewMode] = useState<'exec_only' | 'agent'>('exec_only');
+
+  const { data: secretsData, isLoading } = useQuery({
+    queryKey: ['connection-secrets', connectionId],
+    queryFn: () => getConnectionSecrets(connectionId),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => addConnectionSecret(connectionId, { key: newKey.trim(), value: newValue, mode: newMode }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['connection-secrets', connectionId] });
+      setNewKey('');
+      setNewValue('');
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (key: string) => deleteConnectionSecret(connectionId, key),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['connection-secrets', connectionId] }),
+  });
+
+  const secrets = secretsData?.secrets ?? [];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <h4 className="text-[11px] font-medium text-text-secondary">Environment Variables</h4>
+          <p className="text-[10px] text-text-tertiary mt-0.5">
+            Injected into execution containers. Set the env var name your MCP server expects.
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="text-[10px] text-text-muted py-2">Loading...</div>
+      ) : (
+        <>
+          {secrets.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {secrets.map((s: { key: string; mode: string }) => (
+                <div key={s.key} className="bg-surface-2 border border-border rounded-lg px-3 py-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <code className="text-[11px] font-mono text-text-primary">{s.key}</code>
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${s.mode === 'exec_only' ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'}`}>
+                      {s.mode === 'exec_only' ? 'L3 only' : 'agent'}
+                    </span>
+                    <span className="text-[9px] text-text-muted">••••••••</span>
+                  </div>
+                  <button
+                    onClick={() => deleteMut.mutate(s.key)}
+                    className="text-[10px] text-red-400/60 hover:text-red-400"
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 min-w-0">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Env var name</label>
+              <input
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+                onKeyDown={(e) => e.key === 'Enter' && newKey && newValue && addMut.mutate()}
+                placeholder="SLACK_BOT_TOKEN"
+                className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Secret value</label>
+              <input
+                type="password"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && newKey && newValue && addMut.mutate()}
+                placeholder="xoxb-..."
+                className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Scope</label>
+              <select
+                value={newMode}
+                onChange={(e) => setNewMode(e.target.value as 'exec_only' | 'agent')}
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1.5 text-[10px] text-text-primary focus:border-accent focus:outline-none"
+              >
+                <option value="exec_only">L3 only</option>
+                <option value="agent">Agent</option>
+              </select>
+            </div>
+            <button
+              onClick={() => addMut.mutate()}
+              disabled={!newKey.trim() || !newValue || addMut.isPending}
+              className="shrink-0 px-3 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors"
+            >
+              {addMut.isPending ? '...' : 'Add'}
+            </button>
+          </div>
+
+          {secrets.length === 0 && (
+            <p className="text-[9px] text-text-muted mt-2">
+              No secrets configured. Add env vars that MCP servers need (e.g., GITHUB_TOKEN, SLACK_BOT_TOKEN).
+              L3 secrets are injected only into ephemeral execution containers — agents never see them.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────
 
 export type ConnectionsPageProps = { credentialsOnly?: boolean };
@@ -140,6 +266,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
   const [provider, setProvider] = useState('');
   const [name, setName] = useState('');
   const [credential, setCredential] = useState('');
+  const [envVarName, setEnvVarName] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [webhookInfo, setWebhookInfo] = useState<Record<string, any>>({});
@@ -175,12 +302,21 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
       });
     },
     onSuccess: async (conn: any) => {
+      // If user specified a custom env var name, create an exec_only secret
+      // so the credential is injected with exactly that name into L3 containers.
+      const customKey = envVarName.trim();
+      if (customKey && credential) {
+        try {
+          await addConnectionSecret(conn.id, { key: customKey, value: credential, mode: 'exec_only' });
+        } catch { /* best effort — user can add manually in Secrets tab */ }
+      }
       qc.invalidateQueries({ queryKey: ['connections'] });
       qc.invalidateQueries({ queryKey: ['sensors-status'] });
       setAddOpen(false);
       setProvider('');
       setName('');
       setCredential('');
+      setEnvVarName('');
       if (provider.trim().toLowerCase() === 'github') {
         try { await initSensor(conn.id); } catch { /* best effort */ }
       }
@@ -295,6 +431,21 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                 Encrypted at rest. Never exposed to agents. Only used inside ephemeral L3 containers.
               </p>
             </div>
+            <div>
+              <label className="text-[10px] text-text-tertiary uppercase tracking-wider block mb-1">
+                Env var name <span className="text-text-muted normal-case">(for MCP servers)</span>
+              </label>
+              <input
+                type="text"
+                value={envVarName}
+                onChange={(e) => setEnvVarName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+                placeholder="SLACK_BOT_TOKEN, GITHUB_TOKEN, OPENAI_API_KEY..."
+                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
+              />
+              <p className="text-[10px] text-text-tertiary mt-1">
+                The env var name your MCP server expects. Your credential will be injected with this exact name into execution containers. Leave empty for standard providers (GitHub, AWS).
+              </p>
+            </div>
             <div className="flex gap-2 pt-1">
               <Button
                 size="sm"
@@ -374,22 +525,33 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
 
               {expandedId === conn.id && (
                 <div className="border-t border-border">
-                  {!credentialsOnly && isFullPlatform && isSensingCapable && (
-                    <div className="flex border-b border-border">
+                  <div className="flex border-b border-border">
+                    <button
+                      className={`px-4 py-2 text-[11px] font-medium transition-colors ${!expandedSection || expandedSection === 'secrets' ? 'text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary'}`}
+                      onClick={() => setExpandedSection(expandedSection === 'secrets' ? null : 'secrets')}
+                    >
+                      Secrets
+                    </button>
+                    {!credentialsOnly && isFullPlatform && isSensingCapable && (
                       <button
                         className={`px-4 py-2 text-[11px] font-medium transition-colors ${expandedSection === 'sensing' ? 'text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary'}`}
                         onClick={() => setExpandedSection(expandedSection === 'sensing' ? null : 'sensing')}
                       >
                         Sensing
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   <div className="px-4 py-4 space-y-4">
-                    <div className="text-[11px] text-text-secondary rounded-lg bg-surface-2 border border-border p-3">
-                      <p className="font-medium text-text-primary mb-1">Execution</p>
-                      <p>Actions run in an isolated ephemeral container. The policy engine enforces your rules on every call — configure what's allowed, denied, or needs approval on the Policies page.</p>
-                    </div>
+                    {(!expandedSection || expandedSection === 'secrets') && (
+                      <>
+                        <div className="text-[11px] text-text-secondary rounded-lg bg-surface-2 border border-border p-3">
+                          <p className="font-medium text-text-primary mb-1">Execution</p>
+                          <p>Actions run in an isolated ephemeral container. The policy engine enforces your rules on every call — configure what's allowed, denied, or needs approval on the Policies page.</p>
+                        </div>
+                        <ConnectionSecretsEditor connectionId={conn.id} />
+                      </>
+                    )}
 
                     {!credentialsOnly && expandedSection === 'sensing' && (
                       <>

@@ -377,12 +377,25 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
     // executeMcpToolCall starts an ephemeral container with the MCP server,
     // credentials injected as env vars, calls the single tool, captures
     // the result, and destroys the container.
+    //
+    // Credential resolution merges ALL linked connections. An MCP server
+    // may need credentials from multiple providers (e.g., GitHub token +
+    // database password). Each connection contributes its credentials and
+    // exec_only secrets — env var names are controlled by the connection's
+    // secrets[].key field, so any MCP server's expected env vars can be
+    // satisfied without hardcoding.
     if (body.action === 'mcp:tool-call') {
-      const { resolveCredentials, executeMcpToolCall } = await import('../engine/secure-exec.js');
+      const { resolveMultiConnectionCredentials, executeMcpToolCall } = await import('../engine/secure-exec.js');
+
+      // Resolve all connection IDs — from the proxy's connectionIds param,
+      // or falling back to the single connection resolved above.
+      const allConnectionIds = Array.isArray(directConnectionIds) && directConnectionIds.length > 0
+        ? directConnectionIds.map(String)
+        : [connection.id];
 
       let credentials: Record<string, string>;
       try {
-        credentials = await resolveCredentials(prisma, connection.id, connection.provider);
+        credentials = await resolveMultiConnectionCredentials(prisma, allConnectionIds);
       } catch (err: any) {
         return reply.code(500).send({
           success: false,
@@ -407,6 +420,7 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           toolName,
           toolArgs,
           credentials,
+          image: body.params.image ? String(body.params.image) : undefined,
         });
 
         return reply.send({
@@ -483,6 +497,29 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       } : undefined,
       error: execResult.error ? redactSecrets(execResult.error) : undefined,
     });
+  });
+
+  /**
+   * POST /api/tool/probe-mcp — Auto-detect env var requirements for an MCP server.
+   *
+   * Runs the server command in an ephemeral container with NO credentials.
+   * Parses error output to detect which env vars the server expects.
+   * Returns detected var names so the UI can prompt the user for values.
+   */
+  app.post('/api/tool/probe-mcp', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { serverCommand } = request.body as { serverCommand?: string };
+    if (!serverCommand || typeof serverCommand !== 'string') {
+      return reply.code(400).send({ error: 'serverCommand is required' });
+    }
+
+    try {
+      const { probeMcpServer } = await import('../engine/secure-exec.js');
+      const result = await probeMcpServer(serverCommand.trim());
+      return reply.send(result);
+    } catch (err: any) {
+      request.log.error(err, 'MCP probe failed');
+      return reply.code(500).send({ error: `Probe failed: ${err.message}` });
+    }
   });
 
   /**

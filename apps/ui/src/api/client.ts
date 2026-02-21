@@ -943,6 +943,14 @@ export const deleteConnectionSecret = (connectionId: string, key: string) =>
 
 export const getConnectedProviders = () => fetchApi<any>('/api/connections/providers');
 
+// ── MCP Server Probe ────────────────────────────────────────────────────
+
+export const probeMcpServer = (serverCommand: string) =>
+  fetchApi<{ detectedEnvVars: string[]; serverStarted: boolean; stderr: string; durationMs: number }>(
+    '/api/tool/probe-mcp',
+    { method: 'POST', body: JSON.stringify({ serverCommand }) },
+  );
+
 // ── MVP: Budget ─────────────────────────────────────────────────────────
 
 export const getBudget = () => fetchApi<any>('/api/budget');

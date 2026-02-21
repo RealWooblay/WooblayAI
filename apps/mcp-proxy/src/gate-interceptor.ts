@@ -102,6 +102,25 @@ export async function waitForApproval(approvalId: string): Promise<'APPROVED' | 
 }
 
 /**
+ * Single-shot approval status check. Returns immediately without polling.
+ * Used by the non-blocking approval flow: agent calls wooblay__check_approval,
+ * which checks once and either returns the status or executes if approved.
+ */
+export async function checkApprovalOnce(approvalId: string): Promise<'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED'> {
+  const res = await fetch(`${GATE_URL()}/api/approvals/${approvalId}`, {
+    headers: authHeaders(),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to check approval status: ${res.status}`);
+  }
+
+  const data = await res.json() as ApprovalResponse;
+  return data.status;
+}
+
+/**
  * Execute a credentialed tool call via Layer 3 secure execution.
  *
  * The Gate:

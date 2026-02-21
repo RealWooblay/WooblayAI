@@ -279,22 +279,30 @@ ACTIONS['exec:run'] = {
 // The container starts the upstream MCP server, connects as client,
 // calls the tool, returns the result, and is destroyed.
 // Vault credentials are injected as env vars — the agent never sees them.
+//
+// The executor reads MCP_SERVER_CMD, MCP_TOOL_NAME, MCP_TOOL_ARGS from
+// environment variables (NOT CLI args). buildEnv() sets these, and
+// buildCommand() just invokes the executor script. Credentials are merged
+// into env by the execution engine separately.
+//
+// Primary path: tool.ts calls executeMcpToolCall() directly (faster).
+// This registry entry exists so mcp:tool-call also works through the
+// standard executeSecureAction() → buildExecutionSpec() → runInContainer()
+// pipeline for any caller that uses the generic path.
 
 ACTIONS['mcp:tool-call'] = {
   provider: 'generic',
-  image: 'node:20-slim',
+  image: 'wooblay/mcp-executor:latest',
   allowedEndpoints: ['*:443', '*:80'],
   mountWorkspace: false,
   timeoutMs: 120_000,
-  buildCommand: (p) => {
-    const serverCmd = sanitize(String(p.serverCommand ?? ''));
-    const toolName = sanitize(String(p.toolName ?? ''));
-    const toolArgs = JSON.stringify(p.toolArgs ?? {});
-    if (!serverCmd || !toolName) throw new Error('serverCommand and toolName are required');
-    return `node /opt/wooblay/mcp-executor.js --server "${serverCmd}" --tool "${toolName}" --args '${toolArgs.replace(/'/g, "'\\''")}'`;
-  },
+  buildCommand: () => 'node /opt/wooblay/mcp-executor.js',
   buildEnv: (p) => {
-    const env: Record<string, string> = {};
+    const env: Record<string, string> = {
+      MCP_SERVER_CMD: String(p.serverCommand ?? ''),
+      MCP_TOOL_NAME: String(p.toolName ?? ''),
+      MCP_TOOL_ARGS: JSON.stringify(p.toolArgs ?? {}),
+    };
     if (p.env && typeof p.env === 'object') {
       for (const [k, v] of Object.entries(p.env as Record<string, string>)) {
         env[k] = String(v);
