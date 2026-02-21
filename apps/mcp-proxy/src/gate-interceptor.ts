@@ -1,5 +1,6 @@
 /**
  * Gate Interceptor — routes every MCP tool call through the Wooblay Gate.
+ * (Deploy trigger: ensure Gate /api/tool/execute validation passes for mcp-proxy.)
  *
  * Two paths:
  *   1. callGate()              — Policy check (L1+L2). Returns EXECUTE/DENY/PENDING_APPROVAL.
