@@ -1,10 +1,10 @@
 /**
  * Gate Interceptor — routes every MCP tool call through the Wooblay Gate.
- * (Deploy trigger: ensure Gate /api/tool/execute validation passes for mcp-proxy.)
  *
- * Two paths:
+ * Three paths:
  *   1. callGate()              — Policy check (L1+L2). Returns EXECUTE/DENY/PENDING_APPROVAL.
- *   2. callGateStructuredExec() — Layer 3 secure execution for credentialed tools.
+ *   2. waitForApproval()       — Polls Gate until a PENDING_APPROVAL is resolved.
+ *   3. callGateStructuredExec() — Layer 3 secure execution for credentialed tools.
  *      The Gate resolves credentials from vault connections, runs the tool
  *      in an ephemeral container, returns the result.
  *      The proxy NEVER sees credentials. They exist only inside the
@@ -16,9 +16,16 @@ import type { GateDecision, StructuredExecRequest, StructuredExecResult } from '
 const GATE_URL = () => process.env['GATE_URL'] ?? 'http://localhost:4800';
 const GATEWAY_TOKEN = () => process.env['GATEWAY_TOKEN'] ?? '';
 
+const APPROVAL_POLL_INTERVAL_MS = 2_000;
+const APPROVAL_TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
+
 function authHeaders(): Record<string, string> {
   const token = GATEWAY_TOKEN();
   return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface GateToolRequest {
@@ -39,7 +46,7 @@ export async function callGate(req: GateToolRequest): Promise<GateDecision> {
       args: req.args,
       adapter: req.adapter,
       agentPubkey: 'mcp-proxy',
-      requestSignature: 'mcp-proxy', // Gate schema requires non-empty; auth is via GATEWAY_TOKEN
+      requestSignature: 'mcp-proxy',
     }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -51,6 +58,47 @@ export async function callGate(req: GateToolRequest): Promise<GateDecision> {
   }
 
   return await res.json() as GateDecision;
+}
+
+interface ApprovalResponse {
+  status: 'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED';
+}
+
+/**
+ * Poll Gate for an approval decision. Holds execution until the human
+ * approves/denies in the UI, or the timeout expires.
+ *
+ * MCP over SSE is async — Cursor/Claude Desktop will wait for the tool
+ * result without dropping the connection, so this is safe to hold open.
+ */
+export async function waitForApproval(approvalId: string): Promise<'APPROVED' | 'DENIED' | 'EXPIRED'> {
+  const log = (msg: string) => process.stderr.write(`[gate:approval:${approvalId}] ${msg}\n`);
+  const deadline = Date.now() + APPROVAL_TIMEOUT_MS;
+  log('waiting for human decision...');
+
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${GATE_URL()}/api/approvals/${approvalId}`, {
+        headers: authHeaders(),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (res.ok) {
+        const data = await res.json() as ApprovalResponse;
+        if (data.status === 'APPROVED' || data.status === 'DENIED' || data.status === 'EXPIRED') {
+          log(`resolved: ${data.status}`);
+          return data.status;
+        }
+      }
+    } catch (err) {
+      log(`poll error (will retry): ${err instanceof Error ? err.message : err}`);
+    }
+
+    await sleep(APPROVAL_POLL_INTERVAL_MS);
+  }
+
+  log('timed out waiting for decision');
+  return 'EXPIRED';
 }
 
 /**

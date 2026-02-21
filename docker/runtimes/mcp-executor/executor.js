@@ -9,40 +9,39 @@
  * 4. Prints the result as JSON to stdout
  * 5. Exits (container auto-destroyed by --rm)
  *
+ * Reads tool params from env vars (set by secure-exec via --env-file):
+ *   MCP_SERVER_CMD  — e.g. "npx @modelcontextprotocol/server-github"
+ *   MCP_TOOL_NAME   — e.g. "search_repositories"
+ *   MCP_TOOL_ARGS   — JSON string, e.g. '{"query":"wooblay"}'
+ *
  * Credentials are injected as env vars by the secure-exec engine.
  * This script never logs credentials — only the tool result.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { parseArgs } from 'node:util';
 
 const TIMEOUT_MS = 90_000;
 
 async function main() {
-  const { values } = parseArgs({
-    options: {
-      server: { type: 'string' },
-      tool: { type: 'string' },
-      args: { type: 'string', default: '{}' },
-    },
-    strict: true,
-  });
+  const serverStr = process.env.MCP_SERVER_CMD;
+  const toolName = process.env.MCP_TOOL_NAME;
+  const argsStr = process.env.MCP_TOOL_ARGS || '{}';
 
-  if (!values.server || !values.tool) {
-    process.stderr.write('Usage: executor.js --server <cmd> --tool <name> --args <json>\n');
+  if (!serverStr || !toolName) {
+    process.stderr.write('Missing MCP_SERVER_CMD or MCP_TOOL_NAME env vars\n');
     process.exit(1);
   }
 
-  const serverParts = values.server.split(/\s+/);
+  const serverParts = serverStr.split(/\s+/);
   const serverCmd = serverParts[0];
   const serverArgs = serverParts.slice(1);
   let toolArgs;
 
   try {
-    toolArgs = JSON.parse(values.args);
+    toolArgs = JSON.parse(argsStr);
   } catch {
-    process.stderr.write(`Invalid JSON args: ${values.args}\n`);
+    process.stderr.write(`Invalid JSON in MCP_TOOL_ARGS: ${argsStr}\n`);
     process.exit(1);
   }
 
@@ -63,13 +62,12 @@ async function main() {
     await client.connect(transport);
 
     const result = await client.callTool({
-      name: values.tool,
+      name: toolName,
       arguments: toolArgs,
     });
 
     clearTimeout(timeout);
 
-    // Output result as JSON on stdout — this is what secure-exec captures
     process.stdout.write(JSON.stringify(result) + '\n');
     await client.close();
     process.exit(0);

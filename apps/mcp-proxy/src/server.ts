@@ -31,7 +31,7 @@ import { z } from 'zod';
 
 import type { McpServerConfigEntry, UpstreamTool, GateDecision } from './types.js';
 import { loadConfig, fetchConfigFromGate } from './config.js';
-import { callGate, callGateStructuredExec } from './gate-interceptor.js';
+import { callGate, callGateStructuredExec, waitForApproval } from './gate-interceptor.js';
 
 const PORT = parseInt(process.env['MCP_PROXY_PORT'] ?? '3100', 10);
 const PROXY_TOKEN = process.env['GATEWAY_TOKEN'] ?? '';
@@ -168,10 +168,20 @@ async function executeToolCall(
   }
 
   if (decision.decision === 'PENDING_APPROVAL') {
-    return {
-      content: [{ type: 'text', text: `Awaiting human approval (id: ${decision.approvalId}). Retry after approval.` }],
-      isError: true,
-    };
+    if (!decision.approvalId) {
+      return { content: [{ type: 'text', text: 'Approval required but no approval ID returned.' }], isError: true };
+    }
+
+    const outcome = await waitForApproval(decision.approvalId);
+
+    if (outcome === 'DENIED') {
+      return { content: [{ type: 'text', text: 'Denied by human reviewer.' }], isError: true };
+    }
+    if (outcome === 'EXPIRED') {
+      return { content: [{ type: 'text', text: 'Approval timed out — no decision was made within 5 minutes.' }], isError: true };
+    }
+
+    // APPROVED — fall through to execution below
   }
 
   // Execution path splits based on whether credentials are involved

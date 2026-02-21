@@ -370,6 +370,64 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
+    // ── MCP tool calls → dedicated L3 executor ──────────────────────────
+    // MCP tool calls already passed L1+L2 via callGate() in the proxy.
+    // Simulation is skipped: the sandbox can't meaningfully simulate an MCP
+    // server startup + tool call, and policy already approved the action.
+    // executeMcpToolCall starts an ephemeral container with the MCP server,
+    // credentials injected as env vars, calls the single tool, captures
+    // the result, and destroys the container.
+    if (body.action === 'mcp:tool-call') {
+      const { resolveCredentials, executeMcpToolCall } = await import('../engine/secure-exec.js');
+
+      let credentials: Record<string, string>;
+      try {
+        credentials = await resolveCredentials(prisma, connection.id, connection.provider);
+      } catch (err: any) {
+        return reply.code(500).send({
+          success: false,
+          error: `Credential resolution failed: ${redactSecrets(err.message)}`,
+        });
+      }
+
+      const serverCommand = String(body.params.serverCommand ?? '');
+      const toolName = String(body.params.toolName ?? '');
+      const toolArgs = (body.params.toolArgs ?? {}) as Record<string, unknown>;
+
+      if (!serverCommand || !toolName) {
+        return reply.code(400).send({
+          success: false,
+          error: 'mcp:tool-call requires serverCommand and toolName in params',
+        });
+      }
+
+      try {
+        const mcpResult = await executeMcpToolCall(prisma, {
+          serverCommand,
+          toolName,
+          toolArgs,
+          credentials,
+        });
+
+        return reply.send({
+          success: mcpResult.success,
+          stdout: mcpResult.stdout,
+          stderr: mcpResult.stderr,
+          exitCode: mcpResult.exitCode,
+          durationMs: mcpResult.durationMs,
+          containerId: mcpResult.containerId,
+          error: mcpResult.error ? redactSecrets(mcpResult.error) : undefined,
+        });
+      } catch (err: any) {
+        request.log.error(err, 'MCP L3 execution failed');
+        return reply.code(500).send({
+          success: false,
+          error: `MCP execution failed: ${redactSecrets(err.message)}`,
+        });
+      }
+    }
+
+    // ── Generic structured actions → simulation + secure exec ───────────
     // Layer 2: Simulation — credential actions ALWAYS get simulated
     let simulationResult = null;
     const syntheticRunId = `agent-${Date.now()}`;

@@ -1,6 +1,14 @@
 # Wooblay — Cost Per Customer & Pricing Model
 
-Business expenses breakdown for determining customer pricing.
+Business expenses breakdown for determining customer pricing. Kept in sync with product: Gate, agent instances, MCP proxy, Layer 3 execution.
+
+### Cost terminology
+
+| Term | Meaning |
+|------|--------|
+| **Inference cost** | Cost of running an LLM: input tokens + output tokens × model price. Gate inference = Wooblay's spend (risk classification, routing, AI Supervisor). Agent inference = customer's spend (their API key). |
+| **Execution cost** | Compute and hosting: Gate server, agent containers, ephemeral Layer 3 containers. Usually the largest fixed/variable infra line. |
+| **Gate LLM** | Wooblay-paid inference for policy, risk, and routing. Small per call (~$0.00009 per tool call for risk classification). |
 
 ---
 
@@ -87,9 +95,79 @@ A typical agent run uses 50K-200K tokens → **$0.05-$3.00 per run** depending o
 
 **Important for customers:** The OpenClaw runtime uses the customer's Anthropic (or OpenAI) API key **while the instance container is running**. That includes startup, idle behavior, Telegram bots, and any default or background behavior in OpenClaw — not only when the user explicitly sends a message. **Stop the instance when not in use to avoid unexpected API spend.** The UI shows a notice when an instance is running: "Your Anthropic key is in use — stop when not in use to avoid API spend."
 
+### MCP proxy & external clients (Cursor, Claude Desktop)
+
+Tool calls from the **MCP proxy** (e.g. Cursor or Claude Desktop using the Wooblay MCP URL + API key) go through the same Gate path as in-container agents:
+
+- **L1+L2 (policy gate):** Every tool call triggers risk classification (Gate LLM) and policy evaluation. Same per-call cost as agent-originated tool calls (~$0.00009 for risk classification).
+- **L3 (credentialed tools only):** If the MCP server has credentials attached in the UI, the tool runs in an **ephemeral container** (Layer 3). One container per credentialed call: startup + run + teardown. Adds **latency** (~5–15+ seconds per call) and **compute** (CPU/memory for that container). No extra per-call fee in the doc’s attribution today; it’s “included” in host compute, but heavy credentialed MCP use increases container churn and host load.
+
+So: **inference cost** for MCP = same Gate LLM cost per tool call. **Execution cost** for MCP = proxy container (always on) + ephemeral L3 containers (only when credentials are attached and the tool is invoked).
+
 ---
 
-## Per-Customer Cost Summary
+## Gateway-only (non–full-platform) cost plan
+
+For customers who use **only the Gateway**: API keys, firewall, MCP proxy (e.g. Cursor or Claude Desktop). **No agent instances**, no OpenClaw containers, no full platform.
+
+### What’s in scope (gateway-only)
+
+| Included | Not included |
+|----------|--------------|
+| Gate API (auth, policy, routing) | Agent instances / OpenClaw |
+| API key auth for MCP | Per-run AI Supervisor |
+| MCP proxy container (one per customer/org) | Operation routing (per “operation”) |
+| Risk classification on every tool call | Long-lived agent compute |
+| L3 ephemeral only when credentialed MCP tools are used | |
+
+### Infrastructure (gateway-only)
+
+| Component | Cost/Month | Notes |
+|-----------|------------|-------|
+| Gate server | Shared (~$3–6/customer) | Same host as full-platform; gateway-only adds mostly API + proxy traffic |
+| Database | Shared (~$2–4/customer) | Orgs, API keys, MCP config, policy — smaller footprint than full platform |
+| MCP proxy container | Shared host, minimal | One container per customer; light (Node + npx), ~256MB–512MB each |
+| Storage / network | ~$1–3/customer | Config, logs; egress for MCP tool calls |
+
+**Per-customer infra (gateway-only): ~$6–13/mo** on shared multi-tenant.
+
+### Gate LLM (gateway-only)
+
+Only **risk classification** applies on each tool call through the proxy. No operation routing, no AI Supervisor.
+
+| Call type | When | Cost per call |
+|-----------|------|----------------|
+| Risk classification | Every MCP tool call through Gate | ~$0.00009 |
+
+**Example:** 1,000 tool calls/month → **~$0.09**. 10,000 → **~$0.90**. 50,000 → **~$4.50**.
+
+Policy AI (one-time per rule) if they create policy rules: same as full platform (~$0.0008 per rule).
+
+### Execution / L3 (gateway-only)
+
+- **No agent compute** — customer runs Cursor/Claude Desktop on their own machine.
+- **L3 (ephemeral)** only when an MCP server has credentials attached and a credentialed tool is invoked. Same cost model as full platform (container start/run/teardown; included in host compute).
+
+### Per-customer cost summary (gateway-only)
+
+| Usage | Monthly COGS | Notes |
+|-------|----------------|-------|
+| Light (500 tool calls, no/small L3) | **~$7–15** | Infra ~$6–13 + Gate LLM &lt;$0.05 |
+| Medium (5,000 tool calls, some L3) | **~$10–20** | Infra similar; Gate LLM ~$0.45; L3 in host |
+| Heavy (25,000+ tool calls, frequent L3) | **~$15–35** | Gate LLM ~$2–3; more proxy + L3 churn on host |
+
+### Pricing recommendation (gateway-only)
+
+| Tier | Target | Suggested Price | COGS | Gross Margin |
+|------|--------|-----------------|------|--------------|
+| Gateway | Individuals, small teams (MCP only) | $19–29/mo | ~$10–15 | ~50–60% |
+| Gateway Pro | Teams, heavier MCP + credentials | $49/mo | ~$15–25 | ~50–60% |
+
+Gateway-only has **no agent LLM** (customer’s inference stays in Cursor/Claude). Wooblay’s cost is infra + Gate LLM only, so lower price and lower COGS than full platform.
+
+---
+
+## Per-Customer Cost Summary (full platform)
 
 ### Light customer (startup, 1-2 repos, few operations/month)
 
@@ -126,13 +204,15 @@ A typical agent run uses 50K-200K tokens → **$0.05-$3.00 per run** depending o
 
 ---
 
-## Pricing Recommendations
+## Pricing Recommendations (full platform)
 
 | Tier | Target | Suggested Price | COGS | Gross Margin |
 |------|--------|-----------------|------|-------------|
 | Starter | Small teams, 1-2 agents | $49/mo | ~$20 | ~60% |
 | Pro | Mid-size teams, 5+ agents | $149/mo | ~$45 | ~70% |
 | Enterprise | Large orgs, unlimited agents | $499+/mo | ~$150 | ~70% |
+
+Gateway-only tiers and COGS are in [Gateway-only (non–full-platform) cost plan](#gateway-only-nonfull-platform-cost-plan) above.
 
 ### Key pricing principles
 
@@ -149,11 +229,11 @@ Wooblay tracks per-run costs in `engine/cost-attribution.ts`:
 
 | Category | Tracked | Pricing Used |
 |----------|---------|-------------|
-| LLM tokens | Input/output per model | Actual model pricing table |
-| Compute minutes | Container uptime | $0.005/min ($0.30/hr) |
-| Gateway calls | Per structured action | $0.01/call |
+| LLM tokens (inference) | Input/output per model | Actual model pricing table (gpt-4o, Claude, etc.) |
+| Compute minutes | Container uptime (agent + L3 ephemeral) | $0.005/min ($0.30/hr) |
+| Gateway calls | Per structured action / tool call through Gate | $0.01/call |
 
-This data feeds the Runs page cost display and budget enforcement. Customers see their per-run spend.
+This data feeds the Runs page cost display and budget enforcement. Customers see their per-run spend. MCP-originated tool calls through the Gate use the same attribution when tied to a run.
 
 ---
 

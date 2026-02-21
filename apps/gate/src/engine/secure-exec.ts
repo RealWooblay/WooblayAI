@@ -45,7 +45,7 @@ const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB max output
 
 // ── Credential Resolution ───────────────────────────────────────────────
 
-async function resolveCredentials(
+export async function resolveCredentials(
   prisma: PrismaClient,
   connectionId: string,
   provider: string,
@@ -76,6 +76,7 @@ async function resolveCredentials(
     }
     creds['GITHUB_TOKEN'] = token;
     creds['GH_TOKEN'] = token;
+    creds['GITHUB_PERSONAL_ACCESS_TOKEN'] = token;
   }
 
   if (connection.provider === 'aws') {
@@ -386,8 +387,8 @@ export interface McpToolCallRequest {
   toolArgs: Record<string, unknown>;
   /** Credential map: { ENV_VAR: secretValue } — resolved from vault before calling */
   credentials: Record<string, string>;
-  /** Run ID for event logging */
-  runId: string;
+  /** Run ID for event logging. When absent (MCP proxy calls), events are skipped. */
+  runId?: string;
   /** Docker image override (default: wooblay/mcp-executor:latest) */
   image?: string;
 }
@@ -408,11 +409,18 @@ export interface McpToolCallResult {
  * Execute a single MCP tool call in an ephemeral container.
  *
  * Security properties:
- *   - Credentials injected as env vars, never visible to agent
- *   - Container is read-only with tmpfs scratch space
- *   - Network scoped to exec network (not agent network)
- *   - Container auto-destroyed after execution
+ *   - Credentials injected via env-file (deleted from host immediately)
+ *   - Agent NEVER sees credentials — they live only inside this container
+ *   - Container is ephemeral: auto-destroyed after one call
+ *   - Limited resources: 1 CPU, 1GB mem, 256 PIDs
  *   - 120s hard timeout
+ *
+ * MCP containers use the default bridge network (outbound internet access)
+ * because MCP servers must call external APIs (github.com, etc.).
+ * This differs from the sandbox/simulation containers which use --internal.
+ *
+ * Tool params are passed via env vars (MCP_SERVER_CMD, MCP_TOOL_NAME,
+ * MCP_TOOL_ARGS) to avoid all shell quoting / escaping issues.
  */
 export async function executeMcpToolCall(
   prisma: PrismaClient,
@@ -420,27 +428,19 @@ export async function executeMcpToolCall(
 ): Promise<McpToolCallResult> {
   const containerName = buildContainerName();
   const image = request.image ?? 'wooblay/mcp-executor:latest';
+  const startTime = Date.now();
 
-  try {
-    await ensureExecNetwork();
-  } catch (err: any) {
-    return {
-      success: false, result: null, stdout: '', stderr: `Network setup failed: ${err.message}`,
-      exitCode: 1, durationMs: 0, containerId: '', error: err.message,
-    };
+  if (request.runId) {
+    await emitRunEvent(prisma, request.runId, 'secure_exec_start', {
+      action: 'mcp:tool-call',
+      description: `MCP tool: ${request.toolName}`,
+      image,
+      containerId: containerName,
+    });
   }
 
-  await emitRunEvent(prisma, request.runId, 'secure_exec_start', {
-    action: 'mcp:tool-call',
-    description: `MCP tool: ${request.toolName}`,
-    image,
-    containerId: containerName,
-  });
-
-  // Strip shell metacharacters to prevent injection (defense-in-depth alongside container isolation)
   const safeServerCmd = request.serverCommand.replace(/[;&|`$(){}[\]!#~<>\\'"]/g, '').trim();
   const safeToolName = request.toolName.replace(/[;&|`$(){}[\]!#~<>\\'"]/g, '').trim();
-  const toolArgsJson = JSON.stringify(request.toolArgs).replace(/'/g, "'\\''");
 
   if (!safeServerCmd || !safeToolName) {
     return {
@@ -449,60 +449,97 @@ export async function executeMcpToolCall(
     };
   }
 
-  const execSpec: ExecutionSpec = {
-    command: `node /opt/wooblay/mcp-executor.js --server "${safeServerCmd}" --tool "${safeToolName}" --args '${toolArgsJson}'`,
-    env: { ...request.credentials },
-    image,
-    allowedEndpoints: ['*:443', '*:80'],
-    mountWorkspace: false,
-    workdir: '/tmp',
-    timeoutMs: 120_000,
-    provider: 'generic',
-    description: `MCP tool: ${request.toolName}`,
+  // Credentials + tool params go in the env-file (secure, no shell expansion).
+  // The executor reads MCP_SERVER_CMD / MCP_TOOL_NAME / MCP_TOOL_ARGS from env.
+  const env: Record<string, string> = {
+    ...request.credentials,
+    MCP_SERVER_CMD: safeServerCmd,
+    MCP_TOOL_NAME: safeToolName,
+    MCP_TOOL_ARGS: JSON.stringify(request.toolArgs),
   };
+  const envFilePath = writeEnvFile(env, containerName);
 
-  const result = await runInContainer(execSpec, containerName);
+  // MCP containers need outbound internet (to call external APIs).
+  // No --network flag = Docker default bridge (has internet).
+  // No --read-only = npx and node can write cache dirs.
+  // tmpfs without noexec = npx can execute downloaded packages.
+  const dockerCmd = [
+    'docker run',
+    '--rm',
+    `--name ${containerName}`,
+    '--tmpfs /tmp:rw,nosuid,size=512m',
+    '--memory 1g',
+    '--cpus 1',
+    '--pids-limit 256',
+    `--env-file "${envFilePath}"`,
+    '-w /opt/wooblay',
+    image,
+    'node', '/opt/wooblay/mcp-executor.js',
+  ].join(' ');
+
+  let stdout = '';
+  let stderr = '';
+  let exitCode = 0;
+
+  try {
+    const out = await execAsync(dockerCmd, {
+      timeout: 120_000,
+      maxBuffer: MAX_OUTPUT_BYTES,
+    });
+    stdout = out.stdout.slice(0, MAX_OUTPUT_BYTES);
+    stderr = out.stderr.slice(0, MAX_OUTPUT_BYTES);
+  } catch (err: any) {
+    stdout = (err.stdout ?? '').slice(0, MAX_OUTPUT_BYTES);
+    stderr = (err.stderr ?? err.message ?? '').slice(0, MAX_OUTPUT_BYTES);
+    exitCode = err.code ?? 1;
+  } finally {
+    cleanupEnvFile(envFilePath);
+  }
+
+  const durationMs = Date.now() - startTime;
 
   let parsedResult: unknown = null;
-  if (result.stdout.trim()) {
+  if (stdout.trim()) {
     try {
-      parsedResult = JSON.parse(result.stdout.trim().split('\n').pop() ?? '');
+      parsedResult = JSON.parse(stdout.trim().split('\n').pop() ?? '');
     } catch {
-      parsedResult = { content: [{ type: 'text', text: result.stdout }] };
+      parsedResult = { content: [{ type: 'text', text: stdout }] };
     }
   }
 
-  await emitRunEvent(prisma, request.runId, 'secure_exec_complete', {
-    action: 'mcp:tool-call',
-    success: result.exitCode === 0,
-    exitCode: result.exitCode,
-    durationMs: result.durationMs,
-    containerId: containerName,
-    stdout: redactSecrets(result.stdout.slice(0, 2000)),
-    stderr: redactSecrets(result.stderr.slice(0, 500)),
-  });
+  if (request.runId) {
+    await emitRunEvent(prisma, request.runId, 'secure_exec_complete', {
+      action: 'mcp:tool-call',
+      success: exitCode === 0,
+      exitCode,
+      durationMs,
+      containerId: containerName,
+      stdout: redactSecrets(stdout.slice(0, 2000)),
+      stderr: redactSecrets(stderr.slice(0, 500)),
+    });
+  }
 
   await persistEvent(prisma, {
     type: 'secure_exec.completed',
     data: {
-      runId: request.runId,
+      runId: request.runId ?? null,
       action: 'mcp:tool-call',
       toolName: request.toolName,
-      success: result.exitCode === 0,
-      durationMs: result.durationMs,
+      success: exitCode === 0,
+      durationMs,
       containerId: containerName,
     },
   });
 
   return {
-    success: result.exitCode === 0,
+    success: exitCode === 0,
     result: parsedResult,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    exitCode: result.exitCode,
-    durationMs: result.durationMs,
+    stdout,
+    stderr,
+    exitCode,
+    durationMs,
     containerId: containerName,
-    error: result.exitCode !== 0 ? redactSecrets(result.stderr || 'MCP tool execution failed') : undefined,
+    error: exitCode !== 0 ? redactSecrets(stderr || 'MCP tool execution failed') : undefined,
   };
 }
 
