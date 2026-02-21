@@ -153,5 +153,36 @@ try {
 } catch {
   args = {};
 }
-const callRes = await sendJsonRpc('tools/call', { name: TOOL_NAME, arguments: args });
-console.log('\nTool call result:', JSON.stringify(callRes, null, 2));
+let callRes = await sendJsonRpc('tools/call', { name: TOOL_NAME, arguments: args });
+
+// If result is PENDING approval, poll wooblay__check_approval in this same session until resolved (for manual testing)
+const text = callRes?.result?.content?.[0]?.text ?? '';
+const approvalIdMatch = text.match(/Approval ID:\s*([a-z0-9]+)/);
+if (approvalIdMatch && text.includes('PENDING') && text.includes('wooblay__check_approval')) {
+  const approvalId = approvalIdMatch[1];
+  console.log('\nTool call result: (PENDING approval — polling until you approve in the dashboard)\n');
+  console.log('Approval ID:', approvalId);
+  console.log('→ Approve at: /approvals in the Wooblay dashboard, then we will poll for the result.\n');
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    callRes = await sendJsonRpc('tools/call', {
+      name: 'wooblay__check_approval',
+      arguments: { approvalId },
+    });
+    const checkText = (callRes?.result?.content?.[0]?.text ?? '').toLowerCase();
+    if (checkText.includes('denied') || checkText.includes('expired')) {
+      console.log('Result:', callRes?.result?.content?.[0]?.text ?? checkText);
+      break;
+    }
+    // Proxy returns "still pending" (lowercase) — keep polling until we get the real result
+    if (checkText.includes('pending') || checkText.includes('no pending approval')) {
+      process.stderr.write(`  … waiting for approval (${(i + 1) * 3}s)\n`);
+      continue;
+    }
+    // Not pending/denied/expired — this is the executed tool result
+    console.log('Tool call result (after approval):', JSON.stringify(callRes, null, 2));
+    break;
+  }
+} else {
+  console.log('\nTool call result:', JSON.stringify(callRes, null, 2));
+}

@@ -895,6 +895,9 @@ export const createConnection = (data: { provider: string; name: string; credent
 export const revokeConnection = (id: string) =>
   fetchApi<any>(`/api/connections/${id}/revoke`, { method: 'POST', body: JSON.stringify({}) });
 
+export const deleteConnection = (id: string) =>
+  fetchApi<void>(`/api/connections/${id}`, { method: 'DELETE' });
+
 export const testConnection = (id: string) =>
   fetchApi<any>(`/api/connections/${id}/test`, { method: 'POST', body: JSON.stringify({}) });
 

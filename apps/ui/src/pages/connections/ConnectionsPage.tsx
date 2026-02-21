@@ -4,6 +4,7 @@ import {
   getConnections,
   createConnection,
   revokeConnection,
+  deleteConnection,
   testConnection,
   getSensorsStatus,
   updateSensorConfig,
@@ -327,6 +328,13 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
     mutationFn: (id: string) => revokeConnection(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['connections'] });
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteConnection(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['connections'] });
       qc.invalidateQueries({ queryKey: ['sensors-status'] });
     },
   });
@@ -604,10 +612,25 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                       </>
                     )}
 
-                    {(credentialsOnly || !expandedSection) && conn.status === 'active' && (
-                      <div className="flex gap-2 pt-2">
-                        <Button size="xs" variant="danger" onClick={() => revokeMut.mutate(conn.id)}>
-                          Revoke Connection
+                    {(credentialsOnly || !expandedSection) && (
+                      <div className="flex gap-2 pt-2 flex-wrap">
+                        {conn.status === 'active' && (
+                          <Button size="xs" variant="danger" onClick={() => revokeMut.mutate(conn.id)} disabled={revokeMut.isPending}>
+                            Revoke
+                          </Button>
+                        )}
+                        <Button
+                          size="xs"
+                          variant="danger"
+                          onClick={() => {
+                            if (window.confirm(`Permanently delete "${conn.name}"? This cannot be undone.`)) {
+                              deleteMut.mutate(conn.id);
+                            }
+                          }}
+                          disabled={deleteMut.isPending}
+                          className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        >
+                          Delete
                         </Button>
                       </div>
                     )}

@@ -141,7 +141,7 @@ export async function callGateStructuredExec(req: StructuredExecRequest): Promis
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`Secure execution failed (${res.status})`);
+    throw new Error(`Secure execution failed (${res.status}): ${body.slice(0, 500)}`);
   }
 
   return await res.json() as StructuredExecResult;

@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import {
   useApprovals,
@@ -78,7 +79,7 @@ export function ApprovalsPage() {
         if (item) {
           approveMut.mutate(
             { id: item.id, body: { approver: 'dashboard' } },
-            { onSuccess: () => toast('Approved', 'success') },
+            { onSuccess: () => toast('Approved — running in secure container. See Activity for result.', 'success') },
           );
         }
       }
@@ -144,7 +145,10 @@ export function ApprovalsPage() {
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <div className="text-3xl mb-3 opacity-20">✓</div>
           <p className="text-sm font-medium text-text-secondary">All clear</p>
-          <p className="text-xs text-text-muted mt-1">No actions waiting for approval</p>
+          <p className="text-xs text-text-muted mt-1">
+            No actions waiting for approval. Approved actions run in a secure container and show up in{' '}
+            <Link to="/activity" className="text-accent hover:text-accent-bright underline">Activity</Link> with execution status.
+          </p>
         </div>
       )}
 
@@ -253,7 +257,7 @@ export function ApprovalsPage() {
                         { id: item.id, body: { approver: 'dashboard' } },
                         {
                           onSuccess: () => {
-                            toast('Approved + policy created', 'success');
+                            toast('Approved + policy created — running in secure container. See Activity for result.', 'success');
                             alwaysAllowMut.mutate(item);
                           },
                         },

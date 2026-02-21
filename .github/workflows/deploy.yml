@@ -11,6 +11,7 @@ env:
   GATE_REPO: wooblay-gate
   AGENT_REPO: openclaw-wooblay
   MCP_PROXY_REPO: wooblay-mcp-proxy
+  MCP_EXECUTOR_REPO: wooblay-mcp-executor
   INSTANCE_ID: i-018d018e8e511b4b0
 
 jobs:
@@ -36,7 +37,7 @@ jobs:
 
       - name: Ensure ECR repositories exist
         run: |
-          for repo in ${{ env.GATE_REPO }} ${{ env.AGENT_REPO }} ${{ env.MCP_PROXY_REPO }}; do
+          for repo in ${{ env.GATE_REPO }} ${{ env.AGENT_REPO }} ${{ env.MCP_PROXY_REPO }} ${{ env.MCP_EXECUTOR_REPO }}; do
             aws ecr describe-repositories --repository-names "$repo" --region ${{ env.AWS_REGION }} 2>/dev/null || \
             aws ecr create-repository --repository-name "$repo" --region ${{ env.AWS_REGION }}
           done
@@ -105,6 +106,19 @@ jobs:
           cache-from: type=gha,scope=mcp-proxy
           cache-to: type=gha,mode=max,scope=mcp-proxy
 
+      - name: Build and push MCP Executor image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/runtimes/mcp-executor
+          file: docker/runtimes/mcp-executor/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:latest
+          cache-from: type=gha,scope=mcp-executor
+          cache-to: type=gha,mode=max,scope=mcp-executor
+
       - name: Deploy to EC2 via SSM
         run: |
           COMMAND_ID=$(aws ssm send-command \
@@ -130,6 +144,8 @@ jobs:
               \"docker compose pull gate\",
               \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest\",
               \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.MCP_PROXY_REPO }}:latest\",
+              \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:latest\",
+              \"docker tag ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:latest wooblay/mcp-executor:latest\",
               \"docker compose up -d --force-recreate\",
               \"sleep 30\",
               \"docker logs wooblay-gate 2>&1 | tail -30\",

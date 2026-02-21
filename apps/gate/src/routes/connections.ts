@@ -155,6 +155,15 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/connections/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
 
+    const orgId = await resolveOrgIdForRequest(prisma, request);
+    const connection = await prisma.connection.findUnique({ where: { id } });
+    if (!connection) {
+      return reply.code(404).send({ error: 'Connection not found' });
+    }
+    if (orgId && connection.orgId !== orgId) {
+      return reply.code(403).send({ error: 'Connection belongs to another organization' });
+    }
+
     await prisma.connection.delete({ where: { id } });
     return reply.code(204).send();
   });
