@@ -472,12 +472,17 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           image: body.params.image ? String(body.params.image) : undefined,
         });
 
-        // ── Record Execution (makes it visible in Activity) ──────────
-        // Find the ToolCall created during the policy check (callGate)
-        // for this tool. The proxy sends the original tool name prefixed
-        // with the server name (e.g., "github__search_repositories").
+        // ── Record Execution (makes it visible in Activity + Admin) ──
+        // The proxy's callGate stores the prefixed name (e.g. "github__search_repositories")
+        // while body.params.toolName is bare ("search_repositories"). Search for both.
         const recentToolCall = await prisma.toolCall.findFirst({
-          where: { toolName: String(body.params.toolName ?? toolName) },
+          where: {
+            OR: [
+              { toolName: toolName },
+              { toolName: { contains: toolName } },
+            ],
+            execution: null,
+          },
           orderBy: { createdAt: 'desc' },
         });
 
@@ -492,11 +497,13 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           }).catch((err: any) => request.log.warn(err, 'Failed to record MCP execution'));
         }
 
-        // ── L2: Post-Execution Intent Verification ───────────────────
-        // MCP can't be sandboxed pre-execution (needs real creds + network).
-        // Instead, AI verifies the RESULT matches the tool + args AFTER L3.
+        // ── L2: Post-Execution Intent Verification (optional) ─────────
+        // Adds ~2s latency + 1 AI call per execution. Pre-exec L2 already
+        // validated the server+creds combo. Post-exec is belt-and-suspenders.
+        // Disable with MCP_POST_VERIFY=false to halve AI cost per call.
+        const postVerifyEnabled = process.env['MCP_POST_VERIFY'] !== 'false';
         let verification = null;
-        if (mcpResult.success) {
+        if (mcpResult.success && postVerifyEnabled) {
           try {
             verification = await verifyMcpToolResult(prisma, {
               toolName,
