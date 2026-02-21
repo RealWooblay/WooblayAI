@@ -24,9 +24,10 @@ const services = [
   {
     title: 'Automated Sensors & Operations',
     description:
-      'Event-driven automation that connects your systems to intelligent agent workflows. Webhooks trigger operations, AI classifies intent, and agents execute within policy boundaries.',
+      'Event-driven automation that connects your systems—and your physical environment—to agent workflows. We install real-world sensors and wire them to the gate so your space is agentic, not just your digital stack. Webhooks and sensors trigger operations; AI classifies intent; agents execute within policy.',
     items: [
       'Webhook sensors for GitHub, Slack, and custom sources',
+      'Real-world sensors: we install and connect physical sensors so your environment is agentic, not just digital',
       'AI-powered event classification and routing',
       'Automated operation pipelines with approval gates',
       'Priority-based triage and escalation rules',
@@ -60,7 +61,7 @@ export function Services() {
             We also build and operate.
           </h2>
           <p className="mt-4 text-white/35 text-[15px] max-w-xl mx-auto">
-            Need help designing your agent infrastructure or automating operations? We work with teams to get production-ready.
+            Agent hosting, event-driven automation, and real-world sensors: we install physical sensors and connect them to the gate so your environment is agentic, not just your digital stack. We work with teams to get production-ready.
           </p>
         </motion.div>
 

@@ -150,11 +150,14 @@ export function envelopeDecrypt(ref: string): string {
 
   const withoutPrefix = ref.slice(ENVELOPE_PREFIX.length);
   const parts = withoutPrefix.split(':');
-  if (parts.length !== 4) {
+  // Encrypt produces: keyId:dekNonce:wrappedDek:dataNonce:ciphertext (5 parts)
+  if (parts.length !== 5 && parts.length !== 4) {
     throw new Error('Malformed envelope reference');
   }
-
-  const [dekNonceHex, wrappedDekHex, dataNonceHex, ciphertextHex] = parts;
+  const dekNonceHex = parts.length === 5 ? parts[1] : parts[0];
+  const wrappedDekHex = parts.length === 5 ? parts[2] : parts[1];
+  const dataNonceHex = parts.length === 5 ? parts[3] : parts[2];
+  const ciphertextHex = parts.length === 5 ? parts[4] : parts[3];
   const { key: kek } = getKek();
 
   const dek = unwrapDek(
