@@ -32,11 +32,10 @@ const INSTALL_DIR = '/tmp/mcp-pkg';
  * definitely be executable — even on a read-only filesystem with tmpfs.
  *
  * Strategy:
- *   1. Bare binary already in PATH (globally pre-installed) → use directly
- *   2. "npx -y @scope/pkg" → npm-install to /tmp, resolve the bin entry
- *      point from package.json, and run it via `node` (bypasses execute-bit
- *      issues on tmpfs that plague npx runtime installs)
- *   3. Everything else (node script.js, etc.) → pass through unchanged
+ *   1. Not npx → pass through as-is (e.g. "node server.js")
+ *   2. "npx -y @scope/pkg" → npm-install to /tmp, read the package.json
+ *      bin field, run the entry point via `node` (no execute-bit needed,
+ *      works on any MCP package without pre-installing anything)
  */
 function resolveServerCommand(serverStr) {
   const parts = serverStr.trim().split(/\s+/).filter(Boolean);
@@ -45,7 +44,6 @@ function resolveServerCommand(serverStr) {
     return { cmd: parts[0], args: parts.slice(1) };
   }
 
-  // Strip npx flags (-y / --yes) and extract the package name + trailing args
   const cleaned = parts.slice(1).filter(a => a !== '-y' && a !== '--yes');
   const pkg = cleaned[0];
   const extraArgs = cleaned.slice(1);
@@ -54,25 +52,16 @@ function resolveServerCommand(serverStr) {
     return { cmd: parts[0], args: parts.slice(1) };
   }
 
-  // 1. Check if the binary is already available globally
+  // Install the package to /tmp and resolve the bin entry point
   try {
-    const binPath = execSync(`which ${getBinName(pkg)} 2>/dev/null`, { encoding: 'utf8' }).trim();
-    if (binPath) {
-      process.stderr.write(`[executor] Using global binary: ${binPath}\n`);
-      return { cmd: binPath, args: extraArgs };
-    }
-  } catch { /* not found globally, continue */ }
-
-  // 2. Install to temp dir and resolve the entry point via package.json
-  try {
-    process.stderr.write(`[executor] Installing ${pkg} to ${INSTALL_DIR}...\n`);
+    process.stderr.write(`[executor] Installing ${pkg}...\n`);
     execSync(`npm install --prefix ${INSTALL_DIR} ${pkg} 2>&1`, {
       timeout: 60_000,
       env: { ...process.env, npm_config_fund: 'false', npm_config_audit: 'false' },
     });
 
-    const pkgDir = resolvePackageDir(pkg);
-    if (pkgDir) {
+    const pkgDir = `${INSTALL_DIR}/node_modules/${pkg}`;
+    if (existsSync(`${pkgDir}/package.json`)) {
       const pj = JSON.parse(readFileSync(`${pkgDir}/package.json`, 'utf8'));
       const binEntry = typeof pj.bin === 'string'
         ? pj.bin
@@ -80,18 +69,17 @@ function resolveServerCommand(serverStr) {
 
       if (binEntry) {
         const entryPoint = `${pkgDir}/${binEntry}`;
-        process.stderr.write(`[executor] Resolved entry: ${entryPoint}\n`);
+        process.stderr.write(`[executor] Resolved → node ${entryPoint}\n`);
         return { cmd: 'node', args: [entryPoint, ...extraArgs] };
       }
     }
 
-    // Fallback: find any binary in .bin/ and chmod it
+    // Fallback: chmod the .bin/ entries and use directly
     const binDir = `${INSTALL_DIR}/node_modules/.bin`;
     if (existsSync(binDir)) {
       const bins = readdirSync(binDir);
       if (bins.length) {
         execSync(`chmod +x ${binDir}/* 2>/dev/null || true`);
-        process.stderr.write(`[executor] Using .bin/${bins[0]} with chmod fix\n`);
         return { cmd: `${binDir}/${bins[0]}`, args: extraArgs };
       }
     }
@@ -99,24 +87,8 @@ function resolveServerCommand(serverStr) {
     process.stderr.write(`[executor] Install failed: ${e.message}\n`);
   }
 
-  // 3. Last resort: pass through to npx as-is
   process.stderr.write(`[executor] Falling back to npx\n`);
   return { cmd: parts[0], args: parts.slice(1) };
-}
-
-/** Derive the likely global binary name from a scoped package name. */
-function getBinName(pkg) {
-  // @modelcontextprotocol/server-github → mcp-server-github (bin field convention)
-  // @scope/foo → foo
-  const base = pkg.replace(/^@[^/]+\//, '');
-  return base;
-}
-
-/** Resolve the installed package directory (handles scoped packages). */
-function resolvePackageDir(pkg) {
-  const candidate = `${INSTALL_DIR}/node_modules/${pkg}`;
-  if (existsSync(`${candidate}/package.json`)) return candidate;
-  return null;
 }
 
 async function main() {
