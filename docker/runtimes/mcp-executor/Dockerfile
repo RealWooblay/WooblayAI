@@ -27,12 +27,17 @@ RUN npm install --omit=dev && npm cache clean --force
 
 COPY executor.js /opt/wooblay/mcp-executor.js
 
-# Pre-install popular MCP servers so they're cached and fast.
+# Pre-install popular MCP servers globally so the executor can find them
+# in PATH without downloading at runtime. Errors are NOT suppressed so
+# build failures are visible in CI.
 RUN npm install -g \
     @modelcontextprotocol/server-github \
     @modelcontextprotocol/server-filesystem \
-    @modelcontextprotocol/server-fetch \
-    2>/dev/null || true && \
+    @modelcontextprotocol/server-fetch && \
+    chmod +x /usr/local/bin/mcp-server-* 2>/dev/null || true && \
     npm cache clean --force
+
+# Verify the binaries actually exist
+RUN which mcp-server-github && which mcp-server-fetch || echo "WARN: some global bins missing"
 
 WORKDIR /tmp
