@@ -8,7 +8,6 @@
   "references": [
     { "path": "../../packages/types" },
     { "path": "../../packages/crypto" },
-    { "path": "../../packages/schemas" },
-    { "path": "../../packages/github" }
+    { "path": "../../packages/schemas" }
   ]
 }

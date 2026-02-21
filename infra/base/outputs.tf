@@ -77,3 +77,14 @@ output "log_group_name" {
   description = "CloudWatch log group name"
   value       = aws_cloudwatch_log_group.runtime.name
 }
+
+# ── Platform Database ────────────────────────────────────────────────────
+output "platform_db_endpoint" {
+  description = "RDS endpoint for the central platform database"
+  value       = aws_db_instance.platform.endpoint
+}
+
+output "platform_db_secret_arn" {
+  description = "Secrets Manager ARN with platform DB credentials"
+  value       = aws_secretsmanager_secret.platform_db_url.arn
+}

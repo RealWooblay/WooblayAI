@@ -7,6 +7,84 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ── Platform: Organizations & Users ──────────────────────────────────────────
+
+model Organization {
+  id        String   @id           // Clerk's org_xxx ID used directly
+  name      String
+  slug      String?  @unique
+  imageUrl  String?
+  settings  String?  // JSON — org-level settings (simulationThreshold, etc.)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  activated Boolean  @default(false)  // true once a valid coupon is redeemed
+  role      String   @default("member") // org:admin | org:member (Clerk org roles)
+  orgId     String?  // Clerk organization ID this user belongs to
+  org       Organization? @relation(fields: [orgId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  instances  Instance[]
+  coupons    UserCoupon[]
+  approvalDecisions ApprovalDecision[]
+
+  @@index([clerkId])
+  @@index([orgId])
+}
+
+model Coupon {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  maxUses     Int         @default(100)
+  currentUses Int         @default(0)
+  expiresAt   DateTime?
+  metadata    String?     // JSON
+  createdAt   DateTime    @default(now())
+  redemptions UserCoupon[]
+}
+
+model UserCoupon {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  couponId   String
+  coupon     Coupon   @relation(fields: [couponId], references: [id])
+  redeemedAt DateTime @default(now())
+
+  @@unique([userId, couponId])
+  @@index([userId])
+}
+
+// ── Synced audit trail (from per-instance Gates) ─────────────────────────────
+
+model SyncedReceipt {
+  id           String   @id @default(cuid())
+  instanceId   String
+  receiptHash  String
+  agentPubkey  String?
+  toolName     String?
+  riskTier     String?
+  decision     String?
+  data         String   // JSON — full receipt payload
+  syncedAt     DateTime @default(now())
+
+  @@unique([instanceId, receiptHash])
+  @@index([instanceId])
+  @@index([syncedAt])
+}
+
+// ── Agent Runtime ────────────────────────────────────────────────────────────
+
 model Agent {
   id          String    @id @default(cuid())
   pubkey      String    @unique
@@ -47,6 +125,7 @@ model ToolCall {
   toolName    String
   args        String
   riskTier    String
+  category    String?    // Business-context category: code, git, packages, shell, files, network, secrets, infra, communication, destructive, data, other
   adapter     String?    // Which adapter submitted this call (e.g. "openclaw-plugin", "mcp-toolhost")
   createdAt   DateTime   @default(now())
   approval    Approval?
@@ -57,20 +136,31 @@ model ToolCall {
   @@index([agentPubkey])
   @@index([createdAt])
   @@index([adapter])
+  @@index([category])
 }
 
 model PolicyRule {
-  id          String   @id @default(cuid())
-  priority    Int      @unique
-  matchTool   String
-  matchArgs   String?
-  riskTier    String
-  decision    String
-  constraints String?
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String    @id @default(cuid())
+  orgId             String?   // Org isolation boundary
+  instanceId        String?   // null = global default; set = instance-specific (shared with sub-agents)
+  instance          Instance? @relation(fields: [instanceId], references: [id])
+  priority          Int
+  matchTool         String
+  matchArgs         String?
+  riskTier          String
+  matchCategory     String?   // Business-context category filter: "code", "git", "secrets", etc. or "*"
+  decision          String
+  constraints       String?
+  source            String    @default("manual") // "manual" | "preset" | "ai-learned" | "from-approval"
+  description       String?   // Human-readable: "Allow code changes"
+  enabled           Boolean   @default(true)
+  requiredApprovals Int       @default(1) // Number of approvals required for this rule
+  ownerOverride     Boolean   @default(false) // Owner can bypass multi-approval
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
+  @@index([orgId])
+  @@index([instanceId, priority])
   @@index([priority])
 }
 
@@ -118,11 +208,17 @@ model Receipt {
   timestamp        String
   hash             String   @unique
   signature        String
+  // MVP additions: link receipts to runs/evidence/capabilities
+  runId            String?
+  proposalId       String?
+  evidenceHash     String?  // SHA-256 of linked evidence bundle
+  capabilityId     String?  // Capability token used for this action
   createdAt        DateTime @default(now())
 
   @@index([chainPrev])
   @@index([agentPubkey])
   @@index([createdAt])
+  @@index([runId])
 }
 
 model Score {
@@ -235,18 +331,470 @@ model Canary {
 model Instance {
   id            String   @id @default(cuid())
   name          String   @unique
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
   status        String   @default("provisioning")  // provisioning, running, stopped, error
-  agentRuntime  String   @default("openclaw")       // openclaw, custom, etc.
+  instanceType  String   @default("agent")           // "agent" | "proxy"
+  agentRuntime  String   @default("openclaw")       // openclaw, custom, proxy-only
   model         String   @default("claude-sonnet-4-20250514")
   configJson    String?  // Full runtime config as JSON
   containerId   String?  // Docker container ID
   telegramBot   String?  // Telegram bot username / token identifier
   endpoint      String?  // Internal endpoint URL
+  githubPat     Boolean  @default(false) // Whether a GitHub PAT is configured
+  inferredRole  String?  // AI-derived role: "Frontend developer building React dashboard"
+  role          String?  // User-corrected role override
+  secrets       String?  // JSON — [{ key, encryptedValue }] agent-visible env vars
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  policyRules   PolicyRule[]
+  mcpServers    McpServerConfig[]
+
+  @@index([userId])
   @@index([status])
   @@index([agentRuntime])
+}
+
+// ── MCP Server Configurations ────────────────────────────────────────────
+// Per-instance upstream MCP server configs. The MCP proxy connects to each,
+// discovers tools via tools/list, and gates every call through the policy engine.
+// Credentials are never exposed to the agent — credentialed tools execute in
+// ephemeral containers via Layer 3 secure execution.
+
+model McpServerConfig {
+  id            String   @id @default(cuid())
+  instanceId    String
+  instance      Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  name          String
+  transport     String   // "stdio" | "sse"
+  source        String   // npm package name (stdio) or SSE URL
+  args          String?  // JSON — CLI args for stdio transport
+  connectionIds String   @default("[]") // JSON — Connection IDs whose vault creds are injected at L3 exec time
+  enabled       Boolean  @default(true)
+  status        String   @default("pending") // pending, connecting, connected, error
+  toolCount     Int      @default(0)         // tools discovered from upstream
+  lastError     String?  // last connection/discovery error message
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([instanceId, name])
+  @@index([instanceId])
+  @@index([enabled])
+}
+
+// ── Governance: Identity + Approvals ─────────────────────────────────────
+
+model ApprovalDecision {
+  id             String    @id @default(cuid())
+  proposalId     String
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  decision       String    // approved | denied
+  reason         String?
+  role           String    // Role at decision time (owner, admin, member)
+  policySnapshot String?   // JSON — snapshot of the PolicyRule that applied
+  sessionId      String?   // Clerk session ID for audit
+  ipAddress      String?
+  decidedAt      DateTime  @default(now())
+
+  @@index([proposalId])
+  @@index([userId])
+  @@index([decidedAt])
+}
+
+// ── Workspace + Artifact Storage ────────────────────────────────────────
+
+model Workspace {
+  id            String    @id @default(cuid())
+  orgId         String?   // Org isolation boundary
+  instanceId    String?   // Link to Instance (agent runtime)
+  repoFullName  String?   // e.g. "owner/repo"
+  status        String    @default("provisioning") // provisioning | ready | running | stopped | error
+  egressMode    String    @default("gateway_only") // gateway_only | unrestricted (for testing)
+  containerId   String?   // Docker container ID
+  containerImage String?  // Docker image hash
+  networkNs     String?   // Network namespace ID
+  volumeId      String?   // Volume/snapshot ID
+  workingDirHash String?  // SHA-256 of working directory at last checkpoint
+  commitSha     String?   // Git commit SHA at workspace creation
+  artifactBucket String?  // S3 bucket for this workspace's artifacts
+  metadata      String?   // JSON — runtime-specific metadata
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([orgId])
+  @@index([instanceId])
+  @@index([repoFullName])
+  @@index([status])
+}
+
+model Artifact {
+  id          String   @id @default(cuid())
+  orgId       String?  // Org isolation boundary
+  runId       String?
+  bundleId    String?  // EvidenceBundle ID
+  type        String   // log | test_result | diff | screenshot | binary
+  path        String   // S3 path: s3://bucket/runs/{runId}/artifacts/{id}
+  contentHash String   // SHA-256 of the artifact content
+  sizeBytes   Int
+  metadata    String?  // JSON — type-specific metadata
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([runId])
+  @@index([bundleId])
+  @@index([type])
+}
+
+// ── Verification (post-action proof) ────────────────────────────────────
+
+model Verification {
+  id                String    @id @default(cuid())
+  orgId             String?   // Org isolation boundary
+  proposalId        String
+  runId             String
+  capabilityId      String?
+  verifierVersion   String    @default("1.0.0")
+  expectedOutcome   String    // JSON — what we expected { type: "pr_created", pr_number: 123 }
+  observedOutcome   String?   // JSON — what actually happened { type: "pr_created", pr_number: 123, url: "..." }
+  observedHash      String?   // SHA-256 of observed outcome (for tamper evidence)
+  status            String    @default("pending") // pending | passed | failed | skipped
+  failureReason     String?
+  apiReads          String?   // JSON — list of API reads used to verify
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([orgId])
+  @@index([proposalId])
+  @@index([runId])
+  @@index([status])
+}
+
+// ── Repo QA Config ──────────────────────────────────────────────────────
+
+model RepoConfig {
+  id            String   @id @default(cuid())
+  orgId         String?  // Org isolation boundary
+  repoFullName  String   @unique // e.g. "owner/repo"
+  installCmd    String?  // e.g. "npm ci", "pip install -r requirements.txt"
+  testCmd       String?  // e.g. "npm test", "pytest"
+  buildCmd      String?  // e.g. "npm run build"
+  lintCmd       String?  // e.g. "npm run lint"
+  timeoutSeconds Int     @default(300) // Max time for test/build commands
+  envVars       String?  // JSON — environment variables for recipes
+  riskyPaths    String?  // JSON — paths considered risky: ["src/auth/", "migrations/"]
+  branch        String   @default("main") // Default branch to compare against
+  source        String   @default("manual") // manual | wooblay_yml | auto_detected
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([repoFullName])
+}
+
+// ── Credential Vault ────────────────────────────────────────────────────
+
+model SecretLease {
+  id            String    @id @default(cuid())
+  orgId         String?   // Org isolation boundary
+  connectionId  String
+  runId         String?
+  secretArn     String    // AWS Secrets Manager ARN or internal ref
+  leaseType     String    // installation_token | pat | oauth_token
+  scopes        String    // JSON — scopes granted for this lease
+  issuedAt      DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  lastAccessedAt DateTime?
+
+  @@index([orgId])
+  @@index([connectionId])
+  @@index([runId])
+  @@index([expiresAt])
+}
+
+// ── Execution Control Plane ──────────────────────────────────────────────
+
+model Operation {
+  id                String   @id @default(cuid())
+  orgId             String?  // Org isolation boundary
+  externalId        String?  // External reference (e.g. GitHub check_run id)
+  source            String   // github_ci | github_agent_pr | github_pr_opened | github_push | manual | api
+  sourcePayload     String?  // JSON — raw webhook payload
+  title             String
+  summary           String?
+  priority          String   @default("P2") // P0 | P1 | P2
+  status            String   @default("open") // open | triaging | in_progress | resolved | closed
+  intent            String   @default("custom") // fix | qa | review | deploy | custom | pending_classification
+  suggestedIntent   String?  // Sensor's best guess — router may override
+  eventContext      String?  // JSON — rich event context for AI router classification
+  repoFullName      String?  // e.g. "owner/repo"
+  branch            String?
+  commitSha         String?
+  prNumber          Int?     // PR number for PR-based sensors
+  connectionId        String?  // Connection/Sensor that created this operation
+  parentOperationId   String?  // Parent operation (for follow-up chains)
+  followUpConfig      String?  // JSON — follow-up operation definitions from event rules
+  // Agent routing
+  instanceId          String?  // Assigned agent instance (null = unassigned)
+  routingConfidence   Float?   // 0.0-1.0 AI confidence in the routing match
+  routingStatus       String   @default("pending") // pending | auto_routed | approved | manual
+  routingReason       String?  // AI explanation for routing decision
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  runs                Run[]
+
+  @@map("Incident")
+  @@index([orgId])
+  @@index([status])
+  @@index([priority])
+  @@index([source])
+  @@index([intent])
+  @@index([repoFullName, branch, commitSha])
+  @@index([createdAt])
+  @@index([connectionId])
+  @@index([instanceId])
+  @@index([routingStatus])
+  @@index([parentOperationId])
+}
+
+model Run {
+  id             String    @id // Deterministic: sha256(operationId + attempt)
+  orgId          String?   // Org isolation boundary
+  operationId    String    @map("incidentId")
+  operation      Operation @relation(fields: [operationId], references: [id])
+  workspaceId    String?   // Workspace model ID (not Instance)
+  status         String    @default("pending") // pending | scheduled | running | paused | completed | failed | quarantined | cancelled
+  priority       String    @default("P2") // P0 | P1 | P2
+  attempt        Int       @default(1)
+  // State pointer: structured format for workspace resume
+  statePointer   String?   // JSON — { commitSha, containerImage, volumeSnapshot, workingDirHash }
+  parentRunId    String?   // For sub-runs / retries
+  recipe         String?   // Recipe type to run (e.g. "ci_replay", "qa", "review")
+  budgetCents    Int       @default(1000) // Max budget in cents
+  spentCents     Int       @default(0)
+  // Recovery: distributed lock semantics
+  lockedBy       String?   // Server instance ID holding the lock
+  lockedAt       DateTime? // When the lock was acquired
+  heartbeatAt    DateTime? // Last heartbeat — reaper reclaims after staleness
+  startedAt      DateTime?
+  completedAt    DateTime?
+  pausedAt       DateTime?
+  timeoutAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  proposals      Proposal[]
+  evidenceBundles EvidenceBundle[]
+  runEvents      RunEvent[]
+  capabilities   Capability[]
+  costs          RunCost[]
+
+  parentRun      Run?      @relation("RunHierarchy", fields: [parentRunId], references: [id])
+  childRuns      Run[]     @relation("RunHierarchy")
+
+  @@index([orgId])
+  @@index([operationId])
+  @@index([status])
+  @@index([priority])
+  @@index([workspaceId])
+  @@index([createdAt])
+  @@index([lockedBy])
+  @@index([heartbeatAt])
+}
+
+model Proposal {
+  id                String    @id @default(cuid())
+  runId             String
+  run               Run       @relation(fields: [runId], references: [id])
+  actionClass       String    // e.g. "github:pr:create", "github:file:write", "shell:exec", "rollback:*"
+  toolName          String
+  argsHash          String    // SHA-256 of canonical args (don't store raw args for security)
+  rawArgs           String?   // JSON — only stored if policy allows, otherwise null
+  riskClass         String    @default("medium") // low | medium | high | critical
+  irreversible      Boolean   @default(false)
+  compensatingAction String?  // Human-readable description of how to undo
+  evidenceBundleId  String?
+  evidenceBundle    EvidenceBundle? @relation(fields: [evidenceBundleId], references: [id])
+  status            String    @default("pending") // pending | approved | denied | executed | verified
+  approver          String?   // Clerk user ID of the approver
+  approverEmail     String?   // Email at approval time (denormalized for audit)
+  approverRole      String?   // Role at approval time (denormalized for audit)
+  approvedAt        DateTime?
+  policyRuleId      String?
+  policySnapshot    String?   // JSON — frozen copy of PolicyRule at evaluation time
+  verificationId    String?   // Link to Verification record
+  toolCallId        String?   // Link to existing ToolCall if executed via legacy path
+  createdAt         DateTime  @default(now())
+
+  @@index([runId])
+  @@index([status])
+  @@index([actionClass])
+  @@index([createdAt])
+}
+
+model EvidenceBundle {
+  id              String    @id @default(cuid())
+  orgId           String?   // Org isolation boundary
+  runId           String
+  run             Run       @relation(fields: [runId], references: [id])
+  recipeType      String    // ci_replay | manual
+  status          String    @default("pending") // pending | running | completed | failed
+  environmentHash String?   // SHA-256 of env config (Dockerfile, node version, etc.)
+  inputsHash      String?   // SHA-256 of all inputs (commit SHAs, test commands, etc.)
+  outputsHash     String?   // SHA-256 of all outputs (test results, logs)
+  structuredDiff  String?   // JSON — structured comparison result
+  failingTests    String?   // JSON — list of failing test names + details
+  logArtifacts    String?   // JSON — paths to stored log files
+  reproducible    Boolean   @default(false)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  proposals       Proposal[]
+
+  @@index([orgId])
+  @@index([runId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Capability {
+  id              String    @id @default(cuid()) // The token itself
+  runId           String
+  run             Run       @relation(fields: [runId], references: [id])
+  workspaceId     String?
+  actionClass     String    // Scoped action class: "github:pr:create", "github:file:read"
+  scope           String    // JSON — detailed scope (e.g. { "repo": "owner/repo", "branch": "main" })
+  policySnapshot  String?   // JSON — frozen copy of policy rule that authorized this
+  proposalId      String?   // Proposal that this capability was minted for
+  issuedAt        DateTime  @default(now())
+  expiresAt       DateTime  // Time-bounded: default 15 minutes from issuance
+  revokedAt       DateTime? // Null until revoked (kill switch)
+  usedCount       Int       @default(0)
+  maxUses         Int       @default(10)
+  createdAt       DateTime  @default(now())
+
+  @@index([runId])
+  @@index([expiresAt])
+  @@index([actionClass])
+  @@index([proposalId])
+}
+
+model RunEvent {
+  id          String   @id @default(cuid())
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id])
+  type        String   // state_change | tool_call | evidence | approval | error | budget
+  data        String   // JSON — event-specific payload
+  timestamp   DateTime @default(now())
+  sequenceNum Int      // Monotonic within a run
+
+  @@index([runId, sequenceNum])
+  @@index([runId, type])
+  @@index([timestamp])
+}
+
+model Connection {
+  id                    String    @id @default(cuid())
+  orgId                 String?   // Org isolation boundary
+  provider              String    // github | aws | gcp (extensible: slack, custom)
+  name                  String    // Human-readable name: "My GitHub Org"
+  status                String    @default("active") // active | revoked | error
+  authMode              String    @default("pat") // pat | github_app — GitHub App preferred
+  credentialRef         String    // Encrypted credential reference (Secrets Manager ARN or encrypted blob)
+  githubInstallationId  Int?      // GitHub App installation ID (preferred over PAT)
+  githubAppId           Int?      // GitHub App ID
+  githubAppPrivateKey   String?   // GitHub App private key ref (Secrets Manager ARN)
+  repoAllowlist         String?   // JSON — ["owner/repo1", "owner/repo2"] or null for all
+  scopes                String    // JSON — granted scopes (e.g. ["repo", "workflow"])
+  metadata              String?   // JSON — provider-specific metadata
+  secrets               String?   // JSON — [{ key, encryptedValue, mode: "agent" | "exec_only" }]
+  // ── Sensor fields ──────────────────────────────────────────────────────
+  scopeBoundaries       String?   // JSON — per-action scope boundaries (see engine/scope.ts)
+  sensorEnabled         Boolean   @default(true)    // Is this connection acting as a sensor?
+  sensorConfig          String?   // JSON — typed per provider (GitHubSensorConfig, etc.)
+  webhookSecret         String?   // Per-connection webhook secret for signature verification
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([orgId])
+  @@index([provider])
+  @@index([status])
+  @@index([githubInstallationId])
+  @@index([sensorEnabled])
+}
+
+// ── Cost Attribution ────────────────────────────────────────────────────────
+
+model RunCost {
+  id          String   @id @default(cuid())
+  orgId       String?  // Org isolation boundary
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id])
+  category    String   // llm_tokens | compute_minutes | api_calls | gateway_calls
+  description String?  // Human-readable: "OpenAI gpt-4o — 1200 tokens"
+  amountCents Int      // Cost in cents
+  quantity    Float?   // e.g. token count, minutes, call count
+  unit        String?  // tokens | minutes | calls
+  metadata    String?  // JSON — provider-specific (model, region, etc.)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([runId])
+  @@index([category])
+  @@index([createdAt])
+}
+
+// ── Auth Audit Log ──────────────────────────────────────────────────────────
+
+model AuthAuditLog {
+  id          String   @id @default(cuid())
+  userId      String?  // Clerk user ID (null for agent auth failures)
+  action      String   // login | logout | auth_failure | token_refresh | approval_auth
+  success     Boolean
+  ipAddress   String?
+  userAgent   String?
+  sessionId   String?  // Clerk session ID
+  detail      String?  // Error message or context
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([success])
+  @@index([createdAt])
+}
+
+// ── Evidence Environment Manifest ──────────────────────────────────────────
+
+model EvidenceEnvironment {
+  id              String   @id @default(cuid())
+  bundleId        String   @unique // Link to EvidenceBundle
+  baseImageDigest String?  // e.g. "node:20-slim@sha256:abc123..."
+  osVersion       String?  // e.g. "debian 12.4"
+  toolchainVersions String? // JSON — { "node": "20.11.0", "npm": "10.2.4", "git": "2.43.0" }
+  dependencyHash  String?  // SHA-256 of lockfile (package-lock.json, etc.)
+  envVarHash      String?  // SHA-256 of environment variable names (not values)
+  cacheStrategy   String?  // none | lockfile | full — dependency caching approach
+  createdAt       DateTime @default(now())
+
+  @@index([bundleId])
+}
+
+// ── Webhook Notifications ────────────────────────────────────────────────────
+
+model Webhook {
+  id        String   @id @default(cuid())
+  userId    String
+  url       String
+  events    String   // JSON array of event types
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([active])
 }
 
 // ── GitHub App Integration ───────────────────────────────────────────────────
@@ -378,4 +926,55 @@ model GitHubTaskLink {
 
   @@unique([taskId, prId])
   @@index([taskId])
+}
+
+// ── External API Keys ────────────────────────────────────────────────────────
+// Allows external agents (OpenAI GPTs, Claude MCP, LangChain, etc.)
+// to call the gateway without needing a Wooblay-hosted run.
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  orgId       String    // Org this key belongs to
+  name        String    // Human-readable label: "GPT Action Key", "Claude MCP"
+  keyHash     String    @unique // SHA-256 of the raw key (never store plaintext)
+  prefix      String    // First 8 chars of key for identification: "wbl_ak_xxxxxxxx"
+  scopes      String    @default("[\"gateway:execute\"]") // JSON — allowed scopes
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  expiresAt   DateTime? // Optional expiry
+  createdAt   DateTime  @default(now())
+
+  @@index([orgId])
+  @@index([keyHash])
+  @@index([revokedAt])
+}
+
+// ── Webhook Delivery Dedupe ───────────────────────────────────────────────────
+// GitHub sends X-GitHub-Delivery with each webhook. Store it to prevent replays.
+
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  deliveryId  String   @unique   // X-GitHub-Delivery header value
+  eventType   String              // X-GitHub-Event value
+  receivedAt  DateTime @default(now())
+
+  @@index([receivedAt])
+}
+
+// ── Idempotency Keys ──────────────────────────────────────────────────────────
+// Prevents double-execution of gateway actions on retry.
+// Key = hash(capabilityId + action + params). Result cached for 24h.
+
+model IdempotencyKey {
+  id            String   @id @default(cuid())
+  key           String   @unique   // SHA-256 of (capabilityId + actionHash)
+  capabilityId  String
+  actionHash    String              // SHA-256 of (action + canonicalized params)
+  statusCode    Int                 // HTTP status returned
+  responseBody  String              // JSON response body (stored for replay)
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime            // TTL for cleanup (24h default)
+
+  @@index([capabilityId])
+  @@index([expiresAt])
 }

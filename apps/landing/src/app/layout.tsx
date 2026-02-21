@@ -18,14 +18,22 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Wooblay — Reversible autonomy for AI agents',
+  title: 'Wooblay — The governance layer for AI agents',
   description:
-    'Approve actions, see receipts, rewind mistakes. Run agents unattended without fear.',
+    'Wooblay intercepts every AI agent action before it happens. Approve what\'s safe. Block what\'s not. Cryptographically signed audit trail for every decision.',
   openGraph: {
-    title: 'Wooblay — Reversible autonomy for AI agents',
+    title: 'Wooblay — AI agents act. You should decide.',
     description:
-      'Approve actions, see receipts, rewind mistakes. Run agents unattended without fear.',
+      'The governance layer between AI agents and the real world. Policy engine, threat detection, cryptographic receipts, human approval workflows.',
     type: 'website',
+    url: 'https://wooblay.com',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    site: '@RealWooblay',
+    title: 'Wooblay — AI agents act. You should decide.',
+    description:
+      'The governance layer between AI agents and the real world.',
   },
 }
 

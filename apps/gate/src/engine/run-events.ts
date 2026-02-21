@@ -1,0 +1,68 @@
+/**
+ * Run Event Emitter — normalized, atomic event ingestion.
+ *
+ * Single entry point for ALL run events. Guarantees:
+ * - Monotonic sequence numbers (atomic allocation)
+ * - Consistent data format
+ * - Persisted to RunEvent table + emitted to EventBus
+ *
+ * EVERY part of the system that records a run event MUST go through this.
+ */
+
+import type { PrismaClient } from '@prisma/client';
+
+export type RunEventType =
+  | 'state_change'
+  | 'tool_call'
+  | 'evidence'
+  | 'approval'
+  | 'verification'
+  | 'gateway_exec'
+  | 'capability'
+  | 'error'
+  | 'budget'
+  | 'secure_exec_start'
+  | 'secure_exec_complete'
+  | 'secure_exec_simulation'
+  | 'simulation_start'
+  | 'simulation_complete'
+  | 'simulation_sandbox'
+  | 'scope_check';
+
+/**
+ * Emit a run event with atomic sequence number allocation.
+ *
+ * This is the ONLY function that should create RunEvent records.
+ */
+export async function emitRunEvent(
+  prisma: PrismaClient,
+  runId: string,
+  type: RunEventType,
+  data: Record<string, unknown>,
+): Promise<{ id: string; sequenceNum: number }> {
+  // Atomic sequence number allocation:
+  // Use a transaction to read the current max + 1 atomically.
+  const result = await prisma.$transaction(async (tx) => {
+    const last = await tx.runEvent.findFirst({
+      where: { runId },
+      orderBy: { sequenceNum: 'desc' },
+      select: { sequenceNum: true },
+    });
+
+    const sequenceNum = (last?.sequenceNum ?? 0) + 1;
+
+    const event = await tx.runEvent.create({
+      data: {
+        runId,
+        type,
+        data: JSON.stringify(data),
+        sequenceNum,
+      },
+    });
+
+    return { id: event.id, sequenceNum };
+  });
+
+  return result;
+}
+

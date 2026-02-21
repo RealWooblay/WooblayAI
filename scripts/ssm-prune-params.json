@@ -1,0 +1,21 @@
+{
+  "commands": [
+    "set -ex",
+    "cd /opt/wooblay",
+    "echo '=== Before prune ==='",
+    "df -h",
+    "docker ps -a",
+    "docker images",
+    "docker compose down || true",
+    "docker image prune -af",
+    "docker system prune -af",
+    "echo '=== After prune ==='",
+    "df -h",
+    "docker images",
+    "docker compose up -d --force-recreate",
+    "sleep 15",
+    "docker ps -a",
+    "curl -sf http://localhost:4800/health && echo HEALTH_OK || echo HEALTH_FAIL"
+  ],
+  "executionTimeout": ["300"]
+}

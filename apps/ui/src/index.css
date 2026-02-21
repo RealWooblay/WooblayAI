@@ -19,10 +19,10 @@
   --color-border-strong: #2a2a42;
 
   /* Text */
-  --color-text-primary: #e4e4f0;
-  --color-text-secondary: #8888a8;
-  --color-text-tertiary: #555570;
-  --color-text-muted: #333348;
+  --color-text-primary: #ededf4;
+  --color-text-secondary: #9d9dbc;
+  --color-text-tertiary: #6e6e8a;
+  --color-text-muted: #5a5a78;
 
   /* Accent: indigo core */
   --color-accent: #6366f1;
@@ -38,6 +38,31 @@
 }
 
 html { color-scheme: dark; }
+
+/* Light theme — applied when data-theme="light" */
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-void: #f4f4f8;
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f8f8fc;
+  --color-surface-2: #eeeef4;
+  --color-surface-3: #e4e4ee;
+  --color-border: #d8d8e4;
+  --color-border-subtle: #e8e8f0;
+  --color-border-strong: #c8c8d8;
+  --color-text-primary: #1a1a2e;
+  --color-text-secondary: #4a4a6a;
+  --color-text-tertiary: #6a6a8a;
+  --color-text-muted: #7a7a9a;
+  --color-accent: #4f46e5;
+  --color-accent-bright: #6366f1;
+  --color-accent-dim: #4338ca;
+  --color-accent-subtle: rgba(79, 70, 229, 0.1);
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #2563eb;
+}
 
 body {
   margin: 0;
@@ -57,6 +82,8 @@ code, pre, .font-mono {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #222236; border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: #333350; }
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: #c8c8d8; }
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a8a8c0; }
 
 /* ============================================================
    CANVAS — the spatial foundation
@@ -171,6 +198,8 @@ code, pre, .font-mono {
 }
 
 /* Utility classes */
+.animate-blink { animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
 .animate-breathe { animation: breathe 3s ease-in-out infinite; }
 .animate-pulse-ring { animation: pulse-ring 2.5s ease-in-out infinite; }
 .animate-orbit-pulse { animation: orbit-pulse 4s ease-in-out infinite; }
@@ -273,4 +302,95 @@ code, pre, .font-mono {
   background: linear-gradient(90deg, var(--color-surface-2) 25%, var(--color-surface-3) 50%, var(--color-surface-2) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ============================================================
+   ASCII RAIN — subtle matrix-style background
+   Pure CSS. Characters fall in columns with staggered timing.
+   ============================================================ */
+
+@keyframes rain-fall {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  5%   { opacity: 1; }
+  85%  { opacity: 0.5; }
+  100% { transform: translateY(calc(100vh + 100%)); opacity: 0; }
+}
+
+@keyframes rain-fall-slow {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  8%   { opacity: 0.7; }
+  80%  { opacity: 0.3; }
+  100% { transform: translateY(calc(100vh + 100%)); opacity: 0; }
+}
+
+/* Weather: floating particles that actually drift across the screen */
+@keyframes weather-drift {
+  0%   { transform: translate(0, 0) scale(0.8); opacity: 0; }
+  10%  { opacity: 1; }
+  50%  { transform: translate(30px, -40px) scale(1.1); opacity: 0.9; }
+  90%  { opacity: 0.6; }
+  100% { transform: translate(-20px, 60px) scale(0.9); opacity: 0; }
+}
+
+@keyframes weather-float-up {
+  0%   { transform: translateY(100vh); opacity: 0; }
+  10%  { opacity: 0.8; }
+  90%  { opacity: 0.5; }
+  100% { transform: translateY(-20px); opacity: 0; }
+}
+
+.ascii-rain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  opacity: 0.5;
+}
+
+.ascii-rain-col {
+  position: absolute;
+  top: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--color-accent);
+  white-space: pre;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  animation: rain-fall var(--duration) linear infinite;
+  animation-delay: var(--delay);
+  opacity: 0;
+}
+
+.ascii-rain-col.slow {
+  animation-name: rain-fall-slow;
+  color: var(--color-text-tertiary);
+}
+
+/* ============================================================
+   SCANLINE — CRT feel, very subtle
+   ============================================================ */
+
+@keyframes scanline {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.scanline-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.scanline-overlay::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.06) 30%, rgba(99, 102, 241, 0.10) 50%, rgba(99, 102, 241, 0.06) 70%, transparent 100%);
+  animation: scanline 8s linear infinite;
 }

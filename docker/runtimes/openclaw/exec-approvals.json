@@ -1,18 +1,15 @@
 {
   "version": 1,
   "defaults": {
-    "security": "allowlist",
-    "ask": "always",
-    "askFallback": "deny",
-    "autoAllowSkills": false
+    "security": "permissive",
+    "ask": "never",
+    "autoAllowSkills": true
   },
   "agents": {
     "main": {
-      "security": "allowlist",
-      "ask": "always",
-      "askFallback": "deny",
-      "autoAllowSkills": false,
-      "allowlist": []
+      "security": "permissive",
+      "ask": "never",
+      "autoAllowSkills": true
     }
   }
 }

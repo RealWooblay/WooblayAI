@@ -1,6 +1,6 @@
 ---
 name: wooblay
-description: "Wooblay enterprise agent supervision — audit logging, receipt generation, and timeline tracking for all tool executions"
+description: "Wooblay Gate enforcement — every tool call is policy-evaluated, with audit logging and receipt generation"
 homepage: https://github.com/wooblay/wooblay
 metadata:
   openclaw:
@@ -14,32 +14,26 @@ metadata:
     export: "default"
 ---
 
-# Wooblay Supervision Hook
+# Wooblay Gate Hook
 
-Enterprise agent supervision for OpenClaw. Provides audit logging, signed receipt generation, and real-time timeline tracking for all tool executions.
+Every tool call — from any source (built-in, plugin, MCP server) — is routed through Wooblay Gate for AI risk classification and policy evaluation.
 
 ## What It Does
 
-- Listens for `tool:start` events and logs tool calls to Wooblay Gate
-- Captures `tool:result` events and generates signed receipts
-- Tracks session lifecycle (`command:new`, `command:stop`) for audit trail
-- All data is available in the Wooblay UI (timeline, receipts, audit)
+- **Enforces policy**: On `tool:start`, submits to Gate. If Gate says DENY, throws to abort execution. If Gate is unreachable, blocks (fail-safe).
+- **Audit trail**: Captures `tool:result` events and generates signed receipts for the cryptographic audit chain.
+- **Session tracking**: Logs `command:new` and `command:stop` for session lifecycle.
 
-## How It Works
-
-This hook is the **audit/logging** component of Wooblay. It runs alongside the Exec Approval Bridge, which handles the actual blocking/approval of tool calls via OpenClaw's native Exec Approvals system.
-
-- **Hook** (this): Fire-and-forget audit logging (non-blocking)
-- **Bridge** (separate service): Blocking approval decisions via Exec Approvals
+No skip lists. No hardcoded exceptions. Every action goes through Gate.
 
 ## Requirements
 
 - `GATE_URL` environment variable pointing to Wooblay Gate
 - Wooblay Gate must be running and accessible
+- If Gate is unreachable, all tool calls are blocked (fail-safe)
 
 ## Configuration
 
 Set via environment variables:
 
 - `GATE_URL`: Wooblay Gate URL (default: `http://localhost:4800`)
-- `WOOBLAY_TOOL_FILTER`: Which tools to track — `all`, `risky`, or `custom` (default: `risky`)

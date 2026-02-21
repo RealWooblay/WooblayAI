@@ -3,6 +3,12 @@
  *
  * Bootstraps the Fastify server, registers all middleware and route modules,
  * and starts listening on the configured port.
+ *
+ * Supports two modes:
+ *   - **platform** (PLATFORM_MODE=true): Central SaaS API with Clerk auth, user management,
+ *     billing, instance orchestration, and synced receipt aggregation.
+ *   - **instance** (default): Per-tenant runtime with agent signature auth, policy eval,
+ *     tool gating, and local receipts.
  */
 
 import Fastify from 'fastify';
@@ -10,34 +16,46 @@ import cors from '@fastify/cors';
 
 import { config } from './config.js';
 import { authPlugin } from './middleware/auth.js';
+import { clerkAuthPlugin } from './middleware/clerk-auth.js';
+import { rateLimitPlugin } from './middleware/rate-limit.js';
 import { registerStatic } from './static.js';
 
-// Route modules
+// Route modules — shared (both modes)
 import { healthRoutes } from './routes/health.js';
 import { toolRoutes } from './routes/tool.js';
 import { approvalRoutes } from './routes/approvals.js';
 import { receiptRoutes } from './routes/receipts.js';
-import { policyRoutes } from './routes/policies.js';
-import { agentRoutes } from './routes/agents.js';
-import { scoreRoutes } from './routes/scores.js';
 import { statsRoutes } from './routes/stats.js';
-import { checkpointRoutes } from './routes/checkpoints.js';
-import { eventRoutes } from './routes/events.js';
-import { auditRoutes } from './routes/audit.js';
-import { adapterRoutes } from './routes/adapters.js';
 import { executionRoutes } from './routes/executions.js';
-import { analysisRoutes } from './routes/analysis.js';
 import { activityRoutes } from './routes/activity.js';
-import { sessionRoutes } from './routes/sessions.js';
-import { runtimeRoutes } from './routes/runtime.js';
-import { chatRoutes } from './routes/chat.js';
 import { instanceRoutes } from './routes/instances.js';
-import { githubWebhookRoutes } from './routes/github-webhook.js';
-import { githubApiRoutes } from './routes/github-api.js';
+import { policyRoutes } from './routes/policies.js';
+import { flagRoutes } from './routes/flags.js';
+import { auditRoutes } from './routes/audit.js';
+import { missionRoutes } from './routes/mission.js';
+import { webhookRoutes } from './routes/webhooks.js';
+import { aiAnalysisRoutes } from './routes/ai-analysis.js';
+import { workspaceRoutes } from './routes/workspace.js';
 
-// Analyzer event listeners
-import { eventBus } from './events/bus.js';
-import { analyzeReceipt, analyzeTask } from './engine/analyzer/index.js';
+// MVP route modules
+import { operationRoutes } from './routes/operations.js';
+import { runRoutes } from './routes/runs.js';
+import { proposalRoutes } from './routes/proposals.js';
+import { gatewayRoutes } from './routes/gateway.js';
+import { sensorRoutes } from './routes/sensors.js';
+import { insightsRoutes } from './routes/insights.js';
+import { caseFileRoutes } from './routes/case-file.js';
+import { connectionRoutes } from './routes/connections.js';
+import { repoConfigRoutes } from './routes/repo-config.js';
+import { verificationRoutes } from './routes/verifications.js';
+import { workspaceRunnerRoutes } from './routes/workspace-runner.js';
+import { apiKeyRoutes } from './routes/api-keys.js';
+import { mcpProxyRoutes } from './routes/mcp-proxy.js';
+
+// Route modules — platform mode only
+import { userRoutes } from './routes/users.js';
+import { syncRoutes } from './routes/sync.js';
+import { sseRoutes } from './routes/sse.js';
 
 /**
  * Build and configure the Fastify application.
@@ -51,39 +69,58 @@ export async function buildApp() {
   });
 
   // ── Global plugins ──────────────────────────────────────────────────
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Agent-Pubkey', 'X-Request-Signature'],
+  });
 
   // ── Middleware ───────────────────────────────────────────────────────
+  // Rate limiting (all API routes)
+  await app.register(rateLimitPlugin);
+  // Agent signature auth (instance mode — agent-to-gate requests)
   await app.register(authPlugin);
+  // Clerk JWT auth (platform mode — browser-to-API requests)
+  await app.register(clerkAuthPlugin);
 
-  // ── Routes ──────────────────────────────────────────────────────────
+  // ── Routes (both modes) ─────────────────────────────────────────────
   await app.register(healthRoutes);
   await app.register(toolRoutes);
   await app.register(approvalRoutes);
   await app.register(receiptRoutes);
-  await app.register(policyRoutes);
-  await app.register(agentRoutes);
-  await app.register(scoreRoutes);
   await app.register(statsRoutes);
-  await app.register(checkpointRoutes);
-  await app.register(eventRoutes);
-  await app.register(auditRoutes);
-  await app.register(adapterRoutes);
   await app.register(executionRoutes);
-  await app.register(analysisRoutes);
   await app.register(activityRoutes);
-  await app.register(sessionRoutes);
-  await app.register(runtimeRoutes);
-
-  // ── Chat proxy ──────────────────────────────────────────────────
-  await app.register(chatRoutes);
-
-  // ── Instance management ────────────────────────────────────────
+  // Workspace routes BEFORE instance routes (more specific /files path first)
+  await app.register(workspaceRoutes);
   await app.register(instanceRoutes);
+  await app.register(policyRoutes);
+  await app.register(flagRoutes);
+  await app.register(auditRoutes);
+  await app.register(missionRoutes);
+  await app.register(webhookRoutes);
+  await app.register(aiAnalysisRoutes);
 
-  // ── GitHub App ────────────────────────────────────────────────────
-  await app.register(githubWebhookRoutes);
-  await app.register(githubApiRoutes);
+  // ── MVP Routes ────────────────────────────────────────────────────────
+  await app.register(operationRoutes);
+  await app.register(runRoutes);
+  await app.register(proposalRoutes);
+  await app.register(gatewayRoutes);
+  await app.register(sensorRoutes);
+  await app.register(insightsRoutes);
+  await app.register(caseFileRoutes);
+  await app.register(connectionRoutes);
+  await app.register(repoConfigRoutes);
+  await app.register(verificationRoutes);
+  await app.register(workspaceRunnerRoutes);
+  await app.register(apiKeyRoutes);
+  await app.register(mcpProxyRoutes);
+
+  // ── Routes (platform mode only) ─────────────────────────────────────
+  await app.register(userRoutes);
+  await app.register(syncRoutes);
+  await app.register(sseRoutes);
 
   // ── Static UI ───────────────────────────────────────────────────────
   await registerStatic(app);
@@ -95,31 +132,24 @@ export async function buildApp() {
 
 import { prisma } from './db/client.js';
 
-function registerAnalyzerListeners() {
-  // On receipt.created → run receipt-level analysis
-  eventBus.on('receipt.created', (event) => {
-    if (event.type !== 'receipt.created') return;
-    const { receiptId } = event.data;
-    analyzeReceipt(prisma, receiptId).catch((err) => {
-      console.error('[analyzer] Receipt analysis failed for', receiptId, err);
-    });
-  });
-
-  // On score.created → run task-level analysis
-  eventBus.on('score.created', (event) => {
-    if (event.type !== 'score.created') return;
-    const { taskId, agentPubkey } = event.data;
-    analyzeTask(prisma, taskId, agentPubkey).catch((err) => {
-      console.error('[analyzer] Task analysis failed for', taskId, err);
-    });
-  });
-}
-
 async function start() {
-  const app = await buildApp();
+  // ── Pre-flight checks ────────────────────────────────────────────────
+  if (config.NODE_ENV === 'production' && !config.VAULT_MASTER_KEY) {
+    console.error(
+      '\n╔══════════════════════════════════════════════════════════════════╗\n' +
+      '║  FATAL: VAULT_MASTER_KEY is not set.                            ║\n' +
+      '║                                                                  ║\n' +
+      '║  Connections and credential encryption require this env var.     ║\n' +
+      '║  Generate one:                                                   ║\n' +
+      '║    node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"  ║\n' +
+      '║                                                                  ║\n' +
+      '║  Add it to your deployment environment variables.                ║\n' +
+      '╚══════════════════════════════════════════════════════════════════╝\n',
+    );
+    process.exit(1);
+  }
 
-  // Register analyzer event listeners
-  registerAnalyzerListeners();
+  const app = await buildApp();
 
   // Seed default policies if the table is empty
   try {
@@ -131,6 +161,20 @@ async function start() {
   } catch (err) {
     console.error('[seed] Failed to seed default policies:', err);
   }
+
+  // Seed default beta coupon in platform mode
+  if (config.PLATFORM_MODE) {
+    try {
+      const { seedDefaultCoupon } = await import('./db/seed-coupons.js');
+      const created = await seedDefaultCoupon(prisma);
+      if (created) {
+        console.log('[seed] Created default beta coupon: WOOBLAY-BETA-2026');
+      }
+    } catch (err) {
+      console.error('[seed] Failed to seed default coupon:', err);
+    }
+  }
+
 
   try {
     await app.listen({ port: config.PORT, host: '0.0.0.0' });

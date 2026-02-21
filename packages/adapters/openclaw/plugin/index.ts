@@ -1,19 +1,25 @@
 /**
- * Wooblay OpenClaw Plugin — v5 (Gated Tools via registerTool)
+ * Wooblay OpenClaw Plugin — Policy Enforcement via Tool Override
  *
- * STRATEGY:
- *   1. Register gated replacement tools (gated_exec, gated_write, etc.)
- *   2. OpenClaw config denies built-in risky tools, allows gated ones
- *   3. Each gated tool calls Wooblay Gate for policy decision before executing
- *   4. Gate is the decision-maker. Plugin is just the adapter.
+ * Registers gated tools under BOTH built-in and explicit names (e.g. "exec"
+ * AND "gated_exec"). This overrides OpenClaw's built-in risky tools so every
+ * execution goes through Wooblay Gate for AI risk classification + policy.
  *
  * FLOW:
- *   Agent calls gated_exec("rm -rf /tmp")
+ *   Agent calls exec("rm -rf /tmp")
  *     → Plugin POSTs to Gate /api/tool/execute
- *     → Gate evaluates policy → returns EXECUTE / DENY / PENDING_APPROVAL
- *     → EXECUTE: plugin runs command via child_process, returns output
- *     → DENY: plugin returns "BLOCKED" message to agent
- *     → PENDING: plugin polls Gate for up to 100s, then executes or blocks
+ *     → Gate: structural risk classification + AI analysis
+ *     → Gate: policy evaluation → EXECUTE / DENY / PENDING_APPROVAL
+ *     → EXECUTE: plugin runs command locally, returns output
+ *     → DENY: plugin returns "BLOCKED by policy" to agent
+ *     → PENDING: plugin polls Gate for human approval, then executes or blocks
+ *
+ * For credentialed external actions (git push, deploy):
+ *   Agent calls structured_action({ action: "git:push", params: { ... } })
+ *     → Plugin POSTs to Gate /api/tool/execute for policy
+ *     → If approved, POSTs to /api/tool/structured-execute
+ *     → Gate runs three-layer moat: scope → simulation → ephemeral container
+ *     → Agent never sees credentials
  */
 
 // ─── Gate HTTP Client ────────────────────────────────────────────────────────
@@ -154,10 +160,23 @@ export default function register(api: PluginApi): void {
   }
 
   // ── GATED TOOLS ────────────────────────────────────────────────────────────
+  //
+  // Each tool is registered TWICE:
+  //   1. Under the built-in name (e.g. "exec") — overrides OpenClaw's built-in
+  //   2. Under the gated name (e.g. "gated_exec") — explicit gated version
+  //
+  // This ensures that no matter which name the agent uses, the call goes
+  // through Wooblay Gate for AI risk classification + policy evaluation.
 
-  // 1. gated_exec — shell command execution
-  api.registerTool({
-    name: 'gated_exec',
+  // Helper to register a tool under multiple names
+  const registerGatedTool = (names: string[], tool: Omit<Record<string, any>, 'name'>) => {
+    for (const name of names) {
+      api.registerTool!({ ...tool, name });
+    }
+  };
+
+  // 1. exec — shell command execution
+  registerGatedTool(['exec', 'gated_exec'], {
     description: 'Execute a shell command. All commands are reviewed by Wooblay policy before execution.',
     parameters: {
       type: 'object',
@@ -183,9 +202,8 @@ export default function register(api: PluginApi): void {
     },
   });
 
-  // 2. gated_write — write file contents
-  api.registerTool({
-    name: 'gated_write',
+  // 2. write — write file contents
+  registerGatedTool(['write', 'gated_write'], {
     description: 'Write content to a file. Reviewed by Wooblay policy before writing.',
     parameters: {
       type: 'object',
@@ -199,7 +217,6 @@ export default function register(api: PluginApi): void {
       return gatedAction(gateUrl, 'write', params, async () => {
         const fs = await import('fs');
         const path = await import('path');
-        // Ensure parent directory exists
         const dir = path.dirname(params.path);
         fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(params.path, params.content, 'utf-8');
@@ -208,9 +225,8 @@ export default function register(api: PluginApi): void {
     },
   });
 
-  // 3. gated_edit — edit a file (read, apply changes, write back)
-  api.registerTool({
-    name: 'gated_edit',
+  // 3. edit — edit a file (read, apply changes, write back)
+  registerGatedTool(['edit', 'gated_edit'], {
     description: 'Edit a file by replacing old text with new text. Reviewed by Wooblay policy.',
     parameters: {
       type: 'object',
@@ -235,33 +251,159 @@ export default function register(api: PluginApi): void {
     },
   });
 
-  // 4. gated_web_fetch — fetch a URL
-  api.registerTool({
-    name: 'gated_web_fetch',
-    description: 'Fetch content from a URL. Reviewed by Wooblay policy.',
+  // 4. web_fetch — fetch a URL with optional custom headers
+  registerGatedTool(['web_fetch', 'gated_web_fetch'], {
+    description:
+      'Fetch content from a URL with optional headers. Use headers for Authorization, API keys, etc. ' +
+      'Agent-accessible secrets are available as environment variables (e.g. $MY_API_KEY). ' +
+      'Reviewed by Wooblay policy.',
     parameters: {
       type: 'object',
       properties: {
         url: { type: 'string', description: 'URL to fetch' },
         method: { type: 'string', description: 'HTTP method (default: GET)' },
         body: { type: 'string', description: 'Request body (for POST/PUT)' },
+        headers: { type: 'object', description: 'HTTP headers as key-value pairs (e.g. { "Authorization": "Bearer $MY_API_KEY" })' },
       },
       required: ['url'],
     },
-    async execute(_id: string, params: { url: string; method?: string; body?: string }) {
+    async execute(_id: string, params: { url: string; method?: string; body?: string; headers?: Record<string, string> }) {
       return gatedAction(gateUrl, 'web_fetch', params, async () => {
+        const resolvedHeaders: Record<string, string> = {};
+
+        // Resolve env var references in headers (e.g. "$MY_API_KEY" → actual value)
+        if (params.headers) {
+          for (const [k, v] of Object.entries(params.headers)) {
+            resolvedHeaders[k] = v.replace(/\$([A-Z_][A-Z0-9_]*)/g, (_match, name) => {
+              return process.env[name] ?? `$${name}`;
+            });
+          }
+        }
+
+        if (params.body && !resolvedHeaders['content-type'] && !resolvedHeaders['Content-Type']) {
+          resolvedHeaders['content-type'] = 'application/json';
+        }
+
         const res = await fetch(params.url, {
           method: params.method ?? 'GET',
           body: params.body,
-          headers: params.body ? { 'content-type': 'application/json' } : undefined,
+          headers: Object.keys(resolvedHeaders).length > 0 ? resolvedHeaders : undefined,
         });
+
+        const statusLine = `HTTP ${res.status} ${res.statusText}`;
         const text = await res.text();
-        return text.slice(0, 50_000); // Cap response size
+        return `${statusLine}\n${text.slice(0, 50_000)}`;
       }, logger);
     },
   });
 
-  logger.info('[wooblay] Registered gated tools: gated_exec, gated_write, gated_edit, gated_web_fetch');
+  // 5. structured_action — secure execution for credentialed external actions
+  //    Agent declares WHAT it wants; Wooblay decides HOW to do it safely.
+  //    Goes through the three-layer moat: scope → simulation → ephemeral execution.
+  api.registerTool({
+    name: 'structured_action',
+    description:
+      'Execute any action via Wooblay secure execution environment. ' +
+      'Use this when you need credentials or exec_only secrets for ANY provider. ' +
+      'The action runs in an ephemeral container — you never see credentials. ' +
+      'Provide the command, specify the provider (matches a connected provider on the Connections page), ' +
+      'and optionally a Docker image. Wooblay resolves credentials from the vault and injects them. ' +
+      'Use list_secrets to discover available credentials before calling this. ' +
+      'Example: { action: "exec:run", params: { command: "curl -X POST https://api.example.com/v1/charges -d amount=5000", provider: "stripe" } }',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          description:
+            'Action identifier. Use "exec:run" to execute any command in a secure container with provider credentials. ' +
+            'Or use a descriptive name like "deploy:staging", "db:migrate" — Wooblay routes all through the same secure execution pipeline.',
+        },
+        params: {
+          type: 'object',
+          description:
+            'Action parameters. Key fields: command (the command to run), provider (which connected provider\'s credentials to use), ' +
+            'image (Docker image, default: node:20-slim), timeout (ms, max 600000), mountWorkspace (bool, mount agent workspace read-only).',
+        },
+      },
+      required: ['action', 'params'],
+    },
+    async execute(_id: string, params: { action: string; params: Record<string, unknown> }) {
+      return gatedAction(gateUrl, `structured_action:${params.action}`, params, async () => {
+        // Once policy approves, call the gateway to execute via three-layer moat.
+        // The gateway handles: scope check → simulation → ephemeral container execution.
+        const res = await fetch(`${gateUrl}/api/tool/structured-execute`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            action: params.action,
+            params: params.params,
+            agentPubkey: 'openclaw-runtime',
+            adapter: 'openclaw-plugin-v5',
+          }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return `Secure execution failed (${res.status}): ${text}`;
+        }
+
+        const result = await res.json() as any;
+        if (!result.success) {
+          const parts = [`Action failed: ${result.error ?? 'unknown error'}`];
+          if (result.stderr) parts.push(`stderr: ${result.stderr}`);
+          if (result.simulation && !result.simulation.passed) {
+            parts.push(`Simulation failed: ${result.simulation.summary}`);
+          }
+          return parts.join('\n');
+        }
+
+        const parts = [`Action succeeded: ${result.data?.description ?? params.action}`];
+        if (result.data?.stdout) parts.push(result.data.stdout);
+        if (result.simulation) parts.push(`Simulation: ${result.simulation.summary}`);
+        return parts.join('\n');
+      }, logger);
+    },
+  });
+
+  // 6. list_secrets — discover available secrets and their visibility modes
+  api.registerTool({
+    name: 'list_secrets',
+    description:
+      'List all available secrets across connections. Returns secret names and modes: ' +
+      '"agent" secrets are in your environment as $KEY_NAME. ' +
+      '"exec_only" secrets are only available inside structured_action ephemeral containers. ' +
+      'Use this to discover what credentials are available before making API calls or running exec:run.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+    async execute() {
+      try {
+        const res = await fetch(`${gateUrl}/api/connections/secrets/names`, {
+          headers: { 'content-type': 'application/json' },
+        });
+        if (!res.ok) {
+          return textResult(`Failed to list secrets: ${res.status}`);
+        }
+        const data = await res.json() as { secrets: { key: string; mode: string; provider: string; connectionName: string }[] };
+        if (!data.secrets?.length) {
+          return textResult('No secrets configured. Add secrets on the Connections page in the Wooblay dashboard.');
+        }
+        const lines = data.secrets.map((s: any) => {
+          const access = s.mode === 'agent'
+            ? `env var $${s.key} (available now)`
+            : `exec_only (use via structured_action/exec:run)`;
+          return `- ${s.key} [${s.provider}/${s.connectionName}]: ${access}`;
+        });
+        return textResult(`Available secrets:\n${lines.join('\n')}`);
+      } catch (err: any) {
+        return textResult(`Failed to list secrets: ${err.message}`);
+      }
+    },
+  });
+
+  logger.info('[wooblay] Registered gated tools: exec/gated_exec, write/gated_write, edit/gated_edit, web_fetch/gated_web_fetch, structured_action, list_secrets');
 
   // ── HEALTH CHECK SERVICE ───────────────────────────────────────────────────
 
@@ -293,8 +435,8 @@ export default function register(api: PluginApi): void {
         const healthy = await gateHealth(gateUrl);
         return {
           text: healthy
-            ? `Wooblay supervision ACTIVE.\nGate: ${gateUrl}\nGated tools: gated_exec, gated_write, gated_edit, gated_web_fetch`
-            : `Wooblay Gate UNREACHABLE at ${gateUrl}.\nAll gated tool calls will be BLOCKED for safety.`,
+            ? `Wooblay supervision ACTIVE.\nGate: ${gateUrl}\nAll risky tools gated (exec, write, edit, web_fetch + structured_action)`
+            : `Wooblay Gate UNREACHABLE at ${gateUrl}.\nAll tool calls will be BLOCKED for safety.`,
         };
       },
     });
@@ -309,5 +451,5 @@ export default function register(api: PluginApi): void {
     });
   }
 
-  logger.info('[wooblay] v5 plugin loaded — all risky tools gated through Wooblay Gate');
+  logger.info('[wooblay] Plugin loaded — built-in risky tools overridden, all routed through Wooblay Gate');
 }

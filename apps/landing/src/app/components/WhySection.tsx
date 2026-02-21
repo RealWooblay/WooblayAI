@@ -3,16 +3,10 @@
 import { motion, useInView } from 'framer-motion'
 import { useRef } from 'react'
 
-/**
- * Cascading "3 AM" notification alerts.
- * Each slides in staggered and offset — like real panic notifications.
- * Then the resolution: "What if you could have said no?"
- */
-
 const alerts = [
-  { time: '3:14 AM', text: 'Your agent changed your pricing.' },
-  { time: '3:17 AM', text: 'Your agent emailed 10,000 customers.' },
-  { time: '3:19 AM', text: 'Your agent dropped your database.' },
+  { time: '3:14 AM', text: 'Agent made a change. No review.' },
+  { time: '3:17 AM', text: 'Agent updated production. No rollback plan.' },
+  { time: '3:19 AM', text: 'Agent accessed sensitive data.' },
 ]
 
 export function WhySection() {
@@ -72,9 +66,10 @@ export function WhySection() {
           className="mt-16 text-center"
         >
           <p className="font-display text-[clamp(1.8rem,4vw,2.6rem)] font-bold tracking-tight leading-[1.1]">
-            <span className="text-white">What if you could have said&nbsp;</span>
-            <span className="text-accent">no</span>
-            <span className="text-white">?</span>
+            <span className="text-white">This already happens.</span>
+          </p>
+          <p className="mt-4 text-white/40 text-[15px] leading-relaxed max-w-md mx-auto">
+            AI agents are taking real-world actions. Often without review, evidence, or a clear record of who approved what.
           </p>
         </motion.div>
       </div>

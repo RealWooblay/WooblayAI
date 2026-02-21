@@ -1,467 +1,307 @@
 /**
- * Audit Analysis Engine
- *
- * Detects anomalous patterns in agent behavior and auto-raises flags.
- * Runs lightweight checks on every tool call + periodic batch analysis.
+ * Human-readable descriptions for tool calls and risk tiers.
+ * Used by activity feed and approvals to render meaningful summaries.
  */
 
-import type { PrismaClient } from '@prisma/client';
+// ── Describe a shell command in plain English ────────────────────────────────
 
-// ── Sensitive path patterns ──────────────────────────────────────────────────
+function describeCommand(command: string): string {
+  const parts = command.split(/\s+/);
+  const base = parts[0];
 
-const SENSITIVE_PATH_PATTERNS = [
-  /\/etc\b/,
-  /\/root\b/,
-  /~?\/?\.ssh\b/,
-  /\/var\/log\b/,
-  /\.env\b/,
-  /\.git\/config\b/,
-  /id_rsa\b/,
-  /credentials\b/,
-  /secrets?\b/,
-];
-
-// ── Privilege escalation patterns ────────────────────────────────────────────
-
-const PRIVILEGE_ESCALATION_PATTERNS = [
-  /\bsudo\b/,
-  /\bsu\s+/,
-  /\bchmod\s+777\b/,
-  /\bchown\s+root\b/,
-];
-
-// ── Off-hours window (UTC) ───────────────────────────────────────────────────
-
-const OFF_HOURS_START = parseInt(process.env['AUDIT_OFF_HOURS_START'] ?? '0', 10);
-const OFF_HOURS_END = parseInt(process.env['AUDIT_OFF_HOURS_END'] ?? '6', 10);
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Returns the start of the current hour (used for dedup windows). */
-function currentHourStart(): Date {
-  const now = new Date();
-  now.setMinutes(0, 0, 0);
-  return now;
+  switch (base) {
+    case 'ls': {
+      const target = parts.filter((p) => !p.startsWith('-')).slice(1).join(' ');
+      return `List files in ${target || 'current directory'}`;
+    }
+    case 'mkdir':
+      return `Create directory ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
+    case 'rm': {
+      const hasR = /\s-\w*r/.test(command) || /\s--recursive/.test(command);
+      const hasF = /\s-\w*f/.test(command) || /\s--force/.test(command);
+      const target = parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>';
+      if (hasR && hasF) return `Delete ${target} and all contents (forced, recursive)`;
+      if (hasR) return `Delete ${target} and all contents (recursive)`;
+      if (hasF) return `Delete ${target} (forced)`;
+      return `Delete ${target}`;
+    }
+    case 'curl':
+    case 'wget': {
+      const url = parts.find((p) => p.startsWith('http')) ?? parts[1] ?? '<url>';
+      const outputFlag = command.includes('-o ') || command.includes('--output');
+      const toTmp = /\/tmp\//.test(command);
+      const pipeExec = command.includes('| sh') || command.includes('| bash');
+      if (pipeExec) return `⚠️ Download and execute script from ${url} — remote code execution risk`;
+      if (toTmp) return `⚠️ Download to /tmp from ${url} — temporary file, could be executed later`;
+      if (outputFlag) return `Download file from ${url} to disk`;
+      return `Download from ${url}`;
+    }
+    case 'git': {
+      const sub = parts[1] ?? '';
+      if (sub === 'push') return 'Push changes to remote repository';
+      if (sub === 'pull') return 'Pull changes from remote repository';
+      if (sub === 'clone') return `Clone repository ${parts[2] ?? ''}`.trim();
+      if (sub === 'commit') return 'Commit staged changes';
+      if (sub === 'add') return 'Stage files for commit';
+      if (sub === 'checkout' || sub === 'switch') return `Switch to branch ${parts[2] ?? ''}`.trim();
+      if (sub === 'merge') return `Merge branch ${parts[2] ?? ''}`.trim();
+      if (sub === 'init') return 'Initialize a new git repository';
+      return `Git: ${command.length > 80 ? command.slice(0, 80) + '...' : command}`;
+    }
+    case 'npm':
+    case 'pnpm':
+    case 'yarn': {
+      const sub = parts[1] ?? '';
+      if (sub === 'install' || sub === 'i' || sub === 'add') return `Install packages (${base})`;
+      if (sub === 'publish') return `Publish package (${base})`;
+      if (sub === 'run') return `Run script: ${parts[2] ?? '<script>'}`;
+      if (sub === 'test') return 'Run tests';
+      if (sub === 'build') return 'Build project';
+      return `${base} ${sub}`;
+    }
+    case 'pip':
+    case 'pip3': {
+      const sub = parts[1] ?? '';
+      if (sub === 'install') return 'Install Python packages';
+      return `pip ${sub}`;
+    }
+    case 'docker': {
+      const sub = parts[1] ?? '';
+      if (sub === 'build') return 'Build Docker image';
+      if (sub === 'run') return 'Run Docker container';
+      if (sub === 'push') return 'Push Docker image to registry';
+      if (sub === 'pull') return 'Pull Docker image';
+      return `Docker: ${sub}`;
+    }
+    case 'sudo':
+      return `Execute with superuser privileges: ${parts.slice(1).join(' ')}`;
+    case 'chmod':
+      return `Change permissions on ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
+    case 'chown':
+      return `Change ownership of ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
+    case 'cat': {
+      const target = parts[1] ?? '<path>';
+      if (/\/etc\/shadow/i.test(target)) return `⚠️ Read /etc/shadow — contains password hashes (highly sensitive)`;
+      if (/\/etc\/passwd/i.test(target)) return `⚠️ Read /etc/passwd — contains system user accounts`;
+      if (/\/etc\/sudoers/i.test(target)) return `⚠️ Read /etc/sudoers — contains privilege escalation config`;
+      if (/\.env/i.test(target)) return `⚠️ Read ${target} — may contain API keys and secrets`;
+      if (/\.ssh/i.test(target)) return `⚠️ Read ${target} — SSH credentials`;
+      return `Read file ${target}`;
+    }
+    case 'cd':
+      return `Change directory to ${parts[1] ?? '<path>'}`;
+    case 'cp':
+      return `Copy ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' to ') || 'files'}`;
+    case 'mv':
+      return `Move ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' to ') || 'files'}`;
+    case 'gh': {
+      const sub = parts[1] ?? '';
+      if (sub === 'pr') return `GitHub PR: ${parts.slice(2).join(' ')}`;
+      if (sub === 'repo') return `GitHub repo: ${parts.slice(2).join(' ')}`;
+      if (sub === 'issue') return `GitHub issue: ${parts.slice(2).join(' ')}`;
+      return `GitHub CLI: ${command.length > 80 ? command.slice(0, 80) + '...' : command}`;
+    }
+    case 'ssh':
+      return `SSH connection to ${parts[1] ?? '<host>'}`;
+    case 'scp':
+      return `Secure copy files`;
+    case 'echo':
+      return `Print output`;
+    case 'touch':
+      return `Create empty file ${parts[1] ?? '<path>'}`;
+    case 'grep':
+    case 'rg':
+      return `Search for pattern in files`;
+    case 'find':
+      return `Find files matching criteria`;
+    case 'python':
+    case 'python3':
+    case 'node':
+      return `Run ${base} script: ${parts[1] ?? '<file>'}`;
+    default:
+      return `Execute: ${command.length > 120 ? command.slice(0, 120) + '...' : command}`;
+  }
 }
 
-/**
- * Check if a similar flag already exists in the current hour to avoid
- * duplicate spam.
- */
-async function flagExistsThisHour(
-  prisma: PrismaClient,
-  category: string,
-  agentPubkey: string | null,
-): Promise<boolean> {
-  const hourStart = currentHourStart();
-  const count = await prisma.auditFlag.count({
-    where: {
-      category,
-      agentPubkey: agentPubkey ?? undefined,
-      createdAt: { gte: hourStart },
-    },
-  });
-  return count > 0;
-}
+// ── Main description function ────────────────────────────────────────────────
 
-/** Create a flag record if one doesn't already exist this hour. */
-async function maybeCreateFlag(
-  prisma: PrismaClient,
-  data: {
-    severity: string;
-    category: string;
-    title: string;
-    description: string;
-    agentPubkey?: string | null;
-    toolCallId?: string | null;
-    metadata?: Record<string, unknown> | null;
-  },
-) {
-  const exists = await flagExistsThisHour(prisma, data.category, data.agentPubkey ?? null);
-  if (exists) return null;
-
-  return prisma.auditFlag.create({
-    data: {
-      severity: data.severity,
-      category: data.category,
-      title: data.title,
-      description: data.description,
-      agentPubkey: data.agentPubkey ?? null,
-      toolCallId: data.toolCallId ?? null,
-      metadata: data.metadata ? JSON.stringify(data.metadata) : null,
-    },
-  });
-}
-
-// ── Per-tool-call analysis ───────────────────────────────────────────────────
-
-interface ToolCallRecord {
-  id: string;
-  agentPubkey: string;
-  toolName: string;
-  args: string;
-  riskTier: string;
-  createdAt: Date;
-}
-
-/**
- * Analyze a single tool call for anomalies. Called after every tool call is
- * created. Returns an array of newly-created flags (may be empty).
- */
-export async function analyzeToolCall(
-  prisma: PrismaClient,
-  toolCall: ToolCallRecord,
-): Promise<unknown[]> {
-  const flags: unknown[] = [];
-
-  let parsedArgs: Record<string, unknown> = {};
-  try {
-    parsedArgs = JSON.parse(toolCall.args);
-  } catch {
-    // args may not be JSON — that's ok
-  }
-
-  const command = String(parsedArgs['command'] ?? parsedArgs['cmd'] ?? '');
-
-  // 1. Velocity anomaly
-  const sixtySecondsAgo = new Date(Date.now() - 60_000);
-  const recentCount = await prisma.toolCall.count({
-    where: {
-      agentPubkey: toolCall.agentPubkey,
-      createdAt: { gte: sixtySecondsAgo },
-    },
-  });
-
-  if (recentCount > 30) {
-    const flag = await maybeCreateFlag(prisma, {
-      severity: 'HIGH',
-      category: 'velocity_anomaly',
-      title: 'Extreme tool call velocity',
-      description: `Agent ${toolCall.agentPubkey} made ${recentCount} tool calls in the last 60 seconds (threshold: 30).`,
-      agentPubkey: toolCall.agentPubkey,
-      toolCallId: toolCall.id,
-      metadata: { recentCount, windowSeconds: 60, threshold: 30 },
-    });
-    if (flag) flags.push(flag);
-  } else if (recentCount > 10) {
-    const flag = await maybeCreateFlag(prisma, {
-      severity: 'MEDIUM',
-      category: 'velocity_anomaly',
-      title: 'High tool call velocity',
-      description: `Agent ${toolCall.agentPubkey} made ${recentCount} tool calls in the last 60 seconds (threshold: 10).`,
-      agentPubkey: toolCall.agentPubkey,
-      toolCallId: toolCall.id,
-      metadata: { recentCount, windowSeconds: 60, threshold: 10 },
-    });
-    if (flag) flags.push(flag);
-  }
-
-  // 2. Sensitive path access
-  if (toolCall.toolName === 'wooblay_exec' && command) {
-    for (const pattern of SENSITIVE_PATH_PATTERNS) {
-      if (pattern.test(command)) {
-        const flag = await maybeCreateFlag(prisma, {
-          severity: 'HIGH',
-          category: 'sensitive_access',
-          title: 'Sensitive path access detected',
-          description: `Agent ${toolCall.agentPubkey} executed a command referencing a sensitive path: ${command.slice(0, 200)}`,
-          agentPubkey: toolCall.agentPubkey,
-          toolCallId: toolCall.id,
-          metadata: { command: command.slice(0, 500), matchedPattern: pattern.source },
-        });
-        if (flag) flags.push(flag);
-        break; // one flag per tool call for this category
-      }
-    }
-  }
-
-  // 3. Privilege escalation
-  if (toolCall.toolName === 'wooblay_exec' && command) {
-    for (const pattern of PRIVILEGE_ESCALATION_PATTERNS) {
-      if (pattern.test(command)) {
-        const flag = await maybeCreateFlag(prisma, {
-          severity: 'CRITICAL',
-          category: 'privilege_escalation',
-          title: 'Privilege escalation attempt',
-          description: `Agent ${toolCall.agentPubkey} attempted privilege escalation: ${command.slice(0, 200)}`,
-          agentPubkey: toolCall.agentPubkey,
-          toolCallId: toolCall.id,
-          metadata: { command: command.slice(0, 500), matchedPattern: pattern.source },
-        });
-        if (flag) flags.push(flag);
-        break;
-      }
-    }
-  }
-
-  // 4. Repeated denial retries (evasion pattern)
-  const recentCalls = await prisma.toolCall.findMany({
-    where: { agentPubkey: toolCall.agentPubkey },
-    orderBy: { createdAt: 'desc' },
-    take: 10,
-    include: { receipt: true },
-  });
-
-  const deniedCalls = recentCalls.filter(
-    (tc) => tc.receipt?.policyDecision === 'DENY',
-  );
-
-  if (deniedCalls.length >= 3) {
-    const similarDenied = deniedCalls.filter(
-      (tc) => tc.toolName === toolCall.toolName,
-    );
-    if (similarDenied.length >= 3) {
-      const flag = await maybeCreateFlag(prisma, {
-        severity: 'HIGH',
-        category: 'evasion_pattern',
-        title: 'Repeated denial retries',
-        description: `Agent ${toolCall.agentPubkey} retried "${toolCall.toolName}" after ${similarDenied.length} denials in recent calls.`,
-        agentPubkey: toolCall.agentPubkey,
-        toolCallId: toolCall.id,
-        metadata: {
-          deniedCount: similarDenied.length,
-          toolName: toolCall.toolName,
-          deniedToolCallIds: similarDenied.map((tc) => tc.id),
-        },
-      });
-      if (flag) flags.push(flag);
-    }
-  }
-
-  return flags;
-}
-
-// ── Batch analysis ───────────────────────────────────────────────────────────
-
-/**
- * Run batch analysis across all agents. More expensive — meant to be
- * triggered on-demand via API.
- */
-export async function runBatchAnalysis(prisma: PrismaClient): Promise<unknown[]> {
-  const flags: unknown[] = [];
-  const oneHourAgo = new Date(Date.now() - 3_600_000);
-
-  // 1. Session anomaly — agents with >50% WRITE or DESTRUCTIVE calls in the last hour
-  const agents = await prisma.agent.findMany({ select: { pubkey: true } });
-
-  for (const agent of agents) {
-    const totalCalls = await prisma.toolCall.count({
-      where: { agentPubkey: agent.pubkey, createdAt: { gte: oneHourAgo } },
-    });
-
-    if (totalCalls === 0) continue;
-
-    const writeCalls = await prisma.toolCall.count({
-      where: {
-        agentPubkey: agent.pubkey,
-        createdAt: { gte: oneHourAgo },
-        riskTier: { in: ['WRITE', 'DESTRUCTIVE'] },
-      },
-    });
-
-    if (writeCalls / totalCalls > 0.5) {
-      const flag = await maybeCreateFlag(prisma, {
-        severity: 'MEDIUM',
-        category: 'unusual_pattern',
-        title: 'High write/destructive ratio',
-        description: `Agent ${agent.pubkey} has ${writeCalls}/${totalCalls} (${Math.round((writeCalls / totalCalls) * 100)}%) write/destructive calls in the last hour.`,
-        agentPubkey: agent.pubkey,
-        metadata: { totalCalls, writeCalls, ratio: writeCalls / totalCalls },
-      });
-      if (flag) flags.push(flag);
-    }
-  }
-
-  // 2. Denied then retry — find sequences where DENY was followed by similar tool call within 5 min
-  for (const agent of agents) {
-    const calls = await prisma.toolCall.findMany({
-      where: { agentPubkey: agent.pubkey, createdAt: { gte: oneHourAgo } },
-      orderBy: { createdAt: 'asc' },
-      include: { receipt: true },
-    });
-
-    for (let i = 0; i < calls.length; i++) {
-      const call = calls[i];
-      if (call.receipt?.policyDecision !== 'DENY') continue;
-
-      // Look for a retry within 5 minutes
-      const fiveMinLater = new Date(call.createdAt.getTime() + 5 * 60_000);
-      for (let j = i + 1; j < calls.length; j++) {
-        const nextCall = calls[j];
-        if (nextCall.createdAt > fiveMinLater) break;
-        if (nextCall.toolName === call.toolName) {
-          const flag = await maybeCreateFlag(prisma, {
-            severity: 'HIGH',
-            category: 'evasion_pattern',
-            title: 'Retry after denial',
-            description: `Agent ${agent.pubkey} retried "${call.toolName}" within 5 minutes of a denial.`,
-            agentPubkey: agent.pubkey,
-            toolCallId: nextCall.id,
-            metadata: {
-              deniedToolCallId: call.id,
-              retryToolCallId: nextCall.id,
-              gapSeconds: Math.round(
-                (nextCall.createdAt.getTime() - call.createdAt.getTime()) / 1000,
-              ),
-            },
-          });
-          if (flag) flags.push(flag);
-          break; // only flag once per denied call
-        }
-      }
-    }
-  }
-
-  // 3. Off-hours activity
-  const recentCalls = await prisma.toolCall.findMany({
-    where: { createdAt: { gte: oneHourAgo } },
-    select: { id: true, agentPubkey: true, createdAt: true },
-  });
-
-  for (const call of recentCalls) {
-    const hour = call.createdAt.getUTCHours();
-    if (hour >= OFF_HOURS_START && hour < OFF_HOURS_END) {
-      const flag = await maybeCreateFlag(prisma, {
-        severity: 'LOW',
-        category: 'unusual_pattern',
-        title: 'Off-hours activity',
-        description: `Agent ${call.agentPubkey} made a tool call at ${call.createdAt.toISOString()} (off-hours: ${OFF_HOURS_START}:00-${OFF_HOURS_END}:00 UTC).`,
-        agentPubkey: call.agentPubkey,
-        toolCallId: call.id,
-        metadata: { hour, offHoursStart: OFF_HOURS_START, offHoursEnd: OFF_HOURS_END },
-      });
-      if (flag) flags.push(flag);
-    }
-  }
-
-  return flags;
-}
-
-// ── Human-readable descriptions ──────────────────────────────────────────────
-
-/**
- * Produce a human-readable description of what a tool call does.
- */
 export function describeToolCall(
   toolName: string,
   args: Record<string, unknown>,
 ): string {
-  switch (toolName) {
-    case 'wooblay_exec': {
+  // Normalize tool name — the plugin sends 'exec', 'write', 'edit', 'web_fetch'
+  const tool = toolName.replace(/^(gated_|wooblay_)/, '');
+
+  switch (tool) {
+    case 'exec': {
       const command = String(args['command'] ?? args['cmd'] ?? '').trim();
       if (!command) return 'Execute an empty shell command';
-
-      // Parse the base command
-      const parts = command.split(/\s+/);
-      const base = parts[0];
-
-      switch (base) {
-        case 'ls': {
-          const lsTarget = parts.filter((p) => !p.startsWith('-')).slice(1).join(' ');
-          return `List files in ${lsTarget || 'current directory'}`;
-        }
-        case 'mkdir':
-          return `Create directory ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
-        case 'rm': {
-          const hasR = /\s-\w*r/.test(command) || /\s--recursive/.test(command);
-          const hasF = /\s-\w*f/.test(command) || /\s--force/.test(command);
-          const target = parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>';
-          if (hasR && hasF) return `Delete ${target} and all contents (forced, recursive) ⚠️`;
-          if (hasR) return `Delete ${target} and all contents (recursive) ⚠️`;
-          if (hasF) return `Delete ${target} (forced) ⚠️`;
-          return `Delete ${target}`;
-        }
-        case 'curl':
-        case 'wget': {
-          const url = parts.find((p) => p.startsWith('http')) ?? parts[1] ?? '<url>';
-          return `Download from ${url}`;
-        }
-        case 'git': {
-          const subcommand = parts[1] ?? '';
-          if (subcommand === 'push') return 'Push changes to remote repository';
-          if (subcommand === 'pull') return 'Pull changes from remote repository';
-          if (subcommand === 'clone') return `Clone repository ${parts[2] ?? ''}`;
-          if (subcommand === 'commit') return 'Commit staged changes';
-          return `Git ${subcommand}: ${command}`;
-        }
-        case 'npm': {
-          const sub = parts[1] ?? '';
-          if (sub === 'install' || sub === 'i') return 'Install npm packages';
-          if (sub === 'publish') return 'Publish npm package';
-          return `npm ${sub}`;
-        }
-        case 'sudo':
-          return `Execute with superuser privileges: ${parts.slice(1).join(' ')} ⚠️`;
-        case 'chmod':
-          return `Change permissions on ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
-        case 'chown':
-          return `Change ownership of ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' ') || '<path>'}`;
-        case 'cat':
-          return `Read file ${parts[1] ?? '<path>'}`;
-        case 'cd':
-          return `Change directory to ${parts[1] ?? '<path>'}`;
-        case 'cp':
-          return `Copy ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' to ') || 'files'}`;
-        case 'mv':
-          return `Move ${parts.filter((p) => !p.startsWith('-')).slice(1).join(' to ') || 'files'}`;
-        default:
-          return `Execute: ${command.length > 120 ? command.slice(0, 120) + '…' : command}`;
-      }
+      return describeCommand(command);
     }
 
-    case 'wooblay_http': {
+    case 'write': {
+      const path = String(args['path'] ?? args['file'] ?? '<file>');
+      const content = String(args['content'] ?? '');
+      const lines = content.split('\n').length;
+      const chars = content.length;
+      return `Write file: ${path} (${lines} lines, ${chars} chars)`;
+    }
+
+    case 'edit': {
+      const path = String(args['path'] ?? args['file'] ?? '<file>');
+      const oldStr = String(args['old_string'] ?? args['oldText'] ?? '');
+      const preview = oldStr.length > 60 ? oldStr.slice(0, 60) + '...' : oldStr;
+      return `Edit file: ${path} — replace "${preview}"`;
+    }
+
+    case 'web_fetch':
+    case 'http': {
       const method = String(args['method'] ?? 'GET').toUpperCase();
       const url = String(args['url'] ?? args['endpoint'] ?? '<url>');
-      return `Make ${method} request to ${url}`;
+      const shortUrl = url.length > 80 ? url.slice(0, 80) + '...' : url;
+      return `${method} request: ${shortUrl}`;
     }
 
-    case 'wooblay_browser': {
+    case 'browser': {
       const action = String(args['action'] ?? args['type'] ?? 'navigate');
       const target = String(args['url'] ?? args['selector'] ?? '<target>');
-      return `Browser action: ${action} on ${target}`;
+      return `Browser: ${action} on ${target}`;
     }
 
+    case 'read': {
+      const path = String(args['path'] ?? args['file'] ?? '<file>');
+      return `Read file: ${path}`;
+    }
+
+    case 'web_search': {
+      const query = String(args['query'] ?? args['q'] ?? '<query>');
+      return `Web search: "${query}"`;
+    }
+
+    case 'memory_search':
+    case 'memory_get':
+      return `Access agent memory`;
+
+    case 'session_status':
+    case 'sessions_list':
+    case 'sessions_history':
+      return `Check session status`;
+
+    case 'image':
+      return `Generate or process image`;
+
     default:
-      return `Call tool "${toolName}" with ${Object.keys(args).length} argument(s)`;
+      return `Tool "${toolName}" with ${Object.keys(args).length} argument(s)`;
   }
 }
 
-/**
- * Explain why a tool call is classified at its risk tier.
- */
+// ── Risk explanation ─────────────────────────────────────────────────────────
+
 export function describeRisk(
   riskTier: string,
   toolName: string,
   args: Record<string, unknown>,
 ): string {
+  const tool = toolName.replace(/^(gated_|wooblay_)/, '');
+
   switch (riskTier) {
     case 'DESTRUCTIVE': {
       const command = String(args['command'] ?? args['cmd'] ?? '');
-      if (/\bsudo\b/.test(command)) return 'This command requires root access and could modify critical system state';
-      if (/\brm\s/.test(command)) return 'This command permanently deletes data';
-      if (/\bchmod\s+777\b/.test(command)) return 'This command sets world-writable permissions, a security risk';
+      if (/\bsudo\b/.test(command)) return 'Requires root access — could modify critical system state';
+      if (/\brm\s/.test(command)) return 'Permanently deletes data — cannot be undone';
+      if (/\bchmod\s+777\b/.test(command)) return 'Sets world-writable permissions — security risk';
       if (/\bmkfs\b/.test(command) || /\bdd\b/.test(command) || /\bfdisk\b/.test(command)) {
-        return 'This command modifies disk/partition layout and can cause permanent data loss';
+        return 'Modifies disk/partition layout — can cause permanent data loss';
       }
-      if (toolName === 'wooblay_http') return 'This HTTP DELETE request permanently removes remote data';
-      return 'This command permanently deletes data or modifies system configuration';
+      if (tool === 'web_fetch' || tool === 'http') return 'HTTP DELETE permanently removes remote data';
+      return 'Permanently deletes data or modifies system configuration';
     }
 
     case 'WRITE': {
       const command = String(args['command'] ?? args['cmd'] ?? '');
-      if (/\bgit\s+(push|commit|merge)\b/.test(command)) return 'This command pushes code or modifies version control history';
+      if (/\bgit\s+(push|commit|merge)\b/.test(command)) return 'Pushes code or modifies version control history';
       if (/\bnpm\s+(install|publish)\b/.test(command) || /\bpip\s+install\b/.test(command)) {
-        return 'This command installs packages which may introduce dependencies';
+        return 'Installs packages — may introduce untrusted dependencies';
       }
-      if (toolName === 'wooblay_http') return 'This HTTP request modifies remote data';
-      if (toolName === 'wooblay_browser') return 'Browser automation can mutate external state';
-      return 'This command modifies files, installs packages, or pushes code';
+      if (tool === 'write') return 'Creates or overwrites a file on disk';
+      if (tool === 'edit') return 'Modifies an existing file';
+      if (tool === 'web_fetch' || tool === 'http') return 'HTTP request that modifies remote data';
+      if (tool === 'browser') return 'Browser automation can mutate external state';
+      return 'Modifies files, installs packages, or pushes code';
     }
 
     case 'READ':
-      return 'This command only reads data, no side effects expected';
+      return 'Read-only operation — no side effects expected';
 
     default:
-      return `Risk tier "${riskTier}" — review the command details`;
+      return `Risk tier "${riskTier}" — review the details`;
   }
+}
+
+// ── Why this needs approval ──────────────────────────────────────────────────
+
+export function explainWhyFlagged(
+  riskTier: string,
+  toolName: string,
+  policyDecision: string,
+  args: Record<string, unknown>,
+): string {
+  const tool = toolName.replace(/^(gated_|wooblay_)/, '');
+  const description = describeToolCall(toolName, args);
+  const command = String(args['command'] ?? args['cmd'] ?? '');
+  const path = String(args['path'] ?? args['file'] ?? '');
+
+  // Specific context-aware explanations
+  const sensitiveFileReason = getSensitiveContext(command, path);
+  const downloadReason = getDownloadContext(command);
+
+  if (policyDecision === 'DENY') {
+    if (riskTier === 'DESTRUCTIVE') {
+      return `Blocked: This would permanently delete or damage system files. "${description}" cannot be undone.`;
+    }
+    return `Blocked by your security policy. "${description}" matched a deny rule.`;
+  }
+
+  if (policyDecision === 'APPROVE') {
+    if (sensitiveFileReason) return sensitiveFileReason;
+    if (downloadReason) return downloadReason;
+
+    if (riskTier === 'DESTRUCTIVE') {
+      return `This action could cause permanent damage. "${description}" needs your explicit approval before proceeding.`;
+    }
+    if (riskTier === 'WRITE') {
+      if (tool === 'exec') {
+        if (/\bgit\s+push\b/.test(command)) return 'This pushes code to a shared repository — other people will see these changes.';
+        if (/\bnpm\s+publish\b/.test(command)) return 'This publishes a package publicly. Once published, versions cannot be unpublished.';
+        if (/\bchmod\b/.test(command)) return 'This changes file permissions — could affect who can access or execute files.';
+        return `This shell command modifies your system. Review what it does before approving.`;
+      }
+      if (tool === 'write') return `This creates or overwrites a file. Check the content is what you expect.`;
+      if (tool === 'edit') return `This modifies an existing file. Review the change before approving.`;
+      return `This action modifies state and needs your sign-off.`;
+    }
+    return `Your policy requires human review for this action.`;
+  }
+
+  return '';
+}
+
+function getSensitiveContext(command: string, path: string): string {
+  const all = command + ' ' + path;
+  if (/\/etc\/shadow/.test(all)) return '⚠️ Accessing /etc/shadow — this file contains password hashes for all users. This is a high-privilege operation.';
+  if (/\/etc\/passwd/.test(all)) return '⚠️ Accessing /etc/passwd — this file lists all system user accounts. Could be used for reconnaissance.';
+  if (/\/etc\/sudoers/.test(all)) return '⚠️ Accessing sudoers — this controls who has admin privileges on the system.';
+  if (/\.ssh\/(id_rsa|authorized_keys)/.test(all)) return '⚠️ Accessing SSH credentials — could enable remote access to servers.';
+  if (/\.env/.test(all)) return '⚠️ Accessing environment file — likely contains API keys, database passwords, and other secrets.';
+  return '';
+}
+
+function getDownloadContext(command: string): string {
+  if (/(curl|wget)/.test(command) && /https?:\/\//.test(command)) {
+    if (/\|\s*(sh|bash)/.test(command)) return '🚨 This downloads and immediately executes a remote script. This is extremely dangerous — the script could do anything.';
+    if (/\/tmp\//.test(command)) return '⚠️ Downloading a file to /tmp — temporary files are commonly used to stage malware or exploits.';
+    if (/github\.com/.test(command)) return 'Downloading from GitHub. Verify the repository and file are trusted before approving.';
+    return 'Downloading a file from the internet. Verify the URL is trusted.';
+  }
+  return '';
 }

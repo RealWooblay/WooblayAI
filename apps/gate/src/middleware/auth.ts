@@ -9,6 +9,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 import { verify } from '@wooblay/crypto';
 
 // Augment Fastify's request type so `agentPubkey` is available downstream
@@ -20,8 +21,9 @@ declare module 'fastify' {
 
 /**
  * Register the auth hook on a Fastify instance.
+ * Wrapped with fp() so hooks apply globally (not encapsulated).
  */
-export async function authPlugin(app: FastifyInstance): Promise<void> {
+export const authPlugin = fp(async function authPluginInner(app: FastifyInstance): Promise<void> {
   app.addHook(
     'onRequest',
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -31,6 +33,18 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
 
       // Skip for GitHub webhook (uses its own HMAC-SHA256 verification)
       if (request.url === '/github/webhook' || request.url === '/github/webhook/') return;
+
+      // Skip agent auth when the request carries Clerk auth (browser/platform).
+      // Clerk sends either an Authorization: Bearer header or a __session cookie.
+      // Agent requests use x-agent-pubkey instead — those still get verified below.
+      const authHeader = request.headers.authorization;
+      const cookieHeader = request.headers.cookie ?? '';
+      if (authHeader?.startsWith('Bearer ') || cookieHeader.includes('__session')) return;
+
+      // Also skip for platform API routes that don't carry agent headers
+      // (e.g. /api/tool/execute from managed containers on the Docker network)
+      const path = request.url.split('?')[0];
+      if (path.startsWith('/api/tool/')) return;
 
       const pubkey = request.headers['x-agent-pubkey'] as string | undefined;
       const signature = request.headers['x-request-signature'] as string | undefined;
@@ -52,4 +66,4 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
       request.agentPubkey = pubkey;
     },
   );
-}
+});

@@ -28,6 +28,9 @@ services:
     build:
       context: ../
       dockerfile: docker/gate/Dockerfile
+      args:
+        VITE_CLERK_PK: ${VITE_CLERK_PUBLISHABLE_KEY:-}
+        VITE_API_URL: ${VITE_API_URL:-}
     container_name: wooblay-gate-prod
     restart: unless-stopped
     ports:
@@ -38,6 +41,10 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/wooblay_dev}
       WOOBLAY_SERVER_PUBLIC_KEY: ${WOOBLAY_SERVER_PUBLIC_KEY:-}
       WOOBLAY_SERVER_PRIVATE_KEY: ${WOOBLAY_SERVER_PRIVATE_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      VAULT_MASTER_KEY: ${VAULT_MASTER_KEY:-}
+      FULL_PLATFORM_UNLOCK_PASSWORD: ${FULL_PLATFORM_UNLOCK_PASSWORD:-}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:4800/health"]
       interval: 10s

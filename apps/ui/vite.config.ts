@@ -7,8 +7,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://wooblay-alb-1564688078.us-east-1.elb.amazonaws.com',
-      '/health': 'http://wooblay-alb-1564688078.us-east-1.elb.amazonaws.com',
+      '/api': process.env.VITE_API_URL || 'http://localhost:4800',
+      '/health': process.env.VITE_API_URL || 'http://localhost:4800',
     },
   },
 });

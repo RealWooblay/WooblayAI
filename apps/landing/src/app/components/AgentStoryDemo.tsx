@@ -20,11 +20,10 @@ interface Line {
 }
 
 const script: Line[] = [
-  { type: 'safe', text: 'Reading customer data…' },
-  { type: 'safe', text: 'Drafting response to sarah@acme.com…' },
-  { type: 'safe', text: 'Updating CRM notes…' },
-  { type: 'danger', text: 'Changing pricing: $49/mo → $47,000/mo' },
-  { type: 'gate', text: 'Gated — approval required' },
+  { type: 'safe', text: 'Analyzing CI failure on main…' },
+  { type: 'safe', text: 'Reading test output from build #1847…' },
+  { type: 'danger', text: 'Proposed: merge PR #412 to main' },
+  { type: 'gate', text: 'Approval required — evidence attached' },
 ]
 
 type Phase = 'streaming' | 'waiting' | 'resolved'
@@ -105,8 +104,8 @@ export function AgentStoryDemo() {
           type: c,
           text:
             c === 'approved'
-              ? 'Approved · receipt r_8f2a…d41c ✓ verified'
-              : 'Denied · action rolled back safely',
+              ? 'Approved · executed via gateway · receipt r_8f2a verified'
+              : 'Denied · action blocked · no credentials exposed',
         },
       ])
       setPhase('resolved')

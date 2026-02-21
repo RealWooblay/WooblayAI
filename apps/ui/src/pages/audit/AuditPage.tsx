@@ -1,545 +1,254 @@
-import { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import clsx from 'clsx';
+/**
+ * Audit Trail — Auto-loads last 7 days, chain integrity prominent, better empty state.
+ */
+
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
-  useAuditLog,
-  useAuditFlags,
-  useDismissFlag,
-  useRunAnalysis,
-} from '../../api/hooks/useAudit.ts';
-import type { AuditLogFilters, AuditFlagFilters } from '../../api/client.ts';
-import { Badge, riskTierVariant, statusVariant, adapterVariant, adapterLabel } from '../../components/common/Badge.tsx';
-import { Button } from '../../components/common/Button.tsx';
-import { Card } from '../../components/common/Card.tsx';
+  getAuditReport,
+  getChainIntegrity,
+  getAuditReportCsv,
+  type AuditReport,
+  type ChainIntegrity,
+} from '../../api/client.ts';
+import { Tooltip } from '../../components/common/Tooltip.tsx';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
-function truncatePubkey(s: string): string {
-  if (s.length <= 12) return s;
-  return s.slice(0, 6) + '…' + s.slice(-4);
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function decisionFromEntry(entry: any): string {
-  const approval = entry.approval as Record<string, unknown> | undefined;
-  const receipt = entry.receipt as Record<string, unknown> | null | undefined;
-  if (approval?.status && approval.status !== 'PENDING') return String(approval.status);
-  if (receipt?.policyDecision) return String(receipt.policyDecision);
-  return 'PENDING';
-}
-
-// ---------------------------------------------------------------------------
-// Category display helpers
-// ---------------------------------------------------------------------------
-
-const CATEGORY_DISPLAY: Record<string, { icon: string; label: string }> = {
-  velocity_anomaly: { icon: '⚡', label: 'Velocity Anomaly' },
-  evasion_pattern: { icon: '🔄', label: 'Evasion Pattern' },
-  sensitive_access: { icon: '🔐', label: 'Sensitive Access' },
-  privilege_escalation: { icon: '⚠️', label: 'Privilege Escalation' },
-  unusual_pattern: { icon: '📊', label: 'Unusual Pattern' },
+const riskBadge: Record<string, string> = {
+  READ: 'text-blue-400 bg-blue-500/10',
+  WRITE: 'text-amber-400 bg-amber-500/10',
+  DESTRUCTIVE: 'text-red-400 bg-red-500/10',
 };
 
-function categoryDisplay(cat: string) {
-  return CATEGORY_DISPLAY[cat] ?? { icon: '🔍', label: cat };
-}
-
-function severityVariant(sev: string): 'red' | 'yellow' | 'blue' | 'gray' {
-  switch (sev.toUpperCase()) {
-    case 'CRITICAL':
-    case 'HIGH':
-      return 'red';
-    case 'MEDIUM':
-      return 'yellow';
-    case 'LOW':
-      return 'blue';
-    default:
-      return 'gray';
-  }
-}
-
-const RISK_TIERS = ['ALL', 'READ', 'WRITE', 'DESTRUCTIVE'] as const;
-const DECISIONS = ['ALL', 'EXECUTE', 'DENY', 'PENDING_APPROVAL'] as const;
-const SEVERITIES = ['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const;
-const CATEGORIES = [
-  'ALL',
-  'velocity_anomaly',
-  'evasion_pattern',
-  'sensitive_access',
-  'privilege_escalation',
-  'unusual_pattern',
-] as const;
-
-// ---------------------------------------------------------------------------
-// Shared dropdown component
-// ---------------------------------------------------------------------------
-
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-  renderOption,
-}: {
-  label: string;
-  value: string;
-  options: readonly string[];
-  onChange: (v: string) => void;
-  renderOption?: (o: string) => string;
-}) {
-  return (
-    <label className="flex items-center gap-1.5 text-xs text-gray-400">
-      {label}
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-gray-700 bg-gray-800 px-2 py-1.5 text-xs text-gray-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-      >
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {renderOption ? renderOption(o) : o}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Pagination
-// ---------------------------------------------------------------------------
-
-function Pagination({
-  page,
-  pageSize,
-  total,
-  onPageChange,
-}: {
-  page: number;
-  pageSize: number;
-  total: number;
-  onPageChange: (p: number) => void;
-}) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (totalPages <= 1) return null;
-
-  return (
-    <div className="flex items-center justify-between pt-4">
-      <span className="text-xs text-gray-500">
-        Page {page} of {totalPages} &middot; {total} total
-      </span>
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-        >
-          Previous
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={page >= totalPages}
-          onClick={() => onPageChange(page + 1)}
-        >
-          Next
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Audit Log Tab
-// ---------------------------------------------------------------------------
-
-function AuditLogTab() {
-  const [riskTier, setRiskTier] = useState('ALL');
-  const [decision, setDecision] = useState('ALL');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-
-  const filters: AuditLogFilters = {
-    page,
-    pageSize: 20,
-    ...(riskTier !== 'ALL' && { riskTier }),
-    ...(decision !== 'ALL' && { decision }),
-    ...(search.trim() && { search: search.trim() }),
-  };
-
-  const { data, isLoading, error } = useAuditLog(filters);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-gray-500">
-        Loading audit log…
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center py-20 text-red-400">
-        Error: {(error as Error).message}
-      </div>
-    );
-  }
-
-  const entries = data?.data ?? [];
-
-  return (
-    <div className="space-y-4">
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <FilterSelect
-          label="Risk"
-          value={riskTier}
-          options={RISK_TIERS}
-          onChange={(v) => { setRiskTier(v); setPage(1); }}
-        />
-        <FilterSelect
-          label="Decision"
-          value={decision}
-          options={DECISIONS}
-          onChange={(v) => { setDecision(v); setPage(1); }}
-        />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          placeholder="Search agent name…"
-          className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-48"
-        />
-      </div>
-
-      {/* Entries */}
-      {entries.length === 0 ? (
-        <Card className="py-12 text-center text-gray-500">
-          No audit entries found.
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {entries.map((entry) => {
-            const entryDecision = decisionFromEntry(entry);
-            const receiptHash =
-              entry.receipt && 'hash' in entry.receipt
-                ? (entry.receipt as { hash?: string }).hash
-                : undefined;
-
-            return (
-              <Card key={entry.toolCall.id} className="space-y-2">
-                {/* Row 1: Description + badges */}
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-gray-100 leading-snug">
-                    {entry.humanDescription}
-                  </p>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge variant={riskTierVariant(entry.toolCall.riskTier)}>
-                      {entry.toolCall.riskTier}
-                    </Badge>
-                    <Badge variant={statusVariant(entryDecision)}>
-                      {entryDecision}
-                    </Badge>
-                    {entry.toolCall.adapter && (
-                      <Badge variant={adapterVariant(entry.toolCall.adapter)}>
-                        {adapterLabel(entry.toolCall.adapter)}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-
-                {/* Row 2: Risk explanation */}
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  {entry.riskExplanation}
-                </p>
-
-                {/* Row 3: Metadata */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                  <span className="flex items-center gap-1">
-                    <span className="text-gray-600">Agent:</span>
-                    <span className="text-gray-300">{entry.agentName}</span>
-                    <span className="font-mono text-gray-600">
-                      {truncatePubkey(entry.toolCall.agentPubkey)}
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="text-gray-600">Tool:</span>
-                    <span className="font-mono text-gray-400">{entry.toolCall.toolName}</span>
-                  </span>
-                  <span
-                    title={new Date(entry.toolCall.createdAt).toLocaleString()}
-                    className="cursor-help"
-                  >
-                    {relativeTime(entry.toolCall.createdAt)}
-                  </span>
-                  {receiptHash && (
-                    <Link
-                      to={`/receipts/${receiptHash}`}
-                      className="text-indigo-400 hover:text-indigo-300 transition-colors"
-                    >
-                      View Receipt →
-                    </Link>
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <Pagination
-        page={page}
-        pageSize={data?.pageSize ?? 20}
-        total={data?.total ?? 0}
-        onPageChange={setPage}
-      />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Flags Tab
-// ---------------------------------------------------------------------------
-
-function FlagsTab() {
-  const [severity, setSeverity] = useState('ALL');
-  const [category, setCategory] = useState('ALL');
-  const [showDismissed, setShowDismissed] = useState(false);
-  const [page, setPage] = useState(1);
-  const [analysisResult, setAnalysisResult] = useState<number | null>(null);
-
-  const dismiss = useDismissFlag();
-  const analyze = useRunAnalysis();
-
-  const filters: AuditFlagFilters = {
-    page,
-    pageSize: 20,
-    ...(severity !== 'ALL' && { severity }),
-    ...(category !== 'ALL' && { category }),
-    dismissed: showDismissed ? undefined : false,
-  };
-
-  const { data, isLoading, error } = useAuditFlags(filters);
-
-  const handleRunAnalysis = useCallback(() => {
-    analyze.mutate(undefined, {
-      onSuccess: (result) => {
-        setAnalysisResult(result.flagsCreated);
-        setTimeout(() => setAnalysisResult(null), 5000);
-      },
-    });
-  }, [analyze]);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-gray-500">
-        Loading flags…
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center py-20 text-red-400">
-        Error: {(error as Error).message}
-      </div>
-    );
-  }
-
-  const flags = data?.data ?? [];
-
-  return (
-    <div className="space-y-4">
-      {/* Filter bar + actions */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <FilterSelect
-            label="Severity"
-            value={severity}
-            options={SEVERITIES}
-            onChange={(v) => { setSeverity(v); setPage(1); }}
-          />
-          <FilterSelect
-            label="Category"
-            value={category}
-            options={CATEGORIES}
-            onChange={(v) => { setCategory(v); setPage(1); }}
-            renderOption={(o) => (o === 'ALL' ? 'ALL' : categoryDisplay(o).label)}
-          />
-          <label className="flex items-center gap-1.5 text-xs text-gray-400">
-            <input
-              type="checkbox"
-              checked={showDismissed}
-              onChange={(e) => { setShowDismissed(e.target.checked); setPage(1); }}
-              className="rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-gray-950"
-            />
-            Show dismissed
-          </label>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {analysisResult !== null && (
-            <span className="text-xs text-emerald-400 animate-pulse">
-              {analysisResult} flag{analysisResult !== 1 ? 's' : ''} created
-            </span>
-          )}
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleRunAnalysis}
-            disabled={analyze.isPending}
-          >
-            {analyze.isPending ? 'Analyzing…' : 'Run Analysis'}
-          </Button>
-        </div>
-      </div>
-
-      {/* Flags list */}
-      {flags.length === 0 ? (
-        <Card className="py-12 text-center text-gray-500">
-          No flags found. The system is clean.
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {flags.map((flag) => {
-            const cat = categoryDisplay(flag.category);
-            const isCritical = flag.severity.toUpperCase() === 'CRITICAL';
-
-            return (
-              <Card
-                key={flag.id}
-                className={clsx(
-                  'space-y-2 transition-all',
-                  isCritical && 'border-l-2 border-l-red-500 shadow-[inset_0_0_20px_rgba(239,68,68,0.05)]',
-                  flag.dismissed && 'opacity-60',
-                )}
-              >
-                {/* Row 1: Severity + category + title */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Badge
-                      variant={severityVariant(flag.severity)}
-                      className={clsx(isCritical && 'animate-pulse')}
-                    >
-                      {flag.severity.toUpperCase()}
-                    </Badge>
-                    <span className="text-sm text-gray-400">
-                      {cat.icon} {cat.label}
-                    </span>
-                    <span className="text-sm font-semibold text-gray-100 truncate">
-                      {flag.title}
-                    </span>
-                  </div>
-                  {!flag.dismissed && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => dismiss.mutate(flag.id)}
-                      disabled={dismiss.isPending}
-                    >
-                      Dismiss
-                    </Button>
-                  )}
-                </div>
-
-                {/* Row 2: Description */}
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  {flag.description}
-                </p>
-
-                {/* Row 3: Metadata */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                  {flag.agentPubkey && (
-                    <span>
-                      <span className="text-gray-600">Agent:</span>{' '}
-                      <span className="font-mono text-gray-400">
-                        {truncatePubkey(flag.agentPubkey)}
-                      </span>
-                    </span>
-                  )}
-                  <span
-                    title={new Date(flag.createdAt).toLocaleString()}
-                    className="cursor-help"
-                  >
-                    {relativeTime(flag.createdAt)}
-                  </span>
-                  {flag.dismissed && (
-                    <Badge variant="gray">Dismissed</Badge>
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <Pagination
-        page={page}
-        pageSize={data?.pageSize ?? 20}
-        total={data?.total ?? 0}
-        onPageChange={setPage}
-      />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main AuditPage
-// ---------------------------------------------------------------------------
-
-type Tab = 'log' | 'flags';
-
 export function AuditPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('log');
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const [from, setFrom] = useState(weekAgo.toISOString().slice(0, 10));
+  const [to, setTo] = useState(now.toISOString().slice(0, 10));
+
+  // Auto-load on mount with last 7 days
+  const { data: report, isLoading, refetch } = useQuery<AuditReport>({
+    queryKey: ['audit-report', from, to],
+    queryFn: () => getAuditReport(from, to),
+    enabled: true,
+    refetchInterval: 30_000,
+  });
+
+  const { data: chain } = useQuery<ChainIntegrity>({
+    queryKey: ['chain-integrity', from, to],
+    queryFn: () => getChainIntegrity(from, to),
+    enabled: true,
+    refetchInterval: 30_000,
+  });
+
+  const handleDownloadCsv = async () => {
+    try {
+      const csv = await getAuditReportCsv(from, to);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wooblay-audit-${from}-${to}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download CSV:', err);
+    }
+  };
+
+  const handleDownloadJson = () => {
+    if (!report) return;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wooblay-audit-${from}-${to}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      {/* Header */}
+    <div className="max-w-5xl mx-auto space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-gray-100">Audit</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Complete history of every action supervised by Wooblay, plus auto-detected anomalies.
+        <h1 className="text-xl font-semibold text-text-primary">Audit Trail</h1>
+        <p className="text-sm text-text-muted mt-1">
+          Compliance-ready reports with cryptographic chain verification.
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-800">
-        {([
-          { id: 'log' as Tab, label: 'Audit Log' },
-          { id: 'flags' as Tab, label: 'Flags' },
-        ]).map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={clsx(
-              'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
-              activeTab === tab.id
-                ? 'border-indigo-500 text-indigo-300'
-                : 'border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-600',
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Chain Integrity — Prominent */}
+      <div className={`rounded-xl border p-4 flex items-center gap-4 ${
+        chain
+          ? chain.chainValid
+            ? 'bg-emerald-500/5 border-emerald-500/20'
+            : 'bg-red-500/5 border-red-500/20'
+          : 'bg-surface-1 border-border'
+      }`}>
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${
+          chain
+            ? chain.chainValid
+              ? 'bg-emerald-500/20 text-emerald-400'
+              : 'bg-red-500/20 text-red-400'
+            : 'bg-surface-3 text-text-muted'
+        }`}>
+          {chain ? (chain.chainValid ? '✓' : '✗') : '?'}
+        </div>
+        <div>
+          <Tooltip content="Cryptographic hash chain ensures no audit records have been tampered with">
+            <p className={`text-sm font-medium ${
+              chain ? (chain.chainValid ? 'text-emerald-400' : 'text-red-400') : 'text-text-muted'
+            }`}>
+              {chain ? (chain.chainValid ? 'Chain Verified — No Tampering Detected' : 'Chain Integrity Issues') : 'Loading chain verification...'}
+            </p>
+          </Tooltip>
+          <p className="text-xs text-text-muted">
+            {chain
+              ? `${chain.totalReceipts} receipts · ${chain.hashesVerified} hashes verified${chain.gaps.length > 0 ? ` · ${chain.gaps.length} gaps` : ''}`
+              : 'Verifying cryptographic receipt chain...'}
+          </p>
+        </div>
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'log' ? <AuditLogTab /> : <FlagsTab />}
+      {/* Controls */}
+      <div className="bg-surface-1 border border-border rounded-xl p-4 flex flex-wrap items-end gap-4">
+        <div>
+          <label className="block text-[11px] text-text-muted mb-1">From</label>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] text-text-muted mb-1">To</label>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+          />
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="px-4 py-2 bg-accent hover:bg-accent-bright text-white text-sm rounded-lg transition-colors"
+        >
+          Refresh
+        </button>
+
+        {report && (
+          <div className="flex gap-2 ml-auto">
+            <button
+              onClick={handleDownloadJson}
+              className="px-3 py-2 bg-surface-2 hover:bg-surface-3 text-text-primary text-xs rounded-lg border border-border transition-colors"
+            >
+              JSON
+            </button>
+            <button
+              onClick={handleDownloadCsv}
+              className="px-3 py-2 bg-surface-2 hover:bg-surface-3 text-text-primary text-xs rounded-lg border border-border transition-colors"
+            >
+              CSV
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Summary Stats */}
+      {report && report.summary && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {[
+            { label: 'Total Actions', value: report.summary.totalActions, color: 'text-text-primary' },
+            { label: 'Auto-Allowed', value: report.summary.autoAllowed, color: 'text-emerald-400' },
+            { label: 'Human Approved', value: report.summary.humanApproved, color: 'text-amber-400' },
+            { label: 'Denied', value: report.summary.denied, color: 'text-red-400' },
+            { label: 'Avg Approval', value: `${(report.summary.avgApprovalTimeMs / 1000).toFixed(1)}s`, color: 'text-text-primary' },
+          ].map((stat) => (
+            <div key={stat.label} className="bg-surface-1 border border-border rounded-xl p-3 text-center">
+              <div className={`text-xl font-semibold tabular-nums ${stat.color}`}>{stat.value}</div>
+              <div className="text-[10px] text-text-muted mt-0.5">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Report Table */}
+      {isLoading && (
+        <div className="p-8 text-center text-text-muted text-sm animate-pulse">Loading audit trail...</div>
+      )}
+
+      {report && report.rows.length > 0 && (
+        <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">
+              Audit Log — {report.rows.length} entries
+            </h2>
+            <span className="text-[10px] text-text-muted">
+              {report.period.from.slice(0, 10)} → {report.period.to.slice(0, 10)}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-surface-0 text-text-muted text-[10px] uppercase tracking-wider">
+                  <th className="text-left px-3 py-2">Time</th>
+                  <th className="text-left px-3 py-2">Action</th>
+                  <th className="text-left px-3 py-2">Risk</th>
+                  <th className="text-left px-3 py-2">Policy</th>
+                  <th className="text-left px-3 py-2">Approval</th>
+                  <th className="text-left px-3 py-2">Receipt</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {report.rows.map((row) => (
+                  <tr key={row.receiptId} className="hover:bg-surface-2/50 transition-colors">
+                    <td className="px-3 py-2 text-text-muted font-mono whitespace-nowrap text-[10px]">
+                      {new Date(row.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="px-3 py-2 text-text-primary max-w-[250px] truncate">
+                      {row.description}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${riskBadge[row.riskTier] ?? ''}`}>
+                        {row.riskTier}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-text-secondary">{row.policyDecision}</td>
+                    <td className="px-3 py-2 text-text-secondary">
+                      {row.approvalStatus ?? '—'}
+                      {row.approver && <span className="text-text-muted ml-1 text-[10px]">({row.approver})</span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Tooltip content={`Full hash: ${row.receiptHash}`}>
+                        <span className="font-mono text-[9px] text-text-muted">{row.receiptHash.slice(0, 16)}…</span>
+                      </Tooltip>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {report && report.rows.length === 0 && !isLoading && (
+        <div className="bg-surface-1 border border-border rounded-xl p-12 text-center">
+          <div className="font-mono text-3xl opacity-10 mb-3">[ ]</div>
+          <p className="text-sm font-medium text-text-secondary">No audit activity in this period</p>
+          <p className="text-xs text-text-muted mt-1">
+            Agent actions will be recorded here with cryptographic receipts once your agent starts working.
+          </p>
+        </div>
+      )}
+
+      {!report && !isLoading && (
+        <div className="bg-surface-1 border border-border rounded-xl p-12 text-center">
+          <div className="font-mono text-3xl opacity-10 mb-3">_</div>
+          <p className="text-sm font-medium text-text-secondary">Loading audit data...</p>
+          <p className="text-xs text-text-muted mt-1">Fetching the last 7 days of agent activity.</p>
+        </div>
+      )}
     </div>
   );
 }
