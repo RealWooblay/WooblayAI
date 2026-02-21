@@ -36,7 +36,6 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
           in: [
             'secure_exec.completed',
             'mcp_pre_verification.completed',
-            'mcp_verification.completed',
             'simulation.completed',
           ],
         },

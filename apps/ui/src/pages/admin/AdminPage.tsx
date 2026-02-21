@@ -1,9 +1,9 @@
 /**
- * Admin Security Dashboard — password-protected visibility into L2/L3.
+ * Admin Security Dashboard — password-protected deep visibility into L2/L3.
  *
- * Shows: L3 executions (containers, durations, exit codes),
+ * Shows: Real container security logs (Docker flags, env vars, lifecycle),
  *        L2 pre-execution verifications (blocked/passed),
- *        Post-execution verifications, audit flags.
+ *        Audit flags.
  */
 
 import { useState } from 'react';
@@ -106,7 +106,7 @@ function AdminDashboard({
   const tabs = [
     { id: 'overview' as const, label: 'Overview' },
     { id: 'executions' as const, label: 'L3 Executions' },
-    { id: 'events' as const, label: 'L2 Verifications' },
+    { id: 'events' as const, label: 'Security Events' },
     { id: 'flags' as const, label: 'Audit Flags' },
   ];
 
@@ -118,13 +118,12 @@ function AdminDashboard({
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+      <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
         <StatCard label="L3 Executions" value={summary?.totalExecutions ?? 0} />
         <StatCard label="Last Hour" value={summary?.recentExecutions ?? 0} accent />
         <StatCard label="L2 Pre-checks" value={summary?.totalPreChecks ?? 0} />
         <StatCard label="Blocked" value={summary?.blockedPreChecks ?? 0} danger={!!summary?.blockedPreChecks} />
         <StatCard label="Audit Flags" value={summary?.totalFlags ?? 0} danger={!!summary?.totalFlags} />
-        <StatCard label="Flags (24h)" value={summary?.recentFlags ?? 0} danger={!!summary?.recentFlags} />
       </div>
 
       {/* Tabs */}
@@ -146,12 +145,12 @@ function AdminDashboard({
 
       {/* Tab content */}
       {(tab === 'overview' || tab === 'executions') && (
-        <Section title="L3 Secure Executions" subtitle="Ephemeral containers with vault-injected credentials">
+        <Section title="L3 Secure Executions" subtitle="Ephemeral Docker containers with vault-injected credentials">
           {!executionsData?.executions.length ? (
             <Empty text="No executions recorded yet" />
           ) : (
             <div className="space-y-1.5">
-              {executionsData.executions.slice(0, tab === 'overview' ? 10 : 50).map(e => (
+              {executionsData.executions.slice(0, tab === 'overview' ? 10 : 50).map((e: any) => (
                 <ExecutionRow key={e.id} exec={e} />
               ))}
             </div>
@@ -160,12 +159,12 @@ function AdminDashboard({
       )}
 
       {(tab === 'overview' || tab === 'events') && (
-        <Section title="L2 Security Verifications" subtitle="Pre-execution (blocks before creds injected) + post-execution (verifies result)">
+        <Section title="Security Events" subtitle="L2 pre-execution verification + L3 container events">
           {!eventsData?.events.length ? (
-            <Empty text="No verification events yet" />
+            <Empty text="No security events yet" />
           ) : (
             <div className="space-y-1.5">
-              {eventsData.events.slice(0, tab === 'overview' ? 10 : 50).map(e => (
+              {eventsData.events.slice(0, tab === 'overview' ? 10 : 50).map((e: any) => (
                 <EventRow key={e.id} event={e} />
               ))}
             </div>
@@ -179,7 +178,7 @@ function AdminDashboard({
             <Empty text="No flags — all clear" />
           ) : (
             <div className="space-y-1.5">
-              {flagsData.flags.slice(0, tab === 'overview' ? 5 : 50).map(f => (
+              {flagsData.flags.slice(0, tab === 'overview' ? 5 : 50).map((f: any) => (
                 <FlagRow key={f.id} flag={f} />
               ))}
             </div>
@@ -253,12 +252,11 @@ function EventRow({ event }: { event: any }) {
   const [expanded, setExpanded] = useState(false);
   const data = event.data;
   const isPre = event.type === 'mcp_pre_verification.completed';
-  const isPost = event.type === 'mcp_verification.completed';
   const isExec = event.type === 'secure_exec.completed';
 
-  const passed = isPre ? data.safe : isPost ? data.passed : isExec ? data.success : true;
+  const passed = isPre ? data.safe : isExec ? data.success : true;
   const badge = passed ? BADGE.passed : BADGE.blocked;
-  const label = isPre ? 'L2 PRE-EXEC' : isPost ? 'L2 POST-EXEC' : isExec ? 'L3 EXEC' : event.type;
+  const label = isPre ? 'L2 PRE-EXEC' : isExec ? 'L3 CONTAINER' : event.type;
 
   return (
     <div className="bg-surface-1 border border-border rounded-lg overflow-hidden">
@@ -273,14 +271,99 @@ function EventRow({ event }: { event: any }) {
         <span className="text-[10px] text-text-muted">{expanded ? '▲' : '▼'}</span>
       </button>
       {expanded && (
-        <div className="px-3 py-2 border-t border-border bg-surface-2/50 space-y-1.5">
-          {data.reasoning && <Detail label="Reasoning" value={data.reasoning} />}
-          {data.threatLevel && <Detail label="Threat level" value={data.threatLevel} />}
-          {data.concerns?.length > 0 && <Detail label="Concerns" value={data.concerns.join('; ')} danger />}
-          {data.credentialEnvVars?.length > 0 && <Detail label="Credentials" value={data.credentialEnvVars.join(', ')} mono />}
-          {data.serverCommand && <Detail label="Server" value={data.serverCommand} mono />}
-          {data.discrepancies?.length > 0 && <Detail label="Discrepancies" value={data.discrepancies.join('; ')} danger />}
-          <Detail label="Source" value={data.source ?? 'ai'} />
+        <div className="px-3 py-2 border-t border-border bg-surface-2/50 space-y-2">
+          {/* L2 Pre-exec details */}
+          {isPre && (
+            <>
+              {data.reasoning && <Detail label="Reasoning" value={data.reasoning} />}
+              {data.threatLevel && <Detail label="Threat level" value={data.threatLevel} />}
+              {data.concerns?.length > 0 && <Detail label="Concerns" value={data.concerns.join('; ')} danger />}
+              {data.credentialEnvVars?.length > 0 && <Detail label="Credential env vars" value={data.credentialEnvVars.join(', ')} mono />}
+              {data.serverCommand && <Detail label="Server command" value={data.serverCommand} mono />}
+              <Detail label="Source" value={data.source ?? 'ai'} />
+            </>
+          )}
+
+          {/* L3 Container security details */}
+          {isExec && (
+            <>
+              {data.serverCommand && <Detail label="Server command" value={data.serverCommand} mono />}
+              {data.containerId && <Detail label="Container ID" value={data.containerId} mono />}
+              {data.image && <Detail label="Image" value={data.image} mono />}
+              {data.exitCode !== undefined && <Detail label="Exit code" value={String(data.exitCode)} mono />}
+
+              {data.credentialEnvVars?.length > 0 && (
+                <div>
+                  <span className="text-[9px] text-text-muted uppercase tracking-wider">Injected credentials (names only)</span>
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {data.credentialEnvVars.map((v: string) => (
+                      <span key={v} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">{v}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {data.containerSecurity && <ContainerSecurityPanel security={data.containerSecurity} />}
+
+              {data.stderr && <Detail label="Container stderr" value={data.stderr} mono danger />}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContainerSecurityPanel({ security }: { security: any }) {
+  const flags = [
+    { label: '--read-only', active: security.readOnly, desc: 'Immutable filesystem' },
+    { label: '--rm', active: security.autoRemove, desc: 'Auto-destroy on exit' },
+    { label: '--env-file', active: security.envFileInjection, desc: 'Secrets via file, not CLI args' },
+  ];
+  const limits = [
+    { label: 'Memory', value: security.memoryLimit },
+    { label: 'CPUs', value: String(security.cpuLimit) },
+    { label: 'PIDs', value: String(security.pidsLimit) },
+    { label: 'Network', value: security.networkMode },
+  ];
+
+  return (
+    <div className="bg-surface-3/50 border border-border rounded-lg p-2.5 space-y-2">
+      <div className="text-[9px] text-text-muted uppercase tracking-wider font-bold">Container Security Posture</div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {flags.map(f => (
+          <span
+            key={f.label}
+            title={f.desc}
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+              f.active
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : 'bg-red-500/10 text-red-400 border-red-500/20'
+            }`}
+          >
+            {f.active ? '\u2713' : '\u2717'} {f.label}
+          </span>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+        {limits.map(l => (
+          <div key={l.label} className="bg-surface-2 rounded px-2 py-1">
+            <div className="text-[8px] text-text-muted uppercase">{l.label}</div>
+            <div className="text-[10px] font-mono text-text-primary">{l.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {security.tmpfs?.length > 0 && (
+        <div>
+          <div className="text-[8px] text-text-muted uppercase mb-0.5">tmpfs mounts (writable scratch)</div>
+          <div className="flex flex-wrap gap-1">
+            {security.tmpfs.map((t: string) => (
+              <code key={t} className="text-[9px] font-mono text-text-secondary bg-surface-2 px-1.5 py-0.5 rounded">{t}</code>
+            ))}
+          </div>
         </div>
       )}
     </div>

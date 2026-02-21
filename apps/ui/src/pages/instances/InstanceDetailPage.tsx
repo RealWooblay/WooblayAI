@@ -47,6 +47,8 @@ import {
   type InstalledSkill,
   type ClawHubSkill,
   getConnections,
+  createConnection,
+  addConnectionSecret,
 } from '../../api/client.ts';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
 import { useToast } from '../../components/common/Toast.tsx';
@@ -1087,6 +1089,11 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
   const [newTransport, setNewTransport] = useState<'stdio' | 'sse'>('stdio');
   const [newSource, setNewSource] = useState('');
   const [selectedConnIds, setSelectedConnIds] = useState<string[]>([]);
+  const [showInlineCredForm, setShowInlineCredForm] = useState(false);
+  const [inlineProvider, setInlineProvider] = useState('');
+  const [inlineCredName, setInlineCredName] = useState('');
+  const [inlineCredValue, setInlineCredValue] = useState('');
+  const [inlineEnvVar, setInlineEnvVar] = useState('');
 
   const { data: servers, isLoading } = useQuery({
     queryKey: ['mcp-servers', instanceId],
@@ -1150,6 +1157,34 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
     },
     onError: (err: Error) => {
       toast(`Failed to update credentials: ${err.message}`, 'error');
+    },
+  });
+
+  const inlineCreateConnMut = useMutation({
+    mutationFn: async () => {
+      const normalized = inlineProvider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const conn = await createConnection({
+        provider: normalized,
+        name: inlineCredName.trim(),
+        credential: inlineCredValue,
+      });
+      if (inlineEnvVar.trim() && inlineCredValue) {
+        await addConnectionSecret(conn.id, { key: inlineEnvVar.trim(), value: inlineCredValue, mode: 'exec_only' });
+      }
+      return conn;
+    },
+    onSuccess: (conn: any) => {
+      qc.invalidateQueries({ queryKey: ['connections'] });
+      setSelectedConnIds(prev => [...prev, conn.id]);
+      setShowInlineCredForm(false);
+      setInlineProvider('');
+      setInlineCredName('');
+      setInlineCredValue('');
+      setInlineEnvVar('');
+      toast('Credential added', 'success');
+    },
+    onError: (err: Error) => {
+      toast(`Failed to create credential: ${err.message}`, 'error');
     },
   });
 
@@ -1284,52 +1319,16 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
                 )}
               </div>
               {editingCredsServerId === s.id && (
-                <div className="mt-3 pt-3 border-t border-border space-y-2">
-                  <p className="text-[9px] text-text-muted">Link vault connections for L3 secure execution. Add or remove anytime.</p>
-                  {activeConns.length > 0 ? (
-                    <div className="space-y-1">
-                      {activeConns.map((c: any) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => toggleEditingConn(c.id)}
-                          className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-[10px] font-mono transition-colors ${
-                            editingCredsIds.includes(c.id)
-                              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
-                              : 'bg-surface-2 border border-transparent text-text-secondary hover:bg-surface-3'
-                          }`}
-                        >
-                          <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
-                            editingCredsIds.includes(c.id) ? 'border-emerald-500 bg-emerald-500' : 'border-border'
-                          }`}>
-                            {editingCredsIds.includes(c.id) && <span className="text-white text-[8px]">{'\u2713'}</span>}
-                          </span>
-                          <span className="text-text-primary">{c.name}</span>
-                          <span className="text-text-muted">{c.provider}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[9px] text-text-muted">No active connections. <Link to="/credentials" className="text-accent hover:underline">Add one on Credentials</Link> first.</p>
-                  )}
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setEditingCredsServerId(null)}
-                      className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateCredsMut.mutate({ serverId: s.id, connectionIds: editingCredsIds })}
-                      disabled={updateCredsMut.isPending}
-                      className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40"
-                    >
-                      {updateCredsMut.isPending ? 'Saving...' : 'Save'}
-                    </button>
-                  </div>
-                </div>
+                <EditCredsPanel
+                  activeConns={activeConns}
+                  editingCredsIds={editingCredsIds}
+                  toggleEditingConn={toggleEditingConn}
+                  onCancel={() => setEditingCredsServerId(null)}
+                  onSave={() => updateCredsMut.mutate({ serverId: s.id, connectionIds: editingCredsIds })}
+                  saving={updateCredsMut.isPending}
+                  qc={qc}
+                  onNewConn={(connId) => setEditingCredsIds(prev => [...prev, connId])}
+                />
               )}
             </div>
           ))}
@@ -1381,15 +1380,15 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
           {/* Connection selection — vault-backed credentials */}
           <div>
             <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
-              Vault Connections <span className="normal-case text-text-muted">(optional — enables L3 isolation)</span>
+              Credentials <span className="normal-case text-text-muted">(enables L3 secure execution)</span>
             </label>
             <p className="text-[9px] text-text-muted mb-2">
-              Selected connections' credentials are injected into an ephemeral container at execution time. They never touch the proxy or agent.
+              Credentials are encrypted in the vault and only injected into ephemeral containers at execution time. The agent and proxy never see them.
             </p>
-            {activeConns.length > 0 ? (
-              <div className="space-y-1">
+            {activeConns.length > 0 && (
+              <div className="space-y-1 mb-2">
                 {activeConns.map((c: any) => (
-            <button
+                  <button
                     key={c.id}
                     type="button"
                     onClick={() => toggleConn(c.id)}
@@ -1410,15 +1409,84 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
                     </span>
                     <span className="text-text-primary">{c.name}</span>
                     <span className="text-text-muted">{c.provider}</span>
-            </button>
+                  </button>
                 ))}
-          </div>
+              </div>
+            )}
+
+            {/* Inline credential creation */}
+            {!showInlineCredForm ? (
+              <button
+                type="button"
+                onClick={() => setShowInlineCredForm(true)}
+                className="text-[10px] font-mono text-accent hover:text-accent-bright transition-colors"
+              >
+                + add new credential
+              </button>
             ) : (
-              <p className="text-[9px] text-text-muted py-2">
-                No active connections. <Link to="/credentials" className="text-accent hover:underline">Add one on Credentials</Link> first.
-              </p>
-        )}
-      </div>
+              <div className="border border-accent/30 rounded-lg p-3 space-y-2 bg-surface-0/50">
+                <p className="text-[9px] text-text-muted font-medium">New credential — encrypted, L3 only</p>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Provider</label>
+                    <input
+                      value={inlineProvider}
+                      onChange={(e) => setInlineProvider(e.target.value)}
+                      placeholder="github, aws, slack..."
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Name</label>
+                    <input
+                      value={inlineCredName}
+                      onChange={(e) => setInlineCredName(e.target.value)}
+                      placeholder="My GitHub Token"
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Secret / Token</label>
+                    <input
+                      type="password"
+                      value={inlineCredValue}
+                      onChange={(e) => setInlineCredValue(e.target.value)}
+                      placeholder="ghp_..., xoxb-..., AKIA..."
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                  <div className="w-40">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Env var name</label>
+                    <input
+                      value={inlineEnvVar}
+                      onChange={(e) => setInlineEnvVar(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+                      placeholder="GITHUB_TOKEN"
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineCredForm(false)}
+                    className="text-[10px] font-mono text-text-muted hover:text-text-primary"
+                  >
+                    cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => inlineCreateConnMut.mutate()}
+                    disabled={!inlineProvider.trim() || !inlineCredName.trim() || !inlineCredValue || inlineCreateConnMut.isPending}
+                    className="px-3 py-1 rounded bg-accent text-surface-0 text-[10px] font-mono font-medium disabled:opacity-40"
+                  >
+                    {inlineCreateConnMut.isPending ? 'Creating...' : 'Create & Link'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => { setShowAdd(false); setSelectedConnIds([]); }}
@@ -1439,6 +1507,132 @@ function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; o
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Edit Credentials Panel (shared between add + edit flows) ─────────────────
+
+function EditCredsPanel({
+  activeConns,
+  editingCredsIds,
+  toggleEditingConn,
+  onCancel,
+  onSave,
+  saving,
+  qc,
+  onNewConn,
+}: {
+  activeConns: any[];
+  editingCredsIds: string[];
+  toggleEditingConn: (id: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+  saving: boolean;
+  qc: any;
+  onNewConn: (connId: string) => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [provider, setProvider] = useState('');
+  const [credName, setCredName] = useState('');
+  const [credValue, setCredValue] = useState('');
+  const [envVar, setEnvVar] = useState('');
+
+  const createMut = useMutation({
+    mutationFn: async () => {
+      const normalized = provider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const conn = await createConnection({ provider: normalized, name: credName.trim(), credential: credValue });
+      if (envVar.trim() && credValue) {
+        await addConnectionSecret(conn.id, { key: envVar.trim(), value: credValue, mode: 'exec_only' });
+      }
+      return conn;
+    },
+    onSuccess: (conn: any) => {
+      qc.invalidateQueries({ queryKey: ['connections'] });
+      onNewConn(conn.id);
+      setShowForm(false);
+      setProvider('');
+      setCredName('');
+      setCredValue('');
+      setEnvVar('');
+    },
+  });
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-2">
+      <p className="text-[9px] text-text-muted">Link credentials for L3 secure execution.</p>
+      {activeConns.length > 0 && (
+        <div className="space-y-1">
+          {activeConns.map((c: any) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => toggleEditingConn(c.id)}
+              className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-[10px] font-mono transition-colors ${
+                editingCredsIds.includes(c.id)
+                  ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                  : 'bg-surface-2 border border-transparent text-text-secondary hover:bg-surface-3'
+              }`}
+            >
+              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                editingCredsIds.includes(c.id) ? 'border-emerald-500 bg-emerald-500' : 'border-border'
+              }`}>
+                {editingCredsIds.includes(c.id) && <span className="text-white text-[8px]">{'\u2713'}</span>}
+              </span>
+              <span className="text-text-primary">{c.name}</span>
+              <span className="text-text-muted">{c.provider}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!showForm ? (
+        <button type="button" onClick={() => setShowForm(true)} className="text-[10px] font-mono text-accent hover:text-accent-bright">
+          + add new credential
+        </button>
+      ) : (
+        <div className="border border-accent/30 rounded-lg p-3 space-y-2 bg-surface-0/50">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Provider</label>
+              <input value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="github"
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+            <div className="flex-1">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Name</label>
+              <input value={credName} onChange={(e) => setCredName(e.target.value)} placeholder="My GitHub"
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Token / Secret</label>
+              <input type="password" value={credValue} onChange={(e) => setCredValue(e.target.value)} placeholder="ghp_..."
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+            <div className="w-36">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Env var</label>
+              <input value={envVar} onChange={(e) => setEnvVar(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))} placeholder="GITHUB_TOKEN"
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setShowForm(false)} className="text-[10px] font-mono text-text-muted hover:text-text-primary">cancel</button>
+            <button type="button" onClick={() => createMut.mutate()}
+              disabled={!provider.trim() || !credName.trim() || !credValue || createMut.isPending}
+              className="px-3 py-1 rounded bg-accent text-surface-0 text-[10px] font-mono font-medium disabled:opacity-40">
+              {createMut.isPending ? 'Creating...' : 'Create & Link'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-1">
+        <button type="button" onClick={onCancel} className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Cancel</button>
+        <button type="button" onClick={onSave} disabled={saving} className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40">
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }

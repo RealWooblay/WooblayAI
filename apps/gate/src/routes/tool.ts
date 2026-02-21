@@ -23,7 +23,7 @@ import { describeToolCall, explainWhyFlagged } from '../engine/analysis.js';
 import { detectFlags } from '../engine/flags.js';
 import { getActionDefinition } from '../engine/action-registry.js';
 import { parseScopeBoundaries, checkScope } from '../engine/scope.js';
-import { simulateAction, simulateLocalAction, shouldSimulate, verifyMcpToolResult, verifyMcpPreExecution } from '../engine/simulate.js';
+import { simulateAction, simulateLocalAction, shouldSimulate, verifyMcpPreExecution } from '../engine/simulate.js';
 import { executeSecureAction } from '../engine/secure-exec.js';
 import { reportExecution } from '../services/execution.js';
 import { emitRunEvent } from '../engine/run-events.js';
@@ -473,63 +473,36 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
         });
 
         // ── Record Execution (makes it visible in Activity + Admin) ──
-        // The proxy's callGate stores the prefixed name (e.g. "github__search_repositories")
-        // while body.params.toolName is bare ("search_repositories"). Search for both.
-        const recentToolCall = await prisma.toolCall.findFirst({
-          where: {
-            OR: [
-              { toolName: toolName },
-              { toolName: { contains: toolName } },
-            ],
-            execution: null,
-          },
-          orderBy: { createdAt: 'desc' },
-        });
+        // Use toolCallId if the proxy passed it through. Otherwise fall back
+        // to name-based lookup (proxy stores prefixed "mcp:github:tool" name).
+        const toolCallId = body.params.toolCallId ? String(body.params.toolCallId) : null;
+        let linkedToolCallId = toolCallId;
 
-        if (recentToolCall) {
+        if (!linkedToolCallId) {
+          const recentToolCall = await prisma.toolCall.findFirst({
+            where: {
+              OR: [
+                { toolName: toolName },
+                { toolName: { contains: toolName } },
+              ],
+              execution: { is: null },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          linkedToolCallId = recentToolCall?.id ?? null;
+        }
+
+        if (linkedToolCallId) {
           await reportExecution(prisma, {
-            toolCallId: recentToolCall.id,
+            toolCallId: linkedToolCallId,
             status: mcpResult.success ? 'SUCCESS' : 'FAILED',
             stdout: redactSecrets(mcpResult.stdout.slice(0, 5000)),
             stderr: redactSecrets(mcpResult.stderr.slice(0, 2000)),
             exitCode: mcpResult.exitCode,
             durationMs: mcpResult.durationMs,
           }).catch((err: any) => request.log.warn(err, 'Failed to record MCP execution'));
-        }
-
-        // ── L2: Post-Execution Intent Verification (optional) ─────────
-        // Adds ~2s latency + 1 AI call per execution. Pre-exec L2 already
-        // validated the server+creds combo. Post-exec is belt-and-suspenders.
-        // Disable with MCP_POST_VERIFY=false to halve AI cost per call.
-        const postVerifyEnabled = process.env['MCP_POST_VERIFY'] !== 'false';
-        let verification = null;
-        if (mcpResult.success && postVerifyEnabled) {
-          try {
-            verification = await verifyMcpToolResult(prisma, {
-              toolName,
-              toolArgs,
-              serverCommand,
-              stdout: mcpResult.stdout,
-              stderr: mcpResult.stderr,
-              exitCode: mcpResult.exitCode,
-              durationMs: mcpResult.durationMs,
-            });
-
-            // Flag mismatch as audit anomaly
-            if (!verification.passed && recentToolCall) {
-              await prisma.auditFlag.create({
-                data: {
-                  toolCallId: recentToolCall.id,
-                  severity: 'HIGH',
-                  category: 'intent_mismatch',
-                  title: `MCP result mismatch: ${toolName}`,
-                  description: verification.summary,
-                },
-              }).catch((err: any) => request.log.warn(err, 'Failed to create audit flag'));
-            }
-          } catch (err: any) {
-            request.log.warn(err, 'MCP L2 verification failed (non-blocking)');
-          }
+        } else {
+          request.log.warn({ toolName }, 'No ToolCall record found to link execution');
         }
 
         return reply.send({
@@ -540,12 +513,6 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           durationMs: mcpResult.durationMs,
           containerId: mcpResult.containerId,
           error: mcpResult.error ? redactSecrets(mcpResult.error) : undefined,
-          verification: verification ? {
-            passed: verification.passed,
-            strategy: verification.strategy,
-            summary: verification.summary,
-            durationMs: verification.durationMs,
-          } : undefined,
         });
       } catch (err: any) {
         request.log.error(err, 'MCP L3 execution failed');
