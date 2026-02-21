@@ -60,6 +60,9 @@ export type WooblayEvent =
   | { type: 'capability.expired';      data: { capabilityId: string } }
   // ── Verification events ─────────────────────────────────────────────
   | { type: 'verification.completed';  data: { verificationId: string; proposalId: string; status: string } }
+  // ── MCP Verification events ────────────────────────────────────────
+  | { type: 'mcp_pre_verification.completed';  data: { serverCommand: string; toolName: string; credentialEnvVars: string[]; safe: boolean; threatLevel: string; reasoning: string; concerns: string[]; source: string; durationMs: number } }
+  | { type: 'mcp_verification.completed';      data: { toolName: string; serverCommand: string; passed: boolean; reasoning: string; discrepancies: string[]; durationMs: number } }
 ;
 
 export type WooblayEventType = WooblayEvent['type'];

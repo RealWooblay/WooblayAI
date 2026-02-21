@@ -36,6 +36,7 @@ import { CredentialsPage } from './pages/credentials/CredentialsPage.tsx';
 import { SensorsPage } from './pages/sensors/SensorsPage.tsx';
 import { RunPage } from './pages/runs/RunPage.tsx';
 import { InsightsPage } from './pages/insights/InsightsPage.tsx';
+import { AdminPage } from './pages/admin/AdminPage.tsx';
 
 // Has Clerk key? If not, skip auth entirely (local dev / instance mode)
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -151,6 +152,7 @@ function AuthenticatedApp() {
           <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
           <Route path="/audit" element={<PageShell><ActivityPage /></PageShell>} />
           <Route path="/activity" element={<Navigate to="/audit" replace />} />
+          <Route path="/admin" element={<PageShell><AdminPage /></PageShell>} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/operations" replace />} />

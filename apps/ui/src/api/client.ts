@@ -1029,3 +1029,61 @@ export const createApiKey = (data: { name: string; expiresInDays?: number }) =>
 
 export const revokeApiKey = (id: string) =>
   fetchApi<{ revoked: boolean }>(`/api/api-keys/${id}`, { method: 'DELETE' });
+
+// ── Admin Dashboard ─────────────────────────────────────────────────────
+
+const adminHeaders = (password: string) => ({
+  'x-admin-password': password,
+});
+
+export const getAdminSummary = (password: string) =>
+  fetchApi<{
+    totalExecutions: number;
+    recentExecutions: number;
+    totalPreChecks: number;
+    blockedPreChecks: number;
+    totalFlags: number;
+    recentFlags: number;
+  }>('/api/admin/summary', { headers: adminHeaders(password) });
+
+export const getAdminSecurityEvents = (password: string, limit = 50) =>
+  fetchApi<{
+    events: Array<{
+      id: number;
+      type: string;
+      data: Record<string, unknown>;
+      createdAt: string;
+    }>;
+  }>(`/api/admin/security-events?limit=${limit}`, { headers: adminHeaders(password) });
+
+export const getAdminExecutions = (password: string, limit = 50) =>
+  fetchApi<{
+    executions: Array<{
+      id: string;
+      status: string;
+      exitCode: number | null;
+      durationMs: number | null;
+      stdout: string | null;
+      stderr: string | null;
+      createdAt: string;
+      toolCall: {
+        toolName: string;
+        args: string;
+        riskTier: string;
+        createdAt: string;
+        approval: { status: string; approver: string | null; decidedAt: string | null } | null;
+      };
+    }>;
+  }>(`/api/admin/executions?limit=${limit}`, { headers: adminHeaders(password) });
+
+export const getAdminFlags = (password: string) =>
+  fetchApi<{
+    flags: Array<{
+      id: string;
+      severity: string;
+      category: string;
+      title: string;
+      description: string;
+      createdAt: string;
+    }>;
+  }>('/api/admin/flags', { headers: adminHeaders(password) });
