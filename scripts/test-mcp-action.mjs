@@ -6,6 +6,9 @@
  * Usage:
  *   node scripts/test-mcp-action.mjs <BASE_URL> <INSTANCE_ID> <API_KEY>                    # list tools
  *   node scripts/test-mcp-action.mjs <BASE_URL> <INSTANCE_ID> <API_KEY> <TOOL> [JSON_ARGS]   # call tool
+ *
+ * Example (GitHub has no "list_repos" — use search_repositories):
+ *   node scripts/test-mcp-action.mjs https://wooblay.com <ID> <KEY> github__search_repositories '{"query":"wooblay"}'
  */
 
 const BASE_URL = process.argv[2];
@@ -139,6 +142,7 @@ tools.forEach((t) => console.log('  -', t.name, ':', (t.description || '').slice
 
 if (!TOOL_NAME) {
   console.log('\nTo call a tool: node scripts/test-mcp-action.mjs BASE_URL INSTANCE_ID API_KEY <tool_name> [args_json]');
+  console.log('Example: github__search_repositories \'{"query":"wooblay"}\'');
   process.exit(0);
 }
 

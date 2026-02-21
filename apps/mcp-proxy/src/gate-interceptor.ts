@@ -38,14 +38,15 @@ export async function callGate(req: GateToolRequest): Promise<GateDecision> {
       args: req.args,
       adapter: req.adapter,
       agentPubkey: 'mcp-proxy',
-      requestSignature: '',
+      requestSignature: 'mcp-proxy', // Gate schema requires non-empty; auth is via GATEWAY_TOKEN
     }),
     signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`Gate policy check failed (${res.status})`);
+    const msg = body ? `Gate policy check failed (${res.status}): ${body.slice(0, 200)}` : `Gate policy check failed (${res.status})`;
+    throw new Error(msg);
   }
 
   return await res.json() as GateDecision;
