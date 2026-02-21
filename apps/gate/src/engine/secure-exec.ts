@@ -459,15 +459,24 @@ export async function executeMcpToolCall(
   };
   const envFilePath = writeEnvFile(env, containerName);
 
-  // MCP containers need outbound internet (to call external APIs).
-  // No --network flag = Docker default bridge (has internet).
-  // No --read-only = npx and node can write cache dirs.
-  // tmpfs without noexec = npx can execute downloaded packages.
+  // Security posture for MCP ephemeral containers:
+  //   --read-only: container filesystem is immutable (prevents binary tampering)
+  //   tmpfs mounts: writable scratch space only where needed
+  //   --rm: container destroyed after execution (no credential residue)
+  //   No --network flag: default bridge (outbound internet) because MCP servers
+  //     must reach external APIs. This is the main trade-off — a malicious MCP
+  //     server could theoretically exfiltrate creds via outbound HTTP. Mitigation:
+  //     credentials are short-lived (container dies in <120s), scoped (org-level
+  //     PATs, not global), and audited. Future: egress proxy/firewall to restrict
+  //     outbound to only the target API domain.
   const dockerCmd = [
     'docker run',
     '--rm',
     `--name ${containerName}`,
+    '--read-only',
     '--tmpfs /tmp:rw,nosuid,size=512m',
+    '--tmpfs /home/node/.npm:rw,nosuid,size=128m',
+    '--tmpfs /root/.npm:rw,nosuid,size=128m',
     '--memory 1g',
     '--cpus 1',
     '--pids-limit 256',
