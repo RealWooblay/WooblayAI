@@ -55,7 +55,8 @@ const drain = (async () => {
       if (done) break;
       buf += dec.decode(value, { stream: true });
       if (!sessionId) {
-        const m = buf.match(/data:\s*\/messages\?sessionId=([a-fA-F0-9-]+)/m);
+        // Gate rewrites endpoint to /mcp/:id/messages?sessionId=...; direct proxy sends /messages?sessionId=...
+        const m = buf.match(/data:\s*\/[^\s]+\?sessionId=([a-fA-F0-9-]+)/m);
         if (m) sessionId = m[1];
       }
       // Parse SSE events: "event: message" + "data: {...}" or bare "data: {...}"
@@ -65,7 +66,7 @@ const drain = (async () => {
         const line = lines[i];
         if (line.startsWith('data:')) {
           const data = line.slice(5).trim();
-          if (!data || data.startsWith('/messages?')) continue;
+          if (!data || data.includes('/messages?')) continue;
           try {
             const json = JSON.parse(data);
             if (json != null && typeof json.id !== 'undefined') {

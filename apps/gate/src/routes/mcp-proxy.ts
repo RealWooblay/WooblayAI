@@ -69,6 +69,14 @@ async function authenticateApiKey(
 
 export async function mcpProxyRoutes(app: FastifyInstance): Promise<void> {
   /**
+   * POST /mcp/:instanceId/sse — Reject with 405. Cursor may try Streamable HTTP first;
+   * we only support SSE (GET here, POST to /mcp/:id/messages).
+   */
+  app.post('/mcp/:instanceId/sse', async (_request: FastifyRequest, reply: FastifyReply) => {
+    return reply.code(405).header('Allow', 'GET').send({ error: 'Use GET for SSE; POST messages to /mcp/:instanceId/messages' });
+  });
+
+  /**
    * GET /mcp/:instanceId/sse — SSE connection to the MCP proxy.
    * Streams tool list and events. The client connects here.
    */
@@ -113,37 +121,35 @@ export async function mcpProxyRoutes(app: FastifyInstance): Promise<void> {
         return;
       }
 
-      // Rewrite endpoint path so the client POSTs to /mcp/:instanceId/messages instead of /messages.
-      // The proxy sends "data: /messages" or "data: /messages?sessionId=..."; the client resolves
-      // that against the SSE URL and would POST to origin/messages (404). We send /mcp/:id/messages.
+      // Rewrite endpoint so Cursor/Claude POST to /mcp/:id/messages (not /messages → 404).
+      // Proxy sends "event: endpoint\ndata: /messages?sessionId=...\n\n". Buffer by \n\n for chunk safety.
       const messagesPathPrefix = `/mcp/${instanceId}/messages`;
       const dec = new TextDecoder();
       let buf = '';
+      const flushEvent = (event: string) => {
+        const rewritten = event.replace(
+          /^data:\s*\/messages(\?sessionId=[^\s]+)?$/m,
+          (_, qs) => `data: ${messagesPathPrefix}${qs ?? ''}`,
+        );
+        reply.raw.write(rewritten + (rewritten.endsWith('\n') ? '' : '\n'));
+      };
       const pump = async () => {
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             buf += dec.decode(value, { stream: true });
-            const lines = buf.split('\n');
-            buf = lines.pop() ?? '';
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i];
-              if (line.startsWith('data: /messages')) {
-                const rest = line.slice(14); // after "data: /messages"
-                reply.raw.write(`data: ${messagesPathPrefix}${rest}\n`);
-              } else {
-                reply.raw.write(line + '\n');
-              }
+            const events = buf.split('\n\n');
+            buf = events.pop() ?? '';
+            for (const event of events) {
+              if (!event) continue;
+              flushEvent(event);
+              reply.raw.write('\n');
             }
           }
           if (buf) {
-            if (buf.startsWith('data: /messages')) {
-              const rest = buf.slice(14);
-              reply.raw.write(`data: ${messagesPathPrefix}${rest}\n`);
-            } else {
-              reply.raw.write(buf + '\n');
-            }
+            flushEvent(buf);
+            reply.raw.write('\n');
           }
         } catch (err: any) {
           if (err.name !== 'AbortError') {

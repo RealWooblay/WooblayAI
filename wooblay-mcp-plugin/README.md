@@ -9,9 +9,11 @@ Cursor plugin for using the **Wooblay MCP proxy** from Cursor. Every MCP tool ca
 
 ## Prerequisites
 
-- A Wooblay deployment with the Gate and MCP proxy running.
+- A Wooblay deployment with the **Gate** and MCP proxy running. The Gate must include the **endpoint rewrite** (in `apps/gate/src/routes/mcp-proxy.ts`) so the SSE stream advertises `/mcp/:id/messages`; otherwise Cursor/Claude POST to `/messages` and get 404.
 - An **instance** and its **instance ID** (from the Wooblay UI: Instance detail page or Setup).
 - An **API key** (`wbl_ak_...`) for the org that owns the instance (Dashboard → API keys).
+
+**Checklist for Cursor/Claude to work:** (1) Deploy Gate with the above. (2) Set MCP URL to `https://wooblay.com/mcp/<INSTANCE_ID>/sse` (or your Gate base) and header `Authorization: Bearer <API_KEY>`. (3) Reload MCP / restart Cursor.
 
 ---
 
