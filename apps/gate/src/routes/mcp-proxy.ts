@@ -113,12 +113,37 @@ export async function mcpProxyRoutes(app: FastifyInstance): Promise<void> {
         return;
       }
 
+      // Rewrite endpoint path so the client POSTs to /mcp/:instanceId/messages instead of /messages.
+      // The proxy sends "data: /messages" or "data: /messages?sessionId=..."; the client resolves
+      // that against the SSE URL and would POST to origin/messages (404). We send /mcp/:id/messages.
+      const messagesPathPrefix = `/mcp/${instanceId}/messages`;
+      const dec = new TextDecoder();
+      let buf = '';
       const pump = async () => {
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            reply.raw.write(value);
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() ?? '';
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+              if (line.startsWith('data: /messages')) {
+                const rest = line.slice(14); // after "data: /messages"
+                reply.raw.write(`data: ${messagesPathPrefix}${rest}\n`);
+              } else {
+                reply.raw.write(line + '\n');
+              }
+            }
+          }
+          if (buf) {
+            if (buf.startsWith('data: /messages')) {
+              const rest = buf.slice(14);
+              reply.raw.write(`data: ${messagesPathPrefix}${rest}\n`);
+            } else {
+              reply.raw.write(buf + '\n');
+            }
           }
         } catch (err: any) {
           if (err.name !== 'AbortError') {
