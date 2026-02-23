@@ -41,6 +41,21 @@ if (!PROXY_TOKEN) {
   process.exit(1);
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Coerce string "true"/"false" to boolean so upstream APIs (e.g. GitHub) get real booleans. */
+function coerceBooleanArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (v === 'true') out[k] = true;
+    else if (v === 'false') out[k] = false;
+    else if (v != null && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype) {
+      out[k] = coerceBooleanArgs(v as Record<string, unknown>);
+    } else out[k] = v;
+  }
+  return out;
+}
+
 // ── State ────────────────────────────────────────────────────────────────
 
 const upstreamClients = new Map<string, Client>();
@@ -332,9 +347,9 @@ function createMcpServerInstance(): McpServer {
       tool.description ?? `Tool from MCP server (${qualifiedName})`,
       Object.keys(schemaShape).length > 0 ? schemaShape : { _empty: z.any().optional() },
       async (args) => {
-        const cleanArgs = { ...args };
-        delete cleanArgs._empty;
-        return executeToolCall(qualifiedName, cleanArgs, deferredCalls);
+        const cleanArgs = coerceBooleanArgs({ ...args });
+        delete (cleanArgs as Record<string, unknown>)._empty;
+        return executeToolCall(qualifiedName, cleanArgs as Record<string, unknown>, deferredCalls);
       },
     );
   }
