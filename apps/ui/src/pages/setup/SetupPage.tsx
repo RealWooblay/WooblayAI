@@ -53,6 +53,19 @@ const MCP_CATALOG: McpCatalogEntry[] = [
     requiredEnvVars: [] },
 ];
 
+const MCP_ICONS: Record<string, string> = {
+  github: '🐙',
+  filesystem: '📁',
+  'brave-search': '🦁',
+  slack: '💬',
+  postgres: '🐘',
+  gdrive: '📄',
+  puppeteer: '🎭',
+  memory: '🧠',
+  fetch: '🌐',
+  'sequential-thinking': '💭',
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function CopyButton({ text, className }: { text: string; className?: string }) {
@@ -110,7 +123,6 @@ function ApiKeysSection() {
     <div className="bg-surface-1 border border-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-text-primary">API Keys</h2>
-        <span className="text-[10px] text-text-muted font-mono">step 1</span>
       </div>
 
       {created && (
@@ -219,7 +231,6 @@ function FirewallSection() {
     <div className="bg-surface-1 border border-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-sm font-semibold text-text-primary">Your Firewall</h2>
-        <span className="text-[10px] text-text-muted font-mono">step 2</span>
       </div>
 
       {!proxy ? (
@@ -274,7 +285,7 @@ function FirewallSection() {
 
           <div className="bg-surface-0 border border-border rounded-xl overflow-hidden">
             <div className="flex border-b border-border">
-              {([['claude', 'Claude Desktop'], ['cursor', 'Cursor'], ['http', 'HTTP / cURL']] as const).map(([key, label]) => (
+              {([['claude', '🤖 Claude Desktop'], ['cursor', '⌨️ Cursor'], ['http', '🔗 HTTP / cURL']] as const).map(([key, label]) => (
                 <button key={key} onClick={() => setTab(key as ConnectTab)}
                   className={clsx(
                     'flex-1 px-4 py-2 text-[11px] font-mono transition-colors',
@@ -496,14 +507,13 @@ function McpToolsSection() {
     <div className="bg-surface-1 border border-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-sm font-semibold text-text-primary">MCP Tools</h2>
-        <span className="text-[10px] text-text-muted font-mono">step 3</span>
       </div>
       <p className="text-[10px] text-text-muted mb-4">
-        Add MCP servers to your firewall. Every tool call is policy-checked. Attach credentials for L3 secure execution.
+        Add MCP tool servers. Every tool call flows through the policy engine. Credentials are vault-encrypted and injected at runtime.
       </p>
 
       {/* Catalog grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2 mb-4">
         {MCP_CATALOG.map((item) => {
           const added = configuredNames.has(item.name);
           return (
@@ -518,6 +528,7 @@ function McpToolsSection() {
                   : 'border-border bg-surface-0 hover:border-accent/40 hover:bg-accent/5',
               )}
             >
+              <div className="text-lg mb-1">{MCP_ICONS[item.name] ?? '⚙️'}</div>
               <div className="text-[11px] font-medium text-text-primary mb-0.5">{item.label}</div>
               <div className="text-[9px] text-text-muted leading-snug">{item.desc}</div>
               {added && (() => {
@@ -844,27 +855,25 @@ function McpToolsSection() {
 
 function SecuritySection() {
   return (
-    <div className="bg-surface-1 border border-border rounded-xl p-5">
-      <h2 className="text-sm font-semibold text-text-primary mb-3">How It Works</h2>
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          { id: 'L1', color: 'blue', title: 'Policy Gate', desc: 'Every tool call checked against your rules. Allow, deny, or require approval.' },
-          { id: 'L2', color: 'amber', title: 'Simulation', desc: 'Sandboxed pre-execution. No network, no credentials. Catches intent mismatch.' },
-          { id: 'L3', color: 'emerald', title: 'Secure Exec', desc: 'Ephemeral container — vault creds injected, tool runs, container destroyed.' },
-        ].map(({ id, color, title, desc }) => (
-          <div key={id} className="bg-surface-2/50 rounded-lg p-2.5 border border-border">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className={`w-4 h-4 rounded bg-${color}-500/20 text-${color}-400 text-[9px] font-mono font-bold flex items-center justify-center`}>{id}</span>
-              <span className="text-[10px] font-medium text-text-primary">{title}</span>
+    <details className="bg-surface-1 border border-border rounded-xl">
+      <summary className="px-5 py-4 cursor-pointer text-sm font-semibold text-text-primary hover:text-accent transition-colors">
+        How It Works
+      </summary>
+      <div className="px-5 pb-5">
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { title: 'Policy Gate', desc: 'Every tool call checked against your rules. Allow, deny, or require approval.' },
+            { title: 'Simulation', desc: 'Sandboxed pre-execution. No network, no credentials. Catches intent mismatch.' },
+            { title: 'Secure Exec', desc: 'Ephemeral container — vault creds injected, tool runs, container destroyed.' },
+          ].map(({ title, desc }) => (
+            <div key={title} className="text-center">
+              <p className="text-xs font-medium text-text-primary mb-1">{title}</p>
+              <p className="text-[10px] text-text-tertiary leading-relaxed">{desc}</p>
             </div>
-            <p className="text-[9px] text-text-muted leading-relaxed">{desc}</p>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-      <p className="text-[9px] text-text-muted mt-2.5">
-        Your agent never sees credentials. Only the ephemeral L3 container — alive for one tool call — has access.
-      </p>
-    </div>
+    </details>
   );
 }
 
@@ -872,7 +881,7 @@ function SecuritySection() {
 
 export function SetupPage() {
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className="space-y-5">
       <div>
         <h1 className="text-lg font-bold text-text-primary">Gateway</h1>
         <p className="text-xs text-text-muted mt-0.5">

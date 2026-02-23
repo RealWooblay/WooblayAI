@@ -1,28 +1,23 @@
 @import "tailwindcss";
 
-/* ============================================================
-   Wooblay — The Nerve Center
-   A living, breathing interface for AI agent supervision
-   ============================================================ */
-
 @theme {
   /* Depth layers */
-  --color-void: #05050c;
-  --color-surface-0: #0a0a14;
-  --color-surface-1: #0f0f1a;
-  --color-surface-2: #151520;
-  --color-surface-3: #1c1c2a;
+  --color-void: #09090b;
+  --color-surface-0: #0c0c0f;
+  --color-surface-1: #141417;
+  --color-surface-2: #1a1a1e;
+  --color-surface-3: #222226;
 
   /* Borders */
-  --color-border: #1e1e30;
-  --color-border-subtle: #161624;
-  --color-border-strong: #2a2a42;
+  --color-border: #27272a;
+  --color-border-subtle: #1e1e22;
+  --color-border-strong: #3f3f46;
 
   /* Text */
-  --color-text-primary: #ededf4;
-  --color-text-secondary: #9d9dbc;
-  --color-text-tertiary: #6e6e8a;
-  --color-text-muted: #5a5a78;
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+  --color-text-muted: #52525b;
 
   /* Accent: indigo core */
   --color-accent: #6366f1;
@@ -42,18 +37,18 @@ html { color-scheme: dark; }
 /* Light theme — applied when data-theme="light" */
 html[data-theme="light"] {
   color-scheme: light;
-  --color-void: #f4f4f8;
+  --color-void: #f9fafb;
   --color-surface-0: #ffffff;
-  --color-surface-1: #f8f8fc;
-  --color-surface-2: #eeeef4;
-  --color-surface-3: #e4e4ee;
-  --color-border: #d8d8e4;
-  --color-border-subtle: #e8e8f0;
-  --color-border-strong: #c8c8d8;
-  --color-text-primary: #1a1a2e;
-  --color-text-secondary: #4a4a6a;
-  --color-text-tertiary: #6a6a8a;
-  --color-text-muted: #7a7a9a;
+  --color-surface-1: #f9fafb;
+  --color-surface-2: #f3f4f6;
+  --color-surface-3: #e5e7eb;
+  --color-border: #e5e7eb;
+  --color-border-subtle: #f3f4f6;
+  --color-border-strong: #d1d5db;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+  --color-text-muted: #d1d5db;
   --color-accent: #4f46e5;
   --color-accent-bright: #6366f1;
   --color-accent-dim: #4338ca;
@@ -80,77 +75,12 @@ code, pre, .font-mono {
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #222236; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #333350; }
-html[data-theme="light"] ::-webkit-scrollbar-thumb { background: #c8c8d8; }
-html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a8a8c0; }
+::-webkit-scrollbar-thumb { background: #27272a; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: #d1d5db; }
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
-/* ============================================================
-   CANVAS — the spatial foundation
-   ============================================================ */
-
-.canvas-bg {
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.04) 0%, transparent 60%),
-    radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.015) 0%, transparent 50%),
-    var(--color-void);
-}
-
-/* Subtle dot grid */
-.dot-grid {
-  background-image: radial-gradient(circle, rgba(99, 102, 241, 0.06) 1px, transparent 1px);
-  background-size: 32px 32px;
-}
-
-/* ============================================================
-   GLASS MORPHISM — frosted panels
-   ============================================================ */
-
-.glass {
-  background: rgba(15, 15, 26, 0.75);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border: 1px solid rgba(99, 102, 241, 0.08);
-}
-
-.glass-strong {
-  background: rgba(10, 10, 20, 0.88);
-  backdrop-filter: blur(40px) saturate(1.6);
-  -webkit-backdrop-filter: blur(40px) saturate(1.6);
-  border: 1px solid rgba(99, 102, 241, 0.1);
-}
-
-.glass-panel {
-  background: rgba(15, 15, 26, 0.82);
-  backdrop-filter: blur(32px) saturate(1.5);
-  -webkit-backdrop-filter: blur(32px) saturate(1.5);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  box-shadow:
-    0 0 0 1px rgba(99, 102, 241, 0.06),
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-/* ============================================================
-   ANIMATIONS — living, breathing system
-   ============================================================ */
-
-@keyframes breathe {
-  0%, 100% { transform: scale(1); opacity: 0.7; }
-  50% { transform: scale(1.08); opacity: 1; }
-}
-
-@keyframes pulse-ring {
-  0% { transform: scale(0.95); opacity: 0.6; }
-  50% { transform: scale(1.05); opacity: 0.3; }
-  100% { transform: scale(0.95); opacity: 0.6; }
-}
-
-@keyframes orbit-pulse {
-  0%, 100% { opacity: 0.15; }
-  50% { opacity: 0.3; }
-}
-
+/* Animations */
 @keyframes float-up {
   from { opacity: 0; transform: translateY(12px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -171,45 +101,16 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a8a8c0; 
   to { opacity: 1; }
 }
 
-@keyframes flow-dot {
-  0% { offset-distance: 0%; opacity: 0; }
-  5% { opacity: 1; }
-  95% { opacity: 1; }
-  100% { offset-distance: 100%; opacity: 0; }
-}
-
-@keyframes dash-flow {
-  to { stroke-dashoffset: -20; }
-}
-
-@keyframes glow-pulse {
-  0%, 100% { filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.3)); }
-  50% { filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.6)); }
-}
-
-@keyframes ripple {
-  0% { transform: scale(1); opacity: 0.4; }
-  100% { transform: scale(2.5); opacity: 0; }
-}
-
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 
-/* Utility classes */
-.animate-blink { animation: blink 1s step-end infinite; }
-@keyframes blink { 50% { opacity: 0; } }
-.animate-breathe { animation: breathe 3s ease-in-out infinite; }
-.animate-pulse-ring { animation: pulse-ring 2.5s ease-in-out infinite; }
-.animate-orbit-pulse { animation: orbit-pulse 4s ease-in-out infinite; }
 .animate-float-up { animation: float-up 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 .animate-slide-in-right { animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
 .animate-slide-in-up { animation: slide-in-up 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
 .animate-fade-in { animation: fade-in 0.3s ease-out; }
-.animate-glow-pulse { animation: glow-pulse 3s ease-in-out infinite; }
 
-/* Staggered children */
 .stagger-children > * { animation: float-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
 .stagger-children > *:nth-child(2) { animation-delay: 50ms; }
@@ -220,58 +121,9 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a8a8c0; 
 .stagger-children > *:nth-child(7) { animation-delay: 300ms; }
 .stagger-children > *:nth-child(8) { animation-delay: 350ms; }
 
-/* ============================================================
-   NETWORK GRAPH elements
-   ============================================================ */
-
-.gate-core {
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, transparent 70%);
-}
-
-.gate-ring {
-  border: 1.5px solid rgba(99, 102, 241, 0.3);
-  animation: pulse-ring 3s ease-in-out infinite;
-}
-
-.agent-node {
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  cursor: pointer;
-}
-.agent-node:hover {
-  transform: scale(1.15);
-  z-index: 10;
-}
-
-.flow-line {
-  stroke-dasharray: 6 4;
-  animation: dash-flow 1.2s linear infinite;
-}
-
-.flow-particle {
-  animation: flow-dot 2.5s linear infinite;
-}
-
-/* ============================================================
-   APPROVAL CARD — floating interactive cards
-   ============================================================ */
-
-.approval-card {
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.approval-card:hover {
-  transform: translateY(-4px) scale(1.02);
-  box-shadow:
-    0 0 0 1px rgba(99, 102, 241, 0.15),
-    0 12px 40px rgba(0, 0, 0, 0.5);
-}
-
-/* ============================================================
-   COMMAND PALETTE
-   ============================================================ */
-
+/* Command palette */
 .command-overlay {
-  background: rgba(5, 5, 12, 0.6);
-  backdrop-filter: blur(8px);
+  background: rgba(9, 9, 11, 0.6);
 }
 
 .command-input {
@@ -286,17 +138,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a8a8c0; 
 .diff-add { background: rgba(52, 211, 153, 0.08); border-left: 2px solid #34d399; }
 .diff-remove { background: rgba(248, 113, 113, 0.08); border-left: 2px solid #f87171; }
 
-/* Glow effects */
-.glow-accent {
-  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2), 0 0 20px rgba(99, 102, 241, 0.08);
-}
-.glow-success {
-  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2), 0 0 12px rgba(52, 211, 153, 0.06);
-}
-.glow-danger {
-  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.2), 0 0 12px rgba(248, 113, 113, 0.06);
-}
-
 /* Skeleton shimmer */
 .skeleton {
   background: linear-gradient(90deg, var(--color-surface-2) 25%, var(--color-surface-3) 50%, var(--color-surface-2) 75%);
@@ -304,93 +145,9 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a8a8c0; 
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* ============================================================
-   ASCII RAIN — subtle matrix-style background
-   Pure CSS. Characters fall in columns with staggered timing.
-   ============================================================ */
-
-@keyframes rain-fall {
-  0%   { transform: translateY(-100%); opacity: 0; }
-  5%   { opacity: 1; }
-  85%  { opacity: 0.5; }
-  100% { transform: translateY(calc(100vh + 100%)); opacity: 0; }
-}
-
-@keyframes rain-fall-slow {
-  0%   { transform: translateY(-100%); opacity: 0; }
-  8%   { opacity: 0.7; }
-  80%  { opacity: 0.3; }
-  100% { transform: translateY(calc(100vh + 100%)); opacity: 0; }
-}
-
-/* Weather: floating particles that actually drift across the screen */
-@keyframes weather-drift {
-  0%   { transform: translate(0, 0) scale(0.8); opacity: 0; }
-  10%  { opacity: 1; }
-  50%  { transform: translate(30px, -40px) scale(1.1); opacity: 0.9; }
-  90%  { opacity: 0.6; }
-  100% { transform: translate(-20px, 60px) scale(0.9); opacity: 0; }
-}
-
-@keyframes weather-float-up {
-  0%   { transform: translateY(100vh); opacity: 0; }
-  10%  { opacity: 0.8; }
-  90%  { opacity: 0.5; }
-  100% { transform: translateY(-20px); opacity: 0; }
-}
-
-.ascii-rain {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-  opacity: 0.5;
-}
-
-.ascii-rain-col {
-  position: absolute;
-  top: 0;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 10px;
-  line-height: 1.4;
-  color: var(--color-accent);
-  white-space: pre;
-  writing-mode: vertical-rl;
-  text-orientation: upright;
-  animation: rain-fall var(--duration) linear infinite;
-  animation-delay: var(--delay);
-  opacity: 0;
-}
-
-.ascii-rain-col.slow {
-  animation-name: rain-fall-slow;
-  color: var(--color-text-tertiary);
-}
-
-/* ============================================================
-   SCANLINE — CRT feel, very subtle
-   ============================================================ */
-
-@keyframes scanline {
-  0%   { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
-}
-
-.scanline-overlay {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-}
-
-.scanline-overlay::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.06) 30%, rgba(99, 102, 241, 0.10) 50%, rgba(99, 102, 241, 0.06) 70%, transparent 100%);
-  animation: scanline 8s linear infinite;
+/* Page container */
+.container-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
 }

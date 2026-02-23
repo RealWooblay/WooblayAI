@@ -106,7 +106,6 @@ export function PoliciesPage() {
   const { data: presets = [] } = useQuery({ queryKey: ['presets'], queryFn: getPresets });
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [presetConfirm, setPresetConfirm] = useState<string | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<AIPolicySuggestion[]>([]);
   const [aiSummary, setAiSummary] = useState('');
@@ -272,37 +271,27 @@ export function PoliciesPage() {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div>
-        <h1 className="text-lg font-bold text-text-primary font-mono">
-          <span className="text-accent">[</span> policies <span className="text-accent">]</span>
-        </h1>
+        <h1 className="text-lg font-bold text-text-primary">Policies</h1>
         <p className="text-xs text-text-secondary mt-1">
           {enabledCount} rule{enabledCount !== 1 ? 's' : ''} — apply to all agents in this org
         </p>
       </div>
 
       {/* ── Three-Layer Security Summary ─────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold text-emerald-400 font-mono">1</span>
-            <span className="text-[11px] font-medium text-emerald-400">Policy Gate</span>
-            <span className="text-[9px] text-emerald-400/60 ml-auto font-mono">this page</span>
-          </div>
-          <p className="text-[10px] text-text-tertiary">Rules + scope boundaries evaluate every action before anything else happens.</p>
+      <div className="flex items-center gap-6 bg-surface-1 border border-border rounded-xl px-5 py-3">
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold flex items-center justify-center">1</span>
+          <span className="text-xs text-text-primary font-medium">Policy Gate</span>
         </div>
-        <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold text-blue-400 font-mono">2</span>
-            <span className="text-[11px] font-medium text-blue-400">Simulation</span>
-          </div>
-          <p className="text-[10px] text-text-tertiary">Sandbox execution + AI intent verification. Verifies command behavior matches stated intent.</p>
+        <span className="text-text-tertiary">→</span>
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold flex items-center justify-center">2</span>
+          <span className="text-xs text-text-primary font-medium">Simulation</span>
         </div>
-        <div className="bg-purple-500/5 border border-purple-500/15 rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold text-purple-400 font-mono">3</span>
-            <span className="text-[11px] font-medium text-purple-400">Secure Execution</span>
-          </div>
-          <p className="text-[10px] text-text-tertiary">Ephemeral containers with scoped credentials. Agent never touches secrets.</p>
+        <span className="text-text-tertiary">→</span>
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-purple-500/10 text-purple-400 text-[10px] font-bold flex items-center justify-center">3</span>
+          <span className="text-xs text-text-primary font-medium">Secure Exec</span>
         </div>
       </div>
 
@@ -310,8 +299,8 @@ export function PoliciesPage() {
       <div className="bg-surface-1 border border-border rounded-xl p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xs font-semibold text-text-primary font-mono">
-              <span className="text-blue-400">[~]</span> simulation threshold
+            <h2 className="text-xs font-semibold text-text-primary">
+              Simulation Threshold
             </h2>
             <p className="text-[10px] text-text-tertiary mt-1">
               Controls which local actions trigger sandbox simulation (Layer 2) before execution.
@@ -484,10 +473,10 @@ export function PoliciesPage() {
 
       {/* ── Active Policy Summary ──────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-policy-summary">
-        <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3 font-mono">What your agent can do</h2>
+        <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3">What your agent can do</h2>
         {summary.length === 0 ? (
           <div className="text-center py-6">
-            <pre className="text-text-tertiary text-xs font-mono mb-3">{`  ( ?_? ) no rules set  `}</pre>
+            <p className="text-text-tertiary text-2xl mb-3 opacity-30">∅</p>
             <p className="text-xs text-text-secondary mb-2">No policy rules — all agents operate in <span className="text-text-primary font-medium">monitor-only mode</span>.</p>
             <p className="text-[10px] text-text-tertiary leading-relaxed max-w-md mx-auto">
               All actions are allowed and logged. AI anomaly detection still runs on every action.
@@ -514,7 +503,7 @@ export function PoliciesPage() {
 
       {/* ── Presets ────────────────────────────────────────────────────────── */}
       <div>
-        <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3 font-mono">Quick presets</h2>
+        <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3">Quick presets</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {presets.map(p => {
             const isConfirming = presetConfirm === p.id;
@@ -556,7 +545,7 @@ export function PoliciesPage() {
 
       {/* ── Natural Language Rule Prompt ─────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-4">
-        <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2 font-mono">Add rules with AI</h2>
+        <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">Add rules with AI</h2>
         <p className="text-[10px] text-text-muted mb-3">Describe what you want in plain English — AI will create the rules.</p>
         <div className="flex gap-2">
           <input
@@ -581,17 +570,12 @@ export function PoliciesPage() {
 
       {/* ── Advanced Rules ─────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
-        <button
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-surface-2/30 transition-colors"
-        >
-          <span className="text-xs text-text-secondary font-mono">
-            advanced: {rules.length} rules
+        <div className="px-4 py-3 border-b border-border">
+          <span className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+            All Rules ({rules.length})
           </span>
-          <span className="text-text-tertiary text-xs font-mono">{showAdvanced ? '[-]' : '[+]'}</span>
-        </button>
-
-        {showAdvanced && (
+        </div>
+        {(
           <div className="border-t border-border">
             {isLoading ? (
               <div className="p-6 text-center text-text-secondary text-xs animate-pulse">Loading...</div>

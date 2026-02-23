@@ -38,6 +38,8 @@ export function ApprovalsPage() {
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [riskFilter, setRiskFilter] = useState('');
+  const [searchFilter, setSearchFilter] = useState('');
 
   const alwaysAllowMut = useMutation({
     mutationFn: (item: any) => {
@@ -58,24 +60,35 @@ export function ApprovalsPage() {
   });
 
   const items = approvals ?? [];
+  const filteredItems = items.filter((item: any) => {
+    const tc = item.toolCall;
+    if (riskFilter && tc?.riskTier !== riskFilter) return false;
+    if (searchFilter) {
+      const q = searchFilter.toLowerCase();
+      const matchesName = tc?.toolName?.toLowerCase().includes(q);
+      const matchesDesc = item.humanDescription?.toLowerCase().includes(q);
+      if (!matchesName && !matchesDesc) return false;
+    }
+    return true;
+  });
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!items.length) return;
+      if (!filteredItems.length) return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIdx((i) => Math.min(i + 1, items.length - 1));
+        setSelectedIdx((i) => Math.min(i + 1, filteredItems.length - 1));
       }
       if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault();
         setSelectedIdx((i) => Math.max(i - 1, 0));
       }
       if (e.key === 'a' && !e.metaKey && !e.ctrlKey) {
-        const item = items[selectedIdx];
+        const item = filteredItems[selectedIdx];
         if (item) {
           approveMut.mutate(
             { id: item.id, body: { approver: 'dashboard' } },
@@ -84,7 +97,7 @@ export function ApprovalsPage() {
         }
       }
       if (e.key === 'd' && !e.metaKey && !e.ctrlKey) {
-        const item = items[selectedIdx];
+        const item = filteredItems[selectedIdx];
         if (item) {
           denyMut.mutate(
             { id: item.id, body: { approver: 'dashboard', reason: 'Denied from dashboard' } },
@@ -93,7 +106,7 @@ export function ApprovalsPage() {
         }
       }
     },
-    [items, selectedIdx, approveMut, denyMut, toast],
+    [filteredItems, selectedIdx, approveMut, denyMut, toast],
   );
 
   useEffect(() => {
@@ -102,8 +115,8 @@ export function ApprovalsPage() {
   }, [handleKeyDown]);
 
   useEffect(() => {
-    if (selectedIdx >= items.length) setSelectedIdx(Math.max(0, items.length - 1));
-  }, [items.length, selectedIdx]);
+    if (selectedIdx >= filteredItems.length) setSelectedIdx(Math.max(0, filteredItems.length - 1));
+  }, [filteredItems.length, selectedIdx]);
 
   return (
     <div className="max-w-3xl mx-auto" data-tour="tour-approvals">
@@ -112,28 +125,51 @@ export function ApprovalsPage() {
         <div>
           <h1 className="text-lg font-bold text-text-primary">Approvals</h1>
           <p className="text-xs text-text-muted mt-1">
-            {items.length} pending
+            {filteredItems.length} of {items.length} pending
             {items.length > 0 && (
               <> · <span className="font-mono">j/k</span> navigate · <span className="font-mono">a</span> approve · <span className="font-mono">d</span> deny</>
             )}
           </p>
         </div>
-        {items.length > 1 && (
+        {filteredItems.length > 1 && (
           <div className="flex items-center gap-2">
             <Button
               size="sm"
               onClick={() => {
-                items.forEach((item) =>
+                filteredItems.forEach((item) =>
                   approveMut.mutate({ id: item.id, body: { approver: 'dashboard' } }),
                 );
-                toast(`Approved ${items.length} actions`, 'success');
+                toast(`Approved ${filteredItems.length} actions`, 'success');
               }}
             >
-              Approve All ({items.length})
+              Approve All ({filteredItems.length})
             </Button>
           </div>
         )}
       </div>
+
+      {/* Filter bar */}
+      {items.length > 0 && (
+        <div className="flex items-center gap-3 mb-4">
+          <input
+            type="text"
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+            placeholder="Search tools or descriptions..."
+            className="flex-1 bg-surface-1 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
+          />
+          <select
+            value={riskFilter}
+            onChange={(e) => setRiskFilter(e.target.value)}
+            className="bg-surface-1 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none"
+          >
+            <option value="">All Risk</option>
+            <option value="READ">READ</option>
+            <option value="WRITE">WRITE</option>
+            <option value="DESTRUCTIVE">DESTRUCTIVE</option>
+          </select>
+        </div>
+      )}
 
       {/* Loading */}
       {isLoading && (
@@ -147,14 +183,14 @@ export function ApprovalsPage() {
           <p className="text-sm font-medium text-text-secondary">All clear</p>
           <p className="text-xs text-text-muted mt-1">
             No actions waiting for approval. Approved actions run in a secure container and show up in{' '}
-            <Link to="/activity" className="text-accent hover:text-accent-bright underline">Activity</Link> with execution status.
+            <Link to="/audit" className="text-accent hover:text-accent-bright underline">Audit</Link> with execution status.
           </p>
         </div>
       )}
 
       {/* Cards */}
       <div className="space-y-3" data-tour="tour-approval-cards">
-        {items.map((item, idx) => {
+        {filteredItems.map((item, idx) => {
           const tc = item.toolCall;
           const isSelected = idx === selectedIdx;
           const isExpanded = expandedId === item.id;
@@ -166,7 +202,7 @@ export function ApprovalsPage() {
               className={clsx(
                 'rounded-xl border p-5 transition-all',
                 isSelected
-                  ? 'border-accent/30 bg-surface-1 glow-accent'
+                  ? 'border-accent/30 bg-surface-1'
                   : 'border-border bg-surface-0 hover:border-border-strong',
               )}
               onClick={() => setSelectedIdx(idx)}

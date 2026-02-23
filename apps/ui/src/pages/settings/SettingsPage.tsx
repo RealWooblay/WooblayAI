@@ -2,7 +2,6 @@
  * Settings — Account management, platform mode, preferences.
  */
 
-import { useState } from 'react';
 import { useUser as useClerkUser, useClerk as useClerkInstance } from '@clerk/clerk-react';
 
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -16,10 +15,10 @@ function useClerk() {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   return useClerkInstance();
 }
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '../../components/common/Button.tsx';
-import { getOrgPolicySettings, updateOrgPolicySettings } from '../../api/client.ts';
-import { useToast } from '../../components/common/Toast.tsx';
+import { getOrgPolicySettings } from '../../api/client.ts';
 import { useTheme, type ThemeId } from '../../contexts/ThemeContext.tsx';
 
 const APPEARANCES: { id: ThemeId; label: string }[] = [
@@ -31,8 +30,6 @@ const APPEARANCES: { id: ThemeId; label: string }[] = [
 export function SettingsPage() {
   const { user } = useUser();
   const { signOut } = useClerk();
-  const { toast } = useToast();
-  const qc = useQueryClient();
   const { theme, setTheme } = useTheme();
 
   // Platform mode
@@ -43,44 +40,10 @@ export function SettingsPage() {
   });
   const platformMode = (orgSettings as any)?.platformMode ?? 'firewall';
 
-  const [unlockPassword, setUnlockPassword] = useState('');
-
-  const toggleModeMut = useMutation({
-    mutationFn: (mode: 'firewall' | 'full') => {
-      if (mode === 'full') {
-        return updateOrgPolicySettings({ platformMode: 'full', unlockPassword });
-      }
-      return updateOrgPolicySettings({ platformMode: 'firewall' });
-    },
-    onSuccess: () => {
-      setUnlockPassword('');
-      qc.invalidateQueries({ queryKey: ['org-settings'] });
-      toast(platformMode === 'firewall' ? 'Full Platform mode enabled' : 'Switched to Firewall mode', 'success');
-    },
-    onError: (err: any) => {
-      let msg = 'Failed to switch mode';
-      if (err?.body) {
-        try {
-          const o = JSON.parse(err.body);
-          msg = o.detail || o.error || msg;
-        } catch {
-          msg = err.message || msg;
-        }
-      } else {
-        msg = err?.message || err?.error || msg;
-      }
-      if (msg.includes('not configured') || msg.includes('Contact Wooblay')) {
-        toast('Full Platform access is gated. Contact Wooblay for the unlock password.', 'error');
-      } else {
-        toast(msg.includes('Incorrect') ? 'Incorrect platform password.' : msg, 'error');
-      }
-    },
-  });
-
   return (
     <div className="max-w-2xl mx-auto space-y-4" data-tour="tour-settings">
       <h1 className="text-lg font-bold text-text-primary mb-1">Settings</h1>
-      <p className="text-xs text-text-muted mb-6">Account, platform mode, and preferences</p>
+      <p className="text-xs text-text-muted mb-6">Account, appearance, and preferences</p>
 
       {/* Profile */}
       <div className="bg-surface-1 border border-border rounded-xl p-5">
@@ -141,60 +104,39 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* Platform Mode */}
+      {/* Organization */}
       <div className="bg-surface-1 border border-border rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-text-primary mb-1">Platform Mode</h2>
-        <p className="text-xs text-text-muted mb-4">
-          Firewall mode is the default. Full Platform (hosted agents, sensors, orchestration) is gated — we decide who gets access and provide the unlock password.
-        </p>
-
-        <div className="space-y-3">
-          {/* Current mode indicator */}
-          <div className="flex items-center gap-3 p-3 bg-surface-2 rounded-lg">
-            <div className={`w-2 h-2 rounded-full ${platformMode === 'full' ? 'bg-purple-400' : 'bg-emerald-400'}`} />
-            <div className="flex-1">
-              <p className="text-xs font-medium text-text-primary">
-                {platformMode === 'full' ? 'Full Platform' : 'Firewall'}
-              </p>
-              <p className="text-[10px] text-text-muted">
-                {platformMode === 'full'
-                  ? 'All features visible: agents, sensors, operations, insights'
-                  : 'Focused on API gateway: setup, connections, policies, audit'}
-              </p>
-            </div>
+        <h2 className="text-sm font-semibold text-text-primary mb-4">Organization</h2>
+        <div className="space-y-3 text-sm">
+          <div className="flex justify-between items-center">
+            <span className="text-text-secondary">Mode</span>
+            <span className="text-text-primary font-medium text-xs">
+              {platformMode === 'full' ? 'Full Platform' : 'Firewall'}
+            </span>
           </div>
+        </div>
+      </div>
 
-          {/* Toggle actions */}
-          {platformMode === 'firewall' ? (
-            <div className="space-y-2">
-              <p className="text-[10px] text-text-muted">Enter the Full Platform password we provided to unlock.</p>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={unlockPassword}
-                  onChange={(e) => setUnlockPassword(e.target.value)}
-                  placeholder="Platform password (from Wooblay)"
-                  className="flex-1 bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                />
-                <Button
-                  size="sm"
-                  onClick={() => unlockPassword && toggleModeMut.mutate('full')}
-                  disabled={!unlockPassword || toggleModeMut.isPending}
-                >
-                  Unlock Full Platform
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => toggleModeMut.mutate('firewall')}
-              disabled={toggleModeMut.isPending}
-            >
-              Switch to Firewall Mode
-            </Button>
-          )}
+      {/* Quick Links */}
+      <div className="bg-surface-1 border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-text-primary mb-4">Quick Links</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Link to="/setup" className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-2 transition-colors">
+            <span className="text-xs text-text-primary font-medium">API Keys</span>
+            <span className="text-[10px] text-text-muted ml-auto">→</span>
+          </Link>
+          <Link to="/usage" className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-2 transition-colors">
+            <span className="text-xs text-text-primary font-medium">Usage & Billing</span>
+            <span className="text-[10px] text-text-muted ml-auto">→</span>
+          </Link>
+          <Link to="/policies" className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-2 transition-colors">
+            <span className="text-xs text-text-primary font-medium">Policies</span>
+            <span className="text-[10px] text-text-muted ml-auto">→</span>
+          </Link>
+          <Link to="/notifications" className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-2 transition-colors">
+            <span className="text-xs text-text-primary font-medium">Notifications</span>
+            <span className="text-[10px] text-text-muted ml-auto">→</span>
+          </Link>
         </div>
       </div>
 

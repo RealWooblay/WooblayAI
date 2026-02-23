@@ -41,6 +41,9 @@ export function NotificationsPage() {
   const { data: webhooks = [] } = useQuery({ queryKey: ['webhooks'], queryFn: getWebhooks });
   const [newUrl, setNewUrl] = useState('');
   const [newEvents, setNewEvents] = useState<string[]>(['approval.pending', 'flag.critical']);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editUrl, setEditUrl] = useState('');
+  const [editEvents, setEditEvents] = useState<string[]>([]);
 
   const addWebhookMut = useMutation({
     mutationFn: () =>
@@ -61,8 +64,28 @@ export function NotificationsPage() {
     onSuccess: (data) => toast(data.success ? 'Test sent successfully' : 'Test failed', data.success ? 'success' : 'error'),
   });
 
+  const updateWebhookMut = useMutation({
+    mutationFn: ({ id, url, events }: { id: string; url: string; events: string[] }) =>
+      deleteWebhook(id).then(() => createWebhook({ url, events })),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['webhooks'] }); setEditingId(null); toast('Webhook updated', 'success'); },
+  });
+
   const toggleEvent = (eventId: string) => {
     setNewEvents((prev) =>
+      prev.includes(eventId)
+        ? prev.filter((e) => e !== eventId)
+        : [...prev, eventId],
+    );
+  };
+
+  const startEdit = (wh: Webhook) => {
+    setEditingId(wh.id);
+    setEditUrl(wh.url);
+    try { setEditEvents(JSON.parse(wh.events)); } catch { setEditEvents([]); }
+  };
+
+  const toggleEditEvent = (eventId: string) => {
+    setEditEvents((prev) =>
       prev.includes(eventId)
         ? prev.filter((e) => e !== eventId)
         : [...prev, eventId],
@@ -107,24 +130,63 @@ export function NotificationsPage() {
             {webhooks.map((wh: Webhook) => {
               let events: string[] = [];
               try { events = JSON.parse(wh.events); } catch { /* empty */ }
+              const isEditing = editingId === wh.id;
               return (
-                <div key={wh.id} className="flex items-center gap-3 bg-surface-2 rounded-lg p-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-text-primary font-mono truncate">{wh.url}</p>
-                    <p className="text-[10px] text-text-muted mt-0.5">{events.join(', ')}</p>
+                <div key={wh.id} className="bg-surface-2 rounded-lg overflow-hidden">
+                  <div className="flex items-center gap-3 p-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-text-primary font-mono truncate">{wh.url}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-[10px] text-text-muted">{events.join(', ')}</p>
+                        {(wh as any).lastDeliveryAt && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                            (wh as any).lastDeliverySuccess ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                          }`}>
+                            {(wh as any).lastDeliverySuccess ? 'Last delivery OK' : 'Last delivery failed'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => testWebhookMut.mutate(wh.id)}
+                      className="text-[10px] text-accent hover:text-accent-bright">
+                      Test
+                    </button>
+                    <button onClick={() => isEditing ? setEditingId(null) : startEdit(wh)}
+                      className="text-[10px] text-text-secondary hover:text-text-primary">
+                      {isEditing ? 'Cancel' : 'Edit'}
+                    </button>
+                    <button onClick={() => deleteWebhookMut.mutate(wh.id)}
+                      className="text-[10px] text-red-400/50 hover:text-red-400">
+                      Remove
+                    </button>
                   </div>
-                  <button
-                    onClick={() => testWebhookMut.mutate(wh.id)}
-                    className="text-[10px] text-accent hover:text-accent-bright"
-                  >
-                    Test
-                  </button>
-                  <button
-                    onClick={() => deleteWebhookMut.mutate(wh.id)}
-                    className="text-[10px] text-red-400/50 hover:text-red-400"
-                  >
-                    Remove
-                  </button>
+                  {isEditing && (
+                    <div className="border-t border-border p-3 space-y-3">
+                      <div>
+                        <label className="block text-[10px] text-text-muted mb-1">URL</label>
+                        <input value={editUrl} onChange={(e) => setEditUrl(e.target.value)}
+                          className="w-full bg-surface-1 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-text-muted mb-1">Events</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {visibleEvents.map((evt) => (
+                            <button key={evt.id} onClick={() => toggleEditEvent(evt.id)}
+                              className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
+                                editEvents.includes(evt.id) ? 'bg-accent/10 border-accent/30 text-accent' : 'bg-surface-1 border-border text-text-muted'
+                              }`}>
+                              {evt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button onClick={() => updateWebhookMut.mutate({ id: wh.id, url: editUrl, events: editEvents })}
+                        disabled={!editUrl || updateWebhookMut.isPending}
+                        className="px-3 py-1.5 bg-accent text-white text-xs rounded-lg hover:bg-accent-bright disabled:opacity-40 transition-colors">
+                        {updateWebhookMut.isPending ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -146,7 +208,12 @@ export function NotificationsPage() {
             </p>
           </div>
           <div>
-            <label className="block text-[11px] text-text-muted mb-2">Events</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[11px] text-text-muted">Events</label>
+              <button type="button" onClick={() => setNewEvents(visibleEvents.map(e => e.id))} className="text-[10px] text-accent hover:text-accent-bright">
+                Select all
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2">
               {visibleEvents.map((evt) => (
                 <button

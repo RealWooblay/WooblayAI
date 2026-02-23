@@ -172,7 +172,7 @@ function ConnectionSecretsEditor({ connectionId }: { connectionId: string }) {
         <div>
           <h4 className="text-[11px] font-medium text-text-secondary">Environment Variables</h4>
           <p className="text-[10px] text-text-tertiary mt-0.5">
-            Injected into execution containers. Set the env var name your MCP server expects.
+            Environment variables injected into secure containers at runtime.
           </p>
         </div>
       </div>
@@ -188,7 +188,7 @@ function ConnectionSecretsEditor({ connectionId }: { connectionId: string }) {
                   <div className="flex items-center gap-2">
                     <code className="text-[11px] font-mono text-text-primary">{s.key}</code>
                     <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${s.mode === 'exec_only' ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'}`}>
-                      {s.mode === 'exec_only' ? 'L3 only' : 'agent'}
+                      {s.mode === 'exec_only' ? 'Secure container' : 'agent'}
                     </span>
                     <span className="text-[9px] text-text-muted">••••••••</span>
                   </div>
@@ -232,7 +232,7 @@ function ConnectionSecretsEditor({ connectionId }: { connectionId: string }) {
                 onChange={(e) => setNewMode(e.target.value as 'exec_only' | 'agent')}
                 className="w-full bg-surface-2 border border-border rounded px-2 py-1.5 text-[10px] text-text-primary focus:border-accent focus:outline-none"
               >
-                <option value="exec_only">L3 only</option>
+                <option value="exec_only">Secure container</option>
                 <option value="agent">Agent</option>
               </select>
             </div>
@@ -247,8 +247,7 @@ function ConnectionSecretsEditor({ connectionId }: { connectionId: string }) {
 
           {secrets.length === 0 && (
             <p className="text-[9px] text-text-muted mt-2">
-              No secrets configured. Add env vars that MCP servers need (e.g., GITHUB_TOKEN, SLACK_BOT_TOKEN).
-              L3 secrets are injected only into ephemeral execution containers — agents never see them.
+              No secrets configured. Add env vars that MCP servers need (e.g., GITHUB_TOKEN, SLACK_BOT_TOKEN). Secrets are injected only into isolated execution containers — agents never see them.
             </p>
           )}
         </>
@@ -387,7 +386,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
           <h1 className="text-lg font-semibold text-text-primary">{credentialsOnly ? 'Credentials' : 'Connections'}</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
             {credentialsOnly
-              ? 'Encrypted credentials for Layer 3 execution. Agents never see them.'
+              ? 'Encrypted credentials injected into secure containers. Agents never see them.'
               : 'Service credentials for secure execution. Encrypted, isolated, ephemeral.'}
           </p>
         </div>
@@ -401,7 +400,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
         <div className="bg-surface-1 border border-accent/30 rounded-xl p-5 mb-6">
           <h3 className="text-sm font-medium text-text-primary mb-1">Add Connection</h3>
           <p className="text-[10px] text-text-tertiary mb-4">
-            Any service — GitHub, AWS, Slack, Stripe, or anything else. Your credential is encrypted and only injected into ephemeral containers at execution time. Agents never see it.
+            Add credentials for any service. Encrypted at rest and injected only into isolated containers at execution time.
           </p>
 
           <div className="space-y-3">
@@ -436,7 +435,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                 className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none font-mono"
               />
               <p className="text-[10px] text-text-tertiary mt-1">
-                Encrypted at rest. Never exposed to agents. Only used inside ephemeral L3 containers.
+                Encrypted at rest. Never exposed to agents. Only used inside isolated secure containers.
               </p>
             </div>
             <div>
@@ -474,7 +473,7 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
       {connectionList.length === 0 && !addOpen && (
         <EmptyState
           title={credentialsOnly ? 'No credentials configured' : 'No connections configured'}
-          description="Add any service credential to enable secure agent execution. Link connections to MCP tool servers for Layer 3 isolation."
+          description="Add service credentials to enable secure execution. Link them to MCP tool servers for isolated container injection."
         />
       )}
 
@@ -554,8 +553,8 @@ export function ConnectionsPage({ credentialsOnly = false }: ConnectionsPageProp
                     {(!expandedSection || expandedSection === 'secrets') && (
                       <>
                         <div className="text-[11px] text-text-secondary rounded-lg bg-surface-2 border border-border p-3">
-                          <p className="font-medium text-text-primary mb-1">Execution</p>
-                          <p>Actions run in an isolated ephemeral container. The policy engine enforces your rules on every call — configure what's allowed, denied, or needs approval on the Policies page.</p>
+                          <p className="font-medium text-text-primary mb-1">Secure Execution</p>
+                          <p>Actions run in an isolated container. The policy engine enforces your rules on every call.</p>
                         </div>
                         <ConnectionSecretsEditor connectionId={conn.id} />
                       </>

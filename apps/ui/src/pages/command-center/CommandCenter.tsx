@@ -32,6 +32,7 @@ import {
 import { Button } from '../../components/common/Button.tsx';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
 import { useToast } from '../../components/common/Toast.tsx';
+import { IconZap, IconLock, IconShield } from '../../components/icons.tsx';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -637,22 +638,16 @@ function FirewallDashboard() {
   const proxyInstances = (instances ?? []).filter(i => i.instanceType === 'proxy');
 
   return (
-    <div className="h-full overflow-y-auto p-6 canvas-bg relative">
-      <div className="max-w-3xl mx-auto space-y-5 relative z-10">
+    <div className="h-full overflow-y-auto animate-fade-in"><div className="container-page">
+      <div className="max-w-3xl mx-auto space-y-5">
         {/* Header */}
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-lg font-bold text-text-primary font-mono">&gt; wooblay gate</h1>
+            <h1 className="text-lg font-bold text-text-primary">Wooblay Gate</h1>
             <p className="text-xs text-text-muted mt-1">
               AI agent firewall — policy enforcement, credential isolation, secure execution.
             </p>
           </div>
-          <button onClick={() => setProxyDeployOpen(!proxyDeployOpen)}
-            className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
-              proxyDeployOpen ? 'bg-violet-500/10 text-violet-400' : 'bg-accent text-white hover:bg-accent-bright'
-            }`}>
-            {proxyDeployOpen ? 'cancel' : '+ deploy proxy'}
-          </button>
         </div>
 
         {/* Inline proxy deploy */}
@@ -679,10 +674,17 @@ function FirewallDashboard() {
         </div>
 
         {/* Proxy instances */}
-        {proxyInstances.length > 0 && (
-          <div className="space-y-2">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
             <h2 className="text-[10px] text-text-muted uppercase tracking-wider font-mono">MCP Proxies</h2>
-            {proxyInstances.map(inst => (
+            <button onClick={() => setProxyDeployOpen(!proxyDeployOpen)}
+              className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
+                proxyDeployOpen ? 'bg-violet-500/10 text-violet-400' : 'bg-accent text-white hover:bg-accent-bright'
+              }`}>
+              {proxyDeployOpen ? 'cancel' : '+ deploy proxy'}
+            </button>
+          </div>
+          {proxyInstances.length > 0 && proxyInstances.map(inst => (
               <Link key={inst.id} to={`/instances/${inst.id}`}
                 className="flex items-center justify-between bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors">
                 <div className="flex items-center gap-3">
@@ -694,8 +696,7 @@ function FirewallDashboard() {
                 </span>
               </Link>
             ))}
-          </div>
-        )}
+        </div>
 
         {/* Pending approvals alert */}
         {pending.length > 0 && (
@@ -717,14 +718,17 @@ function FirewallDashboard() {
         {/* Quick Actions */}
         <div className="grid grid-cols-3 gap-3">
           <Link to="/setup" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <IconZap size={18} className="text-accent mb-2" />
             <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Gateway &rarr;</p>
-            <p className="text-[10px] text-text-muted">API keys, endpoints, connect config</p>
+            <p className="text-[10px] text-text-muted">Connect Cursor, Claude, or HTTP</p>
           </Link>
           <Link to="/credentials" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <IconLock size={18} className="text-accent mb-2" />
             <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Credentials &rarr;</p>
             <p className="text-[10px] text-text-muted">Manage credential vault</p>
           </Link>
           <Link to="/policies" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <IconShield size={18} className="text-accent mb-2" />
             <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Policies &rarr;</p>
             <p className="text-[10px] text-text-muted">Configure allow/deny rules</p>
           </Link>
@@ -751,8 +755,7 @@ function FirewallDashboard() {
           </Link>
         </div>
       </div>
-      <div className="scanline-overlay pointer-events-none" />
-    </div>
+    </div></div>
   );
 }
 
@@ -815,15 +818,15 @@ function FullPlatformDashboard() {
   }, [missionQueries]);
 
   return (
-    <div className="h-full overflow-y-auto p-6 canvas-bg relative">
+    <div className="h-full overflow-y-auto animate-fade-in"><div className="container-page">
       <WeatherBackground weather={weather} />
-      <div className="max-w-4xl mx-auto space-y-5 relative z-10" data-tour="tour-agents">
+      <div className="max-w-4xl mx-auto space-y-5" data-tour="tour-agents">
 
         {/* Header */}
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-lg font-bold text-text-primary font-mono">
-              {isEmpty && !hasData ? '> wooblay' : running.length > 0 ? `> ${running.length} agent${running.length !== 1 ? 's' : ''} active` : '> agents'}
+            <h1 className="text-lg font-bold text-text-primary">
+              {isEmpty && !hasData ? 'Wooblay' : running.length > 0 ? `${running.length} agent${running.length !== 1 ? 's' : ''} active` : 'Agents'}
             </h1>
             {hasData && (
               <div className="flex items-center gap-4 mt-1.5">
@@ -873,7 +876,7 @@ function FullPlatformDashboard() {
         {pending.length > 0 && (
           <Link to="/approvals" className="block p-3 rounded-xl bg-amber-500/8 border border-amber-500/20 hover:border-amber-500/40 transition-colors">
             <div className="flex items-center gap-3">
-              <span className="font-mono text-amber-400 text-xs animate-blink">[?]</span>
+              <span className="font-mono text-amber-400 text-xs">[?]</span>
               <span className="text-xs text-amber-300 font-medium">{pending.length} action{pending.length !== 1 ? 's' : ''} waiting for approval</span>
               <span className="text-[10px] text-amber-400/60 ml-auto font-mono">review →</span>
             </div>
@@ -885,8 +888,8 @@ function FullPlatformDashboard() {
           <div className="space-y-4">
             {/* Welcome */}
             <div className="text-center py-8">
-              <div className="font-mono text-2xl mb-3" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o )</div>
-              <h2 className="text-lg font-semibold text-text-primary font-mono">Welcome to Wooblay</h2>
+              <div className="font-mono text-2xl mb-3">( o_o )</div>
+              <h2 className="text-lg font-semibold text-text-primary">Welcome to Wooblay</h2>
               <p className="text-xs text-text-secondary mt-1 max-w-md mx-auto">
                 The secure execution environment for AI agents. Set up your platform in 3 steps.
               </p>
@@ -894,7 +897,7 @@ function FullPlatformDashboard() {
 
             {/* Setup Checklist */}
             <div className="bg-surface-1 border border-border rounded-xl p-5 max-w-lg mx-auto">
-              <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Setup Checklist</h3>
+              <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider mb-4">Setup Checklist</h3>
               <div className="space-y-3">
                 <SetupStep
                   number={1}
@@ -957,7 +960,7 @@ function FullPlatformDashboard() {
         {/* Stopped Agents */}
         {stopped.length > 0 && (
           <div>
-            <p className="text-[10px] text-text-tertiary uppercase tracking-wider font-mono mb-2">offline</p>
+            <p className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">offline</p>
             <div className={`grid gap-3 ${stopped.length > 2 ? 'md:grid-cols-2' : 'grid-cols-1'}`}>
               {stopped.map(inst => (
                 <InstanceCard key={inst.id} instance={inst} mission={undefined} />
@@ -969,12 +972,12 @@ function FullPlatformDashboard() {
         {/* Quick Nav */}
         {hasData && running.length > 0 && (
           <div className="pt-3 border-t border-border/30 flex items-center gap-6">
-            <Link to="/audit" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">audit →</Link>
-            <Link to="/policies" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">policies →</Link>
+            <Link to="/audit" className="text-[10px] text-text-tertiary hover:text-text-secondary transition-colors">audit →</Link>
+            <Link to="/policies" className="text-[10px] text-text-tertiary hover:text-text-secondary transition-colors">policies →</Link>
           </div>
         )}
       </div>
-    </div>
+    </div></div>
   );
 }
 
@@ -996,11 +999,11 @@ function SetupStep({
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[12px] font-medium text-text-primary font-mono">{title}</p>
+        <p className="text-[12px] font-medium text-text-primary">{title}</p>
         <p className="text-[10px] text-text-tertiary mt-0.5">{description}</p>
       </div>
       {!done && (
-        <span className="text-[10px] text-accent font-mono shrink-0 mt-0.5">{actionLabel} →</span>
+        <span className="text-[10px] text-accent shrink-0 mt-0.5">{actionLabel} →</span>
       )}
     </div>
   );

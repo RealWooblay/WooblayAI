@@ -94,7 +94,7 @@ export function DataTable<T>({
 
   if (data.length === 0) {
     return (
-      <div className="py-16 text-center text-sm text-stone-400">
+      <div className="py-16 text-center text-sm text-text-tertiary">
         {emptyMessage}
       </div>
     );
@@ -104,12 +104,12 @@ export function DataTable<T>({
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-stone-200">
+          <tr className="border-b border-border">
             {selectable && (
               <th className="w-10 px-3 py-2.5 text-left">
                 <input
                   type="checkbox"
-                  className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  className="rounded border-border text-accent focus:ring-accent cursor-pointer"
                   checked={selectedIds?.size === data.length && data.length > 0}
                   onChange={toggleAll}
                 />
@@ -119,7 +119,7 @@ export function DataTable<T>({
               <th
                 key={col.key}
                 style={col.width ? { width: col.width } : undefined}
-                className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-stone-500"
+                className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-text-tertiary"
               >
                 {col.header}
               </th>
@@ -138,18 +138,18 @@ export function DataTable<T>({
                 key={id}
                 onClick={() => onRowClick?.(row)}
                 className={clsx(
-                  'border-b border-stone-100 transition-colors cursor-pointer',
+                  'border-b border-border transition-colors cursor-pointer',
                   isSelected
-                    ? 'bg-blue-50 border-l-2 border-l-blue-600'
-                    : 'hover:bg-stone-50 border-l-2 border-l-transparent',
-                  isFocused && !isSelected && 'bg-stone-50',
+                    ? 'bg-surface-2 border-l-2 border-l-accent'
+                    : 'hover:bg-surface-1 border-l-2 border-l-transparent',
+                  isFocused && !isSelected && 'bg-surface-1',
                 )}
               >
                 {selectable && (
                   <td className="px-3 py-2.5">
                     <input
                       type="checkbox"
-                      className="rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      className="rounded border-border text-accent focus:ring-accent cursor-pointer"
                       checked={isChecked}
                       onChange={(e) => {
                         e.stopPropagation();
@@ -160,7 +160,7 @@ export function DataTable<T>({
                   </td>
                 )}
                 {columns.map((col) => (
-                  <td key={col.key} className="px-3 py-2.5 text-stone-700">
+                  <td key={col.key} className="px-3 py-2.5 text-text-secondary">
                     {col.render(row)}
                   </td>
                 ))}

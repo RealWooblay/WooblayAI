@@ -61,6 +61,9 @@ export function ActivityPage() {
   const [page, setPage] = useState(1);
   const [riskFilter, setRiskFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'time' | 'risk'>('time');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [expanded, setExpanded] = useState<string | null>(null);
 
   // Date range for audit / export
@@ -179,8 +182,8 @@ export function ActivityPage() {
       {/* ── Header + Export ───────────────────────────────────────────────── */}
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-text-primary">Audit</h1>
-          <p className="text-sm text-text-muted mt-0.5">Tamper-evident log of every agent action, AI detections, and chain verification</p>
+          <h1 className="text-lg font-bold text-text-primary">Audit Log</h1>
+          <p className="text-xs text-text-muted mt-0.5">Tamper-evident log of every agent action with cryptographic receipts</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -278,128 +281,18 @@ export function ActivityPage() {
         )}
       </div>
 
-      {/* ── Anomaly Flags ─────────────────────────────────────────────────── */}
-      {totalFlags > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Detected Anomalies</h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowDismissed(!showDismissed)}
-                className="text-[10px] text-text-muted hover:text-text-primary font-mono transition-colors"
-              >
-                {showDismissed ? 'hide dismissed' : 'show dismissed'}
-              </button>
-              <button
-                onClick={() => dismissAllMutation.mutate()}
-                disabled={dismissAllMutation.isPending}
-                className="px-2.5 py-1 text-[10px] font-mono bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text-primary border border-border rounded-lg transition-colors disabled:opacity-40"
-              >
-                {dismissAllMutation.isPending ? 'dismissing...' : 'dismiss all'}
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {flags.slice(0, 6).map((flag: AuditFlag) => (
-              <div key={flag.id} className={`rounded-xl border p-3 ${severityColor[flag.severity] ?? ''}`}>
-                <div className="min-w-0 mb-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[9px] font-bold uppercase">{flag.severity}</span>
-                    <span className="text-[9px] opacity-50">{flag.category.replace(/_/g, ' ')}</span>
-                  </div>
-                  <p className="text-xs font-medium">{flag.title}</p>
-                  <p className="text-[10px] opacity-70 mt-0.5 line-clamp-2">{flag.description}</p>
-                </div>
-                <div className="flex items-center gap-2 pt-2 border-t border-white/5">
-                  {flag.severity === 'CRITICAL' || flag.severity === 'HIGH' ? (
-                    <Link to="/policies" className="text-[10px] font-medium hover:underline">
-                      Update policies →
-                    </Link>
-                  ) : (
-                    <Link to="/approvals" className="text-[10px] font-medium hover:underline">
-                      Review approvals →
-                    </Link>
-                  )}
-                  <button
-                    onClick={() => dismissMutation.mutate(flag.id)}
-                    className="text-[10px] opacity-40 hover:opacity-100 ml-auto"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Dismissed Flags (paginated history) ────────────────────────────── */}
-      {showDismissed && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Dismissed</h2>
-          {!dismissedData?.flags.length ? (
-            <div className="bg-surface-1 border border-border rounded-xl p-6 text-center">
-              <p className="text-xs text-text-muted">No dismissed flags.</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {dismissedData.flags.map((flag: AuditFlag) => (
-                  <div key={flag.id} className="rounded-xl border border-border/40 bg-surface-1/50 p-3 opacity-60">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[9px] font-bold uppercase text-text-muted">{flag.severity}</span>
-                        <span className="text-[9px] text-text-muted">{flag.category.replace(/_/g, ' ')}</span>
-                        <span className="text-[9px] text-text-muted ml-auto">dismissed</span>
-                      </div>
-                      <p className="text-xs font-medium text-text-secondary">{flag.title}</p>
-                      <p className="text-[10px] text-text-muted mt-0.5 line-clamp-1">{flag.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Dismissed pagination */}
-              {dismissedData.totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2 pt-1">
-                  <button
-                    onClick={() => setDismissedPage(Math.max(1, dismissedPage - 1))}
-                    disabled={dismissedPage <= 1}
-                    className="px-2 py-1 text-[10px] font-mono bg-surface-2 text-text-muted rounded-lg border border-border disabled:opacity-20 hover:bg-surface-3 transition-colors"
-                  >
-                    ←
-                  </button>
-                  <span className="text-[10px] text-text-muted font-mono tabular-nums">
-                    {dismissedPage} / {dismissedData.totalPages}
-                  </span>
-                  <button
-                    onClick={() => setDismissedPage(Math.min(dismissedData.totalPages, dismissedPage + 1))}
-                    disabled={dismissedPage >= dismissedData.totalPages}
-                    className="px-2 py-1 text-[10px] font-mono bg-surface-2 text-text-muted rounded-lg border border-border disabled:opacity-20 hover:bg-surface-3 transition-colors"
-                  >
-                    →
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Show dismissed toggle even when there are no active flags */}
-      {totalFlags === 0 && (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowDismissed(!showDismissed)}
-            className="text-[10px] text-text-muted hover:text-text-primary font-mono transition-colors"
-          >
-            {showDismissed ? 'hide dismissed flags' : 'show dismissed flags'}
-          </button>
-        </div>
-      )}
-
       {/* ── Filters ───────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-end gap-3">
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-[10px] text-text-muted mb-0.5">Search</label>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search tool name, description..."
+            className="w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
+          />
+        </div>
         <div>
           <label className="block text-[10px] text-text-muted mb-0.5">From</label>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
@@ -431,13 +324,31 @@ export function ActivityPage() {
           <option value="denied">Denied</option>
           <option value="pending">Pending</option>
         </select>
+        {(riskFilter || statusFilter || searchQuery) && (
+          <button
+            onClick={() => { setRiskFilter(''); setStatusFilter(''); setSearchQuery(''); setPage(1); }}
+            className="text-xs text-accent hover:text-accent-bright"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* ── Audit Log ─────────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden" data-tour="tour-audit-log">
         <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
-          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Audit log</h2>
+          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Audit Log</h2>
           {activity && <span className="text-[10px] text-text-tertiary">{activity.total} records</span>}
+        </div>
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-border text-[10px] text-text-tertiary uppercase tracking-wider">
+          <button onClick={() => { setSortBy('time'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }} className="w-[65px] shrink-0 text-left hover:text-text-primary transition-colors">
+            Time {sortBy === 'time' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+          </button>
+          <button onClick={() => { setSortBy('risk'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }} className="w-14 text-left hover:text-text-primary transition-colors">
+            Risk {sortBy === 'risk' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+          </button>
+          <span className="flex-1">Description</span>
+          <span className="w-16 text-right">Status</span>
         </div>
 
         {isLoading ? (
@@ -513,27 +424,152 @@ export function ActivityPage() {
       </div>
 
       {/* ── Pagination ────────────────────────────────────────────────────── */}
-      {activity && activity.total > 30 && (
-        <div className="flex justify-center gap-3">
-          <button
-            onClick={() => setPage(Math.max(1, page - 1))}
-            disabled={page <= 1}
-            className="px-3 py-1 text-xs bg-surface-2 text-text-muted rounded-lg disabled:opacity-30"
-          >
-            Previous
-          </button>
-          <span className="text-xs text-text-muted py-1">
-            Page {page} of {Math.ceil(activity.total / 30)}
-          </span>
-          <button
-            onClick={() => setPage(page + 1)}
-            disabled={page * 30 >= activity.total}
-            className="px-3 py-1 text-xs bg-surface-2 text-text-muted rounded-lg disabled:opacity-30"
-          >
-            Next
-          </button>
+      {activity && activity.total > 30 && (() => {
+        const totalPages = Math.ceil(activity.total / 30);
+        const pageNums: number[] = [];
+        for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) pageNums.push(i);
+        return (
+          <div className="flex items-center justify-center gap-1">
+            <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1}
+              className="px-2.5 py-1 text-xs bg-surface-2 text-text-muted rounded-lg disabled:opacity-30 border border-border">
+              ←
+            </button>
+            {pageNums[0] > 1 && <span className="text-xs text-text-muted px-1">…</span>}
+            {pageNums.map(n => (
+              <button key={n} onClick={() => setPage(n)}
+                className={`px-2.5 py-1 text-xs rounded-lg border ${n === page ? 'bg-accent text-white border-accent' : 'bg-surface-2 text-text-muted border-border hover:border-border-strong'}`}>
+                {n}
+              </button>
+            ))}
+            {pageNums[pageNums.length - 1] < totalPages && <span className="text-xs text-text-muted px-1">…</span>}
+            <button onClick={() => setPage(page + 1)} disabled={page >= totalPages}
+              className="px-2.5 py-1 text-xs bg-surface-2 text-text-muted rounded-lg disabled:opacity-30 border border-border">
+              →
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* ── Anomaly Flags ─────────────────────────────────────────────────── */}
+      <details className="bg-surface-1 border border-border rounded-xl" open={totalFlags > 0}>
+        <summary className="px-4 py-3 cursor-pointer text-xs font-medium text-text-secondary uppercase tracking-wider hover:text-text-primary transition-colors">
+          Active Flags ({totalFlags})
+        </summary>
+        <div className="px-4 pb-4 space-y-3">
+          {totalFlags > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Detected Anomalies</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowDismissed(!showDismissed)}
+                    className="text-[10px] text-text-muted hover:text-text-primary font-mono transition-colors"
+                  >
+                    {showDismissed ? 'hide dismissed' : 'show dismissed'}
+                  </button>
+                  <button
+                    onClick={() => dismissAllMutation.mutate()}
+                    disabled={dismissAllMutation.isPending}
+                    className="px-2.5 py-1 text-[10px] font-mono bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text-primary border border-border rounded-lg transition-colors disabled:opacity-40"
+                  >
+                    {dismissAllMutation.isPending ? 'dismissing...' : 'dismiss all'}
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {flags.slice(0, 6).map((flag: AuditFlag) => (
+                  <div key={flag.id} className={`rounded-xl border p-3 ${severityColor[flag.severity] ?? ''}`}>
+                    <div className="min-w-0 mb-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[9px] font-bold uppercase">{flag.severity}</span>
+                        <span className="text-[9px] opacity-50">{flag.category.replace(/_/g, ' ')}</span>
+                      </div>
+                      <p className="text-xs font-medium">{flag.title}</p>
+                      <p className="text-[10px] opacity-70 mt-0.5 line-clamp-2">{flag.description}</p>
+                    </div>
+                    <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                      {flag.severity === 'CRITICAL' || flag.severity === 'HIGH' ? (
+                        <Link to="/policies" className="text-[10px] font-medium hover:underline">
+                          Update policies →
+                        </Link>
+                      ) : (
+                        <Link to="/approvals" className="text-[10px] font-medium hover:underline">
+                          Review approvals →
+                        </Link>
+                      )}
+                      <button
+                        onClick={() => dismissMutation.mutate(flag.id)}
+                        className="text-[10px] opacity-40 hover:opacity-100 ml-auto"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {showDismissed && (
+            <div className="space-y-2">
+              <h2 className="text-xs font-medium text-text-muted uppercase tracking-wider">Dismissed</h2>
+              {!dismissedData?.flags.length ? (
+                <div className="bg-surface-1 border border-border rounded-xl p-6 text-center">
+                  <p className="text-xs text-text-muted">No dismissed flags.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {dismissedData.flags.map((flag: AuditFlag) => (
+                      <div key={flag.id} className="rounded-xl border border-border/40 bg-surface-1/50 p-3 opacity-60">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[9px] font-bold uppercase text-text-muted">{flag.severity}</span>
+                            <span className="text-[9px] text-text-muted">{flag.category.replace(/_/g, ' ')}</span>
+                            <span className="text-[9px] text-text-muted ml-auto">dismissed</span>
+                          </div>
+                          <p className="text-xs font-medium text-text-secondary">{flag.title}</p>
+                          <p className="text-[10px] text-text-muted mt-0.5 line-clamp-1">{flag.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {dismissedData.totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                      <button
+                        onClick={() => setDismissedPage(Math.max(1, dismissedPage - 1))}
+                        disabled={dismissedPage <= 1}
+                        className="px-2 py-1 text-[10px] font-mono bg-surface-2 text-text-muted rounded-lg border border-border disabled:opacity-20 hover:bg-surface-3 transition-colors"
+                      >
+                        ←
+                      </button>
+                      <span className="text-[10px] text-text-muted font-mono tabular-nums">
+                        {dismissedPage} / {dismissedData.totalPages}
+                      </span>
+                      <button
+                        onClick={() => setDismissedPage(Math.min(dismissedData.totalPages, dismissedPage + 1))}
+                        disabled={dismissedPage >= dismissedData.totalPages}
+                        className="px-2 py-1 text-[10px] font-mono bg-surface-2 text-text-muted rounded-lg border border-border disabled:opacity-20 hover:bg-surface-3 transition-colors"
+                      >
+                        →
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {totalFlags === 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowDismissed(!showDismissed)}
+                className="text-[10px] text-text-muted hover:text-text-primary font-mono transition-colors"
+              >
+                {showDismissed ? 'hide dismissed flags' : 'show dismissed flags'}
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </details>
     </div>
   );
 }

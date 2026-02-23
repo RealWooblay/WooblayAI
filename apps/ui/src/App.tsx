@@ -28,6 +28,7 @@ import { PoliciesPage } from './pages/policies/PoliciesPage.tsx';
 import { ActivityPage } from './pages/activity/ActivityPage.tsx';
 import { SetupPage } from './pages/setup/SetupPage.tsx';
 import { NotificationsPage } from './pages/notifications/NotificationsPage.tsx';
+import { UsagePage } from './pages/usage/UsagePage.tsx';
 
 // Operation-first pages
 import { OperationsPage } from './pages/operations/OperationsPage.tsx';
@@ -152,6 +153,7 @@ function AuthenticatedApp() {
           <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
           <Route path="/audit" element={<PageShell><ActivityPage /></PageShell>} />
           <Route path="/activity" element={<Navigate to="/audit" replace />} />
+          <Route path="/usage" element={<PageShell><UsagePage /></PageShell>} />
           <Route path="/admin" element={<PageShell><AdminPage /></PageShell>} />
 
           {/* Catch-all */}
@@ -195,12 +197,12 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   render() {
     if (this.state.error) {
       return (
-        <div className="h-full flex flex-col items-center justify-center p-6 canvas-bg">
-          <pre className="text-red-400 font-mono text-lg mb-2">( x_x )</pre>
-          <p className="text-text-primary font-mono text-sm mb-1">Something crashed</p>
-          <p className="text-text-tertiary font-mono text-xs mb-4 max-w-md text-center">{this.state.error.message}</p>
+        <div className="h-full flex flex-col items-center justify-center p-6">
+          <p className="text-red-400 text-4xl mb-4">!</p>
+          <p className="text-text-primary text-sm font-medium mb-1">Something crashed</p>
+          <p className="text-text-tertiary text-xs mb-4 max-w-md text-center">{this.state.error.message}</p>
           <Link to="/" onClick={() => this.setState({ error: null })}
-            className="text-accent hover:text-accent-bright text-xs font-mono">← back to dashboard</Link>
+            className="text-accent hover:text-accent-bright text-xs">← back to dashboard</Link>
         </div>
       );
     }
@@ -211,9 +213,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <ErrorBoundary>
-      <div className="h-full overflow-y-auto p-6 canvas-bg animate-fade-in relative">
-        {children}
-        <div className="scanline-overlay pointer-events-none" />
+      <div className="h-full overflow-y-auto animate-fade-in">
+        <div className="container-page">
+          {children}
+        </div>
       </div>
     </ErrorBoundary>
   );

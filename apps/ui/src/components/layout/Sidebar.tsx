@@ -33,6 +33,7 @@ const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { to: '/insights', label: 'Insights', section: 'platform' },
   { to: '/notifications', label: 'Notifications', section: 'monitor' },
   { to: '/audit', label: 'Audit', section: 'monitor' },
+  { to: '/usage', label: 'Usage', section: 'monitor' },
 ];
 
 const SECTION_LABELS: Record<string, string> = {
@@ -139,7 +140,6 @@ export function Sidebar() {
             <span className="text-sm font-bold tracking-tight text-text-primary">
               wooblay
             </span>
-            <span className="text-[9px] text-accent-bright font-medium">beta</span>
           </div>
         </div>
         {HAS_CLERK && (
@@ -158,7 +158,7 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto">
         {groupedSections.map((section) => (
           <div key={section.key} className="mb-4">
-            <p className="text-[10px] font-semibold text-text-muted tracking-widest uppercase pl-4 pr-3 mb-1.5 mt-5 first:mt-2">
+            <p className="text-[9px] font-medium text-text-tertiary tracking-[0.15em] uppercase pl-4 pr-3 mb-1 mt-5 first:mt-2">
               {section.label}
             </p>
             <div className="space-y-0.5">
@@ -178,10 +178,10 @@ export function Sidebar() {
                     end={item.end || undefined}
                     className={() =>
                       clsx(
-                        'flex items-center gap-2 pl-4 pr-3 py-2 rounded-r-lg text-[13px] font-medium transition-all relative border-l-2 -ml-px',
+                        'flex items-center gap-2 pl-4 pr-3 py-2 rounded-r-lg text-[13px] font-medium transition-all relative',
                         isActive
-                          ? 'bg-accent-subtle text-accent-bright border-accent'
-                          : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface-2',
+                          ? 'bg-surface-2 text-text-primary border-transparent font-semibold'
+                          : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface-1',
                       )
                     }
                   >
@@ -208,7 +208,7 @@ export function Sidebar() {
           <button
             type="button"
             onClick={tour.startTour}
-            className="w-full flex items-center gap-2 pl-4 pr-3 py-2 rounded-r-lg text-[13px] font-medium transition-all text-text-secondary hover:text-text-primary hover:bg-surface-2 text-left border-l-2 border-transparent -ml-px"
+            className="w-full flex items-center gap-2 pl-4 pr-3 py-2 rounded-r-lg text-[13px] font-medium transition-all text-text-secondary hover:text-text-primary hover:bg-surface-1 text-left"
           >
             <span className="flex-1">Tutorial</span>
           </button>
@@ -217,10 +217,10 @@ export function Sidebar() {
           to="/settings"
           className={() =>
             clsx(
-              'flex items-center gap-2 pl-4 pr-3 py-2 rounded-r-lg text-[13px] font-medium transition-all border-l-2 -ml-px',
+              'flex items-center gap-2 pl-4 pr-3 py-2 rounded-r-lg text-[13px] font-medium transition-all',
               location.pathname === '/settings'
-                ? 'bg-accent-subtle text-accent-bright border-accent'
-                : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface-2',
+                ? 'bg-surface-2 text-text-primary border-transparent font-semibold'
+                : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface-1',
             )
           }
         >
