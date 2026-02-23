@@ -20,6 +20,7 @@ import {
   type AIPolicySuggestion,
   type OrgPolicySettings,
 } from '../../api/client.ts';
+import { Button } from '../../components/common/Button.tsx';
 import { useToast } from '../../components/common/Toast.tsx';
 
 // ── Human-readable display ───────────────────────────────────────────────────
@@ -112,6 +113,42 @@ export function PoliciesPage() {
   const [aiRole, setAiRole] = useState('');
   const [rulePrompt, setRulePrompt] = useState('');
   const [rulePromptLoading, setRulePromptLoading] = useState(false);
+
+  // Manual rule creation
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualTool, setManualTool] = useState('*');
+  const [manualCategory, setManualCategory] = useState('');
+  const [manualRisk, setManualRisk] = useState('*');
+  const [manualDecision, setManualDecision] = useState('APPROVE');
+  const [manualArgs, setManualArgs] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
+
+  const manualCreateMut = useMutation({
+    mutationFn: () => {
+      let parsedArgs: string | undefined;
+      if (manualArgs.trim()) {
+        JSON.parse(manualArgs.trim());
+        parsedArgs = manualArgs.trim();
+      }
+      return createPolicy({
+        matchTool: manualTool || '*',
+        riskTier: manualRisk || '*',
+        decision: manualDecision,
+        matchCategory: manualCategory || undefined,
+        matchArgs: parsedArgs,
+        source: 'manual',
+        description: manualDesc || undefined,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: policyKey });
+      toast('Rule created', 'success');
+      setManualOpen(false);
+      setManualTool('*'); setManualCategory(''); setManualRisk('*');
+      setManualDecision('APPROVE'); setManualArgs(''); setManualDesc('');
+    },
+    onError: (err: Error) => toast(`Failed: ${err.message}`, 'error'),
+  });
 
   const presetMutation = useMutation({
     mutationFn: (id: string) => applyPreset(id),
@@ -568,6 +605,72 @@ export function PoliciesPage() {
         </div>
       </div>
 
+      {/* ── Add Rule ──────────────────────────────────────────────────────── */}
+      {!manualOpen ? (
+        <button onClick={() => setManualOpen(true)} className="text-xs text-accent hover:text-accent-bright font-mono">
+          + add rule manually
+        </button>
+      ) : (
+        <div className="bg-surface-1 border border-accent/20 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs text-accent uppercase tracking-wider font-mono font-medium">New Rule</h3>
+            <button onClick={() => setManualOpen(false)} className="text-text-tertiary hover:text-text-secondary text-xs font-mono">cancel</button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Tool (glob)</label>
+              <input value={manualTool} onChange={e => setManualTool(e.target.value)} placeholder="* or github_push"
+                className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50" />
+            </div>
+            <div>
+              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Category</label>
+              <select value={manualCategory} onChange={e => setManualCategory(e.target.value)}
+                className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50">
+                <option value="">Any</option>
+                {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Risk tier</label>
+              <select value={manualRisk} onChange={e => setManualRisk(e.target.value)}
+                className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50">
+                <option value="*">Any</option>
+                <option value="READ">READ</option>
+                <option value="WRITE">WRITE</option>
+                <option value="DESTRUCTIVE">DESTRUCTIVE</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Decision</label>
+              <select value={manualDecision} onChange={e => setManualDecision(e.target.value)}
+                className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50">
+                <option value="ALLOW">Allow</option>
+                <option value="APPROVE">Require approval</option>
+                <option value="DENY">Block</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-[9px] text-text-tertiary font-mono block mb-1">
+              Argument filter <span className="text-text-muted">(optional JSON — matches when every key/value exists in tool args)</span>
+            </label>
+            <input value={manualArgs} onChange={e => setManualArgs(e.target.value)}
+              placeholder='e.g. {"branch": "main"} or {"repository": "my-org/prod"}'
+              className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50 placeholder:text-text-muted" />
+          </div>
+          <div>
+            <label className="text-[9px] text-text-tertiary font-mono block mb-1">Description</label>
+            <input value={manualDesc} onChange={e => setManualDesc(e.target.value)} placeholder="What this rule does"
+              className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50" />
+          </div>
+          <div className="flex justify-end">
+            <Button size="xs" onClick={() => manualCreateMut.mutate()} disabled={manualCreateMut.isPending}>
+              {manualCreateMut.isPending ? 'Creating...' : 'Create rule'}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Advanced Rules ─────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border">
@@ -588,10 +691,20 @@ export function PoliciesPage() {
                   return (
                     <div key={rule.id} className={`px-4 py-2.5 flex items-center gap-3 text-xs hover:bg-surface-2/30 transition-colors ${!rule.enabled ? 'opacity-40' : ''}`}>
                       <span className="text-text-tertiary font-mono w-6 text-right">#{rule.priority}</span>
-                      <span className="text-text-primary font-mono flex-1 truncate">
-                        {rule.matchTool}
-                        {rule.matchCategory && <span className="text-text-tertiary ml-2">[{rule.matchCategory}]</span>}
-                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-text-primary font-mono truncate block">
+                          {rule.matchTool}
+                          {rule.matchCategory && <span className="text-text-tertiary ml-2">[{rule.matchCategory}]</span>}
+                        </span>
+                        {rule.matchArgs && (
+                          <span className="text-[9px] text-purple-400 font-mono block mt-0.5 truncate" title={rule.matchArgs}>
+                            args: {rule.matchArgs}
+                          </span>
+                        )}
+                      </div>
+                      {rule.matchArgs && (
+                        <span className="text-[8px] bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded font-mono shrink-0">per-action</span>
+                      )}
                       <span className="text-text-tertiary">{rule.riskTier}</span>
                       <span className={`font-mono font-medium ${d?.color ?? 'text-text-secondary'}`}>{rule.decision}</span>
                       {rule.source !== 'manual' && (

@@ -645,7 +645,7 @@ function FirewallDashboard() {
           <div>
             <h1 className="text-lg font-bold text-text-primary">Wooblay Gate</h1>
             <p className="text-xs text-text-muted mt-1">
-              AI agent firewall — policy enforcement, credential isolation, secure execution.
+              Connect your tools once. Use them from Cursor, Claude, ChatGPT — same credentials, same policy, full audit.
             </p>
           </div>
         </div>
@@ -733,6 +733,10 @@ function FirewallDashboard() {
             <p className="text-[10px] text-text-muted">Configure allow/deny rules</p>
           </Link>
         </div>
+
+        <p className="text-xs text-text-muted text-center max-w-xl mx-auto">
+          Add your own tooling — we host and run it in a secure sandbox. No ports to open, no credentials in your code. One setup, every agent.
+        </p>
 
         {/* No keys state */}
         {apiKeys.length === 0 && (
@@ -891,7 +895,7 @@ function FullPlatformDashboard() {
               <div className="font-mono text-2xl mb-3">( o_o )</div>
               <h2 className="text-lg font-semibold text-text-primary">Welcome to Wooblay</h2>
               <p className="text-xs text-text-secondary mt-1 max-w-md mx-auto">
-                The secure execution environment for AI agents. Set up your platform in 3 steps.
+                One place for credentials, policy, and execution — for every AI agent you use. Set up in 3 steps.
               </p>
             </div>
 

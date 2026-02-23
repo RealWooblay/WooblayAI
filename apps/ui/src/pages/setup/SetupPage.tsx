@@ -667,10 +667,15 @@ function McpToolsSection() {
 
       {/* Custom server entry */}
       {!showCustom ? (
-        <button onClick={() => setShowCustom(true)}
-          className="text-[11px] text-accent hover:text-accent-bright font-mono transition-colors">
-          + add custom server
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setShowCustom(true)}
+            className="text-[11px] text-accent hover:text-accent-bright font-mono transition-colors">
+            + add custom server
+          </button>
+          <span className="text-[10px] text-text-muted">
+            We host and run it in an isolated container — no ports to open, no infra on your side.
+          </span>
+        </div>
       ) : (
         <div className="border border-border rounded-lg p-4 space-y-3 bg-surface-0/50 mb-4">
           <div className="flex gap-2">
@@ -936,7 +941,7 @@ export function SetupPage() {
       <div>
         <h1 className="text-lg font-bold text-text-primary">Gateway</h1>
         <p className="text-xs text-text-muted mt-0.5">
-          Secure your AI agent's tool calls. Create a key, deploy the firewall, add your tools.
+          Connect once, use from every agent. Add tools, credentials, and custom servers — we run them securely.
         </p>
       </div>
 

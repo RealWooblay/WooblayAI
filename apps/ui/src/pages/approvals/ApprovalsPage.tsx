@@ -41,20 +41,28 @@ export function ApprovalsPage() {
   const [riskFilter, setRiskFilter] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
 
+  const [argRuleItem, setArgRuleItem] = useState<any>(null);
+  const [argRuleKeys, setArgRuleKeys] = useState<string[]>([]);
+
   const alwaysAllowMut = useMutation({
-    mutationFn: (item: any) => {
+    mutationFn: ({ item, matchArgs }: { item: any; matchArgs?: string }) => {
       const tc = item.toolCall;
       const toolName = tc?.toolName?.replace(/^(wooblay_|gated_)/, '') ?? '*';
       return createPolicy({
         matchTool: toolName,
         riskTier: tc?.riskTier ?? 'WRITE',
         decision: 'ALLOW',
+        matchArgs,
         source: 'from-approval',
-        description: `Auto-allow ${toolName} (from approval)`,
+        description: matchArgs
+          ? `Auto-allow ${toolName} when args match ${matchArgs}`
+          : `Auto-allow ${toolName} (from approval)`,
       });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['policies'] });
+      setArgRuleItem(null);
+      setArgRuleKeys([]);
       toast('Policy created — future similar actions will be auto-approved', 'success');
     },
   });
@@ -294,7 +302,7 @@ export function ApprovalsPage() {
                         {
                           onSuccess: () => {
                             toast('Approved + policy created — running in secure container. See Activity for result.', 'success');
-                            alwaysAllowMut.mutate(item);
+                            alwaysAllowMut.mutate({ item });
                           },
                         },
                       );
@@ -306,6 +314,26 @@ export function ApprovalsPage() {
                   </button>
                 </Tooltip>
 
+                {(() => {
+                  const parsedArgs = (() => { try { return typeof tc?.args === 'string' ? JSON.parse(tc.args) : tc?.args; } catch { return null; } })();
+                  const argKeys = parsedArgs && typeof parsedArgs === 'object' ? Object.keys(parsedArgs) : [];
+                  if (argKeys.length === 0) return null;
+                  return (
+                    <Tooltip content="Allow this tool only when specific argument values match">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setArgRuleItem(argRuleItem?.id === item.id ? null : item);
+                          setArgRuleKeys([]);
+                        }}
+                        className="px-3 py-1 text-[10px] bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg transition-colors"
+                      >
+                        Allow with args
+                      </button>
+                    </Tooltip>
+                  );
+                })()}
+
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -316,6 +344,53 @@ export function ApprovalsPage() {
                   {isExpanded ? 'Hide details' : 'Details'}
                 </button>
               </div>
+
+              {/* Arg-based rule picker */}
+              {argRuleItem?.id === item.id && (() => {
+                const parsedArgs = (() => { try { return typeof tc?.args === 'string' ? JSON.parse(tc.args) : tc?.args; } catch { return null; } })();
+                if (!parsedArgs || typeof parsedArgs !== 'object') return null;
+                const argEntries = Object.entries(parsedArgs as Record<string, unknown>).filter(([, v]) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean');
+                return (
+                  <div className="mt-3 p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg space-y-2 animate-fade-in" onClick={e => e.stopPropagation()}>
+                    <p className="text-[10px] text-purple-400 font-medium">Select which argument values to lock into the rule:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {argEntries.map(([key, val]) => {
+                        const selected = argRuleKeys.includes(key);
+                        return (
+                          <button key={key} onClick={() => setArgRuleKeys(prev => selected ? prev.filter(k => k !== key) : [...prev, key])}
+                            className={clsx('px-2.5 py-1 rounded text-[10px] font-mono border transition-colors',
+                              selected ? 'border-purple-500/40 bg-purple-500/15 text-purple-300' : 'border-border text-text-secondary hover:bg-surface-3')}>
+                            {key}={String(val)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        disabled={argRuleKeys.length === 0 || alwaysAllowMut.isPending}
+                        onClick={() => {
+                          const pattern: Record<string, unknown> = {};
+                          for (const k of argRuleKeys) pattern[k] = (parsedArgs as any)[k];
+                          approveMut.mutate(
+                            { id: item.id, body: { approver: 'dashboard' } },
+                            {
+                              onSuccess: () => {
+                                toast('Approved + per-action rule created', 'success');
+                                alwaysAllowMut.mutate({ item, matchArgs: JSON.stringify(pattern) });
+                              },
+                            },
+                          );
+                        }}
+                        className="px-3 py-1.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-mono font-medium disabled:opacity-40 hover:bg-purple-500/30 transition-colors"
+                      >
+                        {alwaysAllowMut.isPending ? 'Creating...' : `Approve + allow when ${argRuleKeys.length ? argRuleKeys.join(', ') : '...'} match`}
+                      </button>
+                      <button onClick={() => { setArgRuleItem(null); setArgRuleKeys([]); }}
+                        className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono">cancel</button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Expanded details */}
               {isExpanded && (
