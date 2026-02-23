@@ -21,6 +21,10 @@ import {
   deleteInstance,
   updateInstance,
   getInstanceLogs,
+  getOrgPolicySettings,
+  getApiKeys,
+  getAgentContainerState,
+  isContainerReady,
   type Instance,
   type MissionData,
   type CreateInstanceRequest,
@@ -31,7 +35,7 @@ import { useToast } from '../../components/common/Toast.tsx';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
-const MODELS: { id: string; label: string; tier: string }[] = [
+const POPULAR_MODELS: { id: string; label: string; tier: string }[] = [
   { id: 'claude-opus-4-20250514', label: 'Claude Opus 4', tier: 'flagship' },
   { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', tier: 'standard' },
   { id: 'claude-4.6-opus', label: 'Claude 4.6 Opus', tier: 'flagship' },
@@ -48,10 +52,44 @@ const MODELS: { id: string; label: string; tier: string }[] = [
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'fast' },
 ];
 
+function ModelSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isCustom = !POPULAR_MODELS.some((m) => m.id === value);
+  const [showCustom, setShowCustom] = useState(isCustom);
+
+  if (showCustom) {
+    return (
+      <div className="flex gap-2">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Model ID (e.g. llama-3.1-70b)"
+          className="flex-1 bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono placeholder:text-text-muted focus:outline-none focus:border-accent/50"
+        />
+        <button type="button" onClick={() => { setShowCustom(false); onChange(POPULAR_MODELS[0].id); }} className="text-[10px] text-text-muted hover:text-text-secondary whitespace-nowrap">presets</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-2">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50"
+      >
+        {POPULAR_MODELS.map((m) => (
+          <option key={m.id} value={m.id}>{m.label} ({m.tier})</option>
+        ))}
+      </select>
+      <button type="button" onClick={() => { setShowCustom(true); onChange(''); }} className="text-[10px] text-text-muted hover:text-text-secondary whitespace-nowrap">custom</button>
+    </div>
+  );
+}
+
 
 // ── Alive Agent Face ─────────────────────────────────────────────────────────
 
-function AgentFace({ mission, instance }: { mission?: MissionData; instance: Instance }) {
+function AgentFace({ mission, isContainerUp }: { mission?: MissionData; instance: Instance; isContainerUp: boolean }) {
   const [blink, setBlink] = useState(false);
 
   useEffect(() => {
@@ -68,7 +106,7 @@ function AgentFace({ mission, instance }: { mission?: MissionData; instance: Ins
     return () => clearTimeout(t);
   }, []);
 
-  if (instance.status !== 'running') {
+  if (!isContainerUp) {
     return (
       <div className="font-mono text-center" style={{ animation: 'breathe 6s ease-in-out infinite' }}>
         <span className="text-zinc-600 text-base">( -_- )</span>
@@ -130,7 +168,7 @@ function InlineDeployForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [name, setName] = useState('');
-  const [model, setModel] = useState(MODELS[0].id);
+  const [model, setModel] = useState(POPULAR_MODELS[0].id);
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [telegramEnabled, setTelegramEnabled] = useState(false);
@@ -173,10 +211,7 @@ function InlineDeployForm({ onClose }: { onClose: () => void }) {
         </div>
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Model</label>
-          <select value={model} onChange={e => setModel(e.target.value)}
-            className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50">
-            {MODELS.map(m => <option key={m.id} value={m.id}>{m.label} ({m.tier})</option>)}
-          </select>
+          <ModelSelector value={model} onChange={setModel} />
         </div>
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Anthropic API Key</label>
@@ -228,7 +263,7 @@ function InlineConfigForm({ instance, onClose }: { instance: Instance; onClose: 
   const { toast } = useToast();
   const existingConfig = instance.configJson ? JSON.parse(instance.configJson) : {};
 
-  const [model, setModel] = useState(instance.model || MODELS[0].id);
+  const [model, setModel] = useState(instance.model || POPULAR_MODELS[0].id);
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [telegramEnabled, setTelegramEnabled] = useState(existingConfig.telegramEnabled ?? !!instance.telegramBot);
   const [telegramBotToken, setTelegramBotToken] = useState('');
@@ -245,7 +280,7 @@ function InlineConfigForm({ instance, onClose }: { instance: Instance; onClose: 
   });
 
   // Check if any restart-requiring fields are changed
-  const willRestart = (model !== (instance.model || MODELS[0].id)) ||
+  const willRestart = (model !== (instance.model || POPULAR_MODELS[0].id)) ||
     anthropicApiKey.trim() !== '' ||
     telegramBotToken.trim() !== '' ||
     telegramEnabled !== (existingConfig.telegramEnabled ?? !!instance.telegramBot);
@@ -270,10 +305,7 @@ function InlineConfigForm({ instance, onClose }: { instance: Instance; onClose: 
       <div className="grid md:grid-cols-2 gap-3">
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Model</label>
-          <select value={model} onChange={e => setModel(e.target.value)}
-            className="w-full bg-surface-0 border border-border rounded-lg px-2 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50">
-            {MODELS.map(m => <option key={m.id} value={m.id}>{m.label} ({m.tier})</option>)}
-          </select>
+          <ModelSelector value={model} onChange={setModel} />
         </div>
         <div>
           <label className="text-[9px] text-text-tertiary font-mono block mb-1">Anthropic API Key</label>
@@ -332,7 +364,11 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
     onError: (err: Error) => toast(err.message, 'error'),
   };
 
-  const startMut = useMutation({ mutationFn: () => startInstance(instance.id), ...actionOpts });
+  const startMut = useMutation({
+    mutationFn: () => startInstance(instance.id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['instances'] }),
+    onError: (err: Error) => toast(err.message, 'error'),
+  });
   const stopMut = useMutation({ mutationFn: () => stopInstance(instance.id), ...actionOpts });
   const restartMut = useMutation({ mutationFn: () => restartInstance(instance.id), ...actionOpts });
   const deleteMut = useMutation({
@@ -342,7 +378,8 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
   });
 
   const anyLoading = startMut.isPending || stopMut.isPending || restartMut.isPending || deleteMut.isPending;
-  const isRunning = instance.status === 'running';
+  const containerState = getAgentContainerState(instance, { startPending: startMut.isPending, stopPending: stopMut.isPending });
+  const isContainerUp = isContainerReady(instance);
 
   const trust = mission?.trustScore ?? 0;
   const cost = Number(mission?.estimatedCost ?? 0) || 0;
@@ -353,11 +390,17 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
 
   let statusLabel: string;
   let statusColor: string;
-  if (!isRunning) {
+  if (containerState === 'stopping') {
+    statusLabel = 'Stopping…';
+    statusColor = 'text-amber-400';
+  } else if (containerState === 'starting' || containerState === 'restarting') {
+    statusLabel = containerState === 'restarting' ? 'Restarting…' : 'Starting…';
+    statusColor = 'text-amber-400';
+  } else if (!isContainerUp) {
     statusLabel = 'offline';
     statusColor = 'text-zinc-500';
   } else if (!mission) {
-    statusLabel = 'connecting...';
+    statusLabel = 'connecting…';
     statusColor = 'text-zinc-500';
   } else if (hasPending) {
     statusLabel = 'waiting for you...';
@@ -391,7 +434,7 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
         {/* Left: Face (clean, no ring) */}
         <Link to={`/instances/${instance.id}`} className="shrink-0 group">
           <div className="w-[72px] h-[72px] flex items-center justify-center">
-            <AgentFace mission={mission} instance={instance} />
+            <AgentFace mission={mission} instance={instance} isContainerUp={isContainerUp} />
           </div>
         </Link>
 
@@ -417,14 +460,20 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
           <div className="mb-2">
             <span className={`text-[11px] font-mono ${statusColor} ${hasPending ? 'animate-pulse' : ''} truncate block`}>
               {isWorking ? `> ${statusLabel}` : statusLabel}
-              {!hasPending && !isWorking && isRunning && <span className="animate-blink"> _</span>}
+              {!hasPending && !isWorking && isContainerUp && <span className="animate-blink"> _</span>}
             </span>
           </div>
 
+          {/* Running = API key in use — stop when not in use to avoid spend */}
+          {isContainerUp && (
+            <p className="text-[10px] text-text-muted font-mono mb-1.5">
+              Your Anthropic key is in use while running — stop when not in use to avoid API spend.
+            </p>
+          )}
           {/* Metrics row: trust bar + cost + actions */}
           {mission && (
             <div className="flex items-center gap-4">
-              {isRunning && (
+              {isContainerUp && (
                 <div className="flex items-center gap-1.5">
                   <span className={`text-[10px] font-bold tabular-nums font-mono ${trust > 70 ? 'text-emerald-400' : trust > 40 ? 'text-amber-400' : 'text-red-400'}`}>
                     {trust}
@@ -449,13 +498,13 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
 
       {/* Action bar — clean separator */}
       <div className="flex items-center gap-2 px-5 py-2.5 border-t border-border/40 bg-surface-0/30 rounded-b-xl">
-        {!isRunning && (
+        {containerState === 'offline' && (
           <button onClick={() => startMut.mutate()} disabled={anyLoading}
             className="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 disabled:opacity-40 px-2.5 py-1 rounded-md bg-emerald-500/8 hover:bg-emerald-500/15 transition-colors">
-            {startMut.isPending ? 'starting...' : 'start'}
+            {startMut.isPending ? 'starting…' : 'start'}
           </button>
         )}
-        {isRunning && (
+        {containerState !== 'offline' && (
           <>
             {!restartConfirm ? (
               <button onClick={() => setRestartConfirm(true)} disabled={anyLoading}
@@ -530,15 +579,208 @@ function InstanceCard({ instance, mission }: { instance: Instance; mission?: Mis
   );
 }
 
+// ── Inline Proxy Deploy ──────────────────────────────────────────────────────
+
+function InlineProxyDeployForm({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [name, setName] = useState('');
+
+  const createMut = useMutation({
+    mutationFn: () => createInstance({ name, instanceType: 'proxy' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['instances'] });
+      toast('MCP Proxy deployed — configure tools in the detail view', 'success');
+      onClose();
+    },
+    onError: (err) => toast(`Deploy failed: ${err.message}`, 'error'),
+  });
+
+  return (
+    <div className="rounded-xl border border-violet-500/30 bg-surface-1 p-5 space-y-3 animate-slide-in-up">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs text-violet-400 uppercase tracking-wider font-mono font-medium">Deploy MCP Proxy</h3>
+        <button onClick={onClose} className="text-text-tertiary hover:text-text-secondary text-xs font-mono">cancel</button>
+      </div>
+      <p className="text-[10px] text-text-muted">
+        Secure MCP firewall for external agents (Claude Desktop, Cursor, etc). No hosted agent — just the security membrane.
+      </p>
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <label className="text-[9px] text-text-tertiary font-mono block mb-1">Name</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. my-firewall"
+            onKeyDown={e => e.key === 'Enter' && name.trim() && createMut.mutate()}
+            className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/50" />
+        </div>
+        <Button size="xs" onClick={() => createMut.mutate()} disabled={!name.trim() || createMut.isPending}>
+          {createMut.isPending ? 'deploying...' : 'deploy'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Firewall Dashboard (firewall mode) ───────────────────────────────────────
+
+function FirewallDashboard() {
+  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats, refetchInterval: 5_000 });
+  const { data: approvals } = useQuery({ queryKey: ['approvals', 'pending'], queryFn: getApprovals, refetchInterval: 5_000 });
+  const { data: apiKeys = [] } = useQuery({ queryKey: ['api-keys'], queryFn: getApiKeys });
+  const { data: instances } = useQuery({ queryKey: ['instances'], queryFn: getInstances, refetchInterval: 5_000 });
+
+  const [proxyDeployOpen, setProxyDeployOpen] = useState(false);
+
+  const pending = approvals ?? [];
+  const totalActions = stats?.totalToolCalls ?? 0;
+  const pendingApprovals = stats?.pendingApprovals ?? 0;
+  const deniedActions = stats?.byDecision?.DENY ?? 0;
+  const proxyInstances = (instances ?? []).filter(i => i.instanceType === 'proxy');
+
+  return (
+    <div className="h-full overflow-y-auto p-6 canvas-bg relative">
+      <div className="max-w-3xl mx-auto space-y-5 relative z-10">
+        {/* Header */}
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-text-primary font-mono">&gt; wooblay gate</h1>
+            <p className="text-xs text-text-muted mt-1">
+              AI agent firewall — policy enforcement, credential isolation, secure execution.
+            </p>
+          </div>
+          <button onClick={() => setProxyDeployOpen(!proxyDeployOpen)}
+            className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
+              proxyDeployOpen ? 'bg-violet-500/10 text-violet-400' : 'bg-accent text-white hover:bg-accent-bright'
+            }`}>
+            {proxyDeployOpen ? 'cancel' : '+ deploy proxy'}
+          </button>
+        </div>
+
+        {/* Inline proxy deploy */}
+        {proxyDeployOpen && <InlineProxyDeployForm onClose={() => setProxyDeployOpen(false)} />}
+
+        {/* Stats */}
+        <div className="grid grid-cols-4 gap-3">
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Actions Today</p>
+            <p className="text-2xl font-bold font-mono text-text-primary">{totalActions}</p>
+          </div>
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Pending Review</p>
+            <p className="text-2xl font-bold font-mono text-amber-400">{pendingApprovals}</p>
+          </div>
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Blocked</p>
+            <p className="text-2xl font-bold font-mono text-red-400">{deniedActions}</p>
+          </div>
+          <div className="bg-surface-1 border border-border rounded-xl p-4">
+            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">API Keys</p>
+            <p className="text-2xl font-bold font-mono text-accent-bright">{apiKeys.length}</p>
+          </div>
+        </div>
+
+        {/* Proxy instances */}
+        {proxyInstances.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-[10px] text-text-muted uppercase tracking-wider font-mono">MCP Proxies</h2>
+            {proxyInstances.map(inst => (
+              <Link key={inst.id} to={`/instances/${inst.id}`}
+                className="flex items-center justify-between bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors">
+                <div className="flex items-center gap-3">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-violet-500/10 text-violet-400">Proxy</span>
+                  <span className="text-sm font-medium text-text-primary font-mono">{inst.name}</span>
+                </div>
+                <span className={`text-[10px] font-mono ${inst.status === 'running' ? 'text-emerald-400' : inst.status === 'error' ? 'text-red-400' : 'text-text-muted'}`}>
+                  {inst.status}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+
+        {/* Pending approvals alert */}
+        {pending.length > 0 && (
+          <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400">⬡</span>
+                <p className="text-sm font-medium text-amber-400">
+                  {pending.length} action{pending.length !== 1 ? 's' : ''} awaiting approval
+                </p>
+              </div>
+              <Link to="/approvals" className="text-xs text-amber-400 hover:text-amber-300 font-medium">
+                Review &rarr;
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-3 gap-3">
+          <Link to="/setup" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Gateway &rarr;</p>
+            <p className="text-[10px] text-text-muted">API keys, endpoints, connect config</p>
+          </Link>
+          <Link to="/credentials" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Credentials &rarr;</p>
+            <p className="text-[10px] text-text-muted">Manage credential vault</p>
+          </Link>
+          <Link to="/policies" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
+            <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Policies &rarr;</p>
+            <p className="text-[10px] text-text-muted">Configure allow/deny rules</p>
+          </Link>
+        </div>
+
+        {/* No keys state */}
+        {apiKeys.length === 0 && (
+          <div className="bg-surface-1 border border-dashed border-border rounded-xl p-6 text-center">
+            <p className="text-sm text-text-secondary mb-2">No API keys yet</p>
+            <p className="text-xs text-text-muted mb-4">Create your first API key to connect an external agent to Wooblay.</p>
+            <Link to="/setup">
+              <Button size="sm">Go to Gateway</Button>
+            </Link>
+          </div>
+        )}
+
+        {/* Audit link */}
+        <div className="flex justify-between items-center pt-2">
+          <Link to="/audit" className="text-xs text-text-muted hover:text-accent transition-colors">
+            View full audit log &rarr;
+          </Link>
+          <Link to="/notifications" className="text-xs text-text-muted hover:text-accent transition-colors">
+            Configure alerts &rarr;
+          </Link>
+        </div>
+      </div>
+      <div className="scanline-overlay pointer-events-none" />
+    </div>
+  );
+}
+
 // ── Main Dashboard ───────────────────────────────────────────────────────────
 
 export function CommandCenter() {
+  // Check platform mode
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: getOrgPolicySettings,
+    staleTime: 60_000,
+  });
+  const platformMode = (orgSettings as any)?.platformMode ?? 'firewall';
+
+  if (platformMode === 'firewall') {
+    return <FirewallDashboard />;
+  }
+
+  return <FullPlatformDashboard />;
+}
+
+function FullPlatformDashboard() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats, refetchInterval: 5_000 });
   const { data: instances, isLoading: loadingInstances } = useQuery({ queryKey: ['instances'], queryFn: getInstances, refetchInterval: 5_000 });
   const { data: approvals } = useQuery({ queryKey: ['approvals', 'pending'], queryFn: getApprovals, refetchInterval: 5_000 });
   const { data: flagsData } = useQuery({ queryKey: ['flags', 'dashboard'], queryFn: () => getFlags({ dismissed: 'false', limit: '5' }), refetchInterval: 10_000 });
 
-  const [deployOpen, setDeployOpen] = useState(false);
+  const [deployOpen, setDeployOpen] = useState<false | 'agent' | 'proxy'>(false);
 
   const allInstances = instances ?? [];
   const running = allInstances.filter(i => i.status === 'running');
@@ -575,13 +817,13 @@ export function CommandCenter() {
   return (
     <div className="h-full overflow-y-auto p-6 canvas-bg relative">
       <WeatherBackground weather={weather} />
-      <div className="max-w-4xl mx-auto space-y-5 relative z-10">
+      <div className="max-w-4xl mx-auto space-y-5 relative z-10" data-tour="tour-agents">
 
         {/* Header */}
         <div className="flex items-end justify-between">
           <div>
             <h1 className="text-lg font-bold text-text-primary font-mono">
-              {isEmpty && !hasData ? '> wooblay' : running.length > 0 ? `> ${running.length} agent${running.length !== 1 ? 's' : ''} active` : '> dashboard'}
+              {isEmpty && !hasData ? '> wooblay' : running.length > 0 ? `> ${running.length} agent${running.length !== 1 ? 's' : ''} active` : '> agents'}
             </h1>
             {hasData && (
               <div className="flex items-center gap-4 mt-1.5">
@@ -595,20 +837,30 @@ export function CommandCenter() {
               </div>
             )}
           </div>
-          <button onClick={() => setDeployOpen(!deployOpen)}
-            className={`text-xs font-mono px-4 py-2 rounded-lg transition-colors ${
-              deployOpen ? 'bg-accent/10 text-accent' : 'bg-accent text-white hover:bg-accent-bright'
-            }`}>
-            {deployOpen ? 'cancel' : '+ deploy agent'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setDeployOpen(deployOpen === 'proxy' ? false : 'proxy')}
+              className={`text-xs font-mono px-3 py-2 rounded-lg transition-colors ${
+                deployOpen === 'proxy' ? 'bg-violet-500/10 text-violet-400' : 'bg-surface-1 border border-border text-text-secondary hover:border-violet-500/50 hover:text-violet-400'
+              }`}>
+              {deployOpen === 'proxy' ? 'cancel' : '+ proxy'}
+            </button>
+            <button onClick={() => setDeployOpen(deployOpen === 'agent' ? false : 'agent')}
+              data-tour="tour-deploy"
+              className={`text-xs font-mono px-3 py-2 rounded-lg transition-colors ${
+                deployOpen === 'agent' ? 'bg-accent/10 text-accent' : 'bg-accent text-white hover:bg-accent-bright'
+              }`}>
+              {deployOpen === 'agent' ? 'cancel' : '+ agent'}
+            </button>
+          </div>
         </div>
 
         {/* Inline Deploy */}
-        {deployOpen && <InlineDeployForm onClose={() => setDeployOpen(false)} />}
+        {deployOpen === 'agent' && <InlineDeployForm onClose={() => setDeployOpen(false)} />}
+        {deployOpen === 'proxy' && <InlineProxyDeployForm onClose={() => setDeployOpen(false)} />}
 
         {/* Critical Flags */}
         {criticalFlags.length > 0 && (
-          <Link to="/activity" className="block p-3 rounded-xl bg-red-500/8 border border-red-500/20 hover:border-red-500/30 transition-colors">
+          <Link to="/audit" className="block p-3 rounded-xl bg-red-500/8 border border-red-500/20 hover:border-red-500/30 transition-colors">
             <div className="flex items-center gap-3">
               <span className="font-mono text-red-400 text-xs font-bold">[!]</span>
               <span className="text-xs text-red-300">{criticalFlags.length} anomal{criticalFlags.length !== 1 ? 'ies' : 'y'} detected</span>
@@ -628,21 +880,68 @@ export function CommandCenter() {
           </Link>
         )}
 
-        {/* Empty State */}
+        {/* Empty State — Setup Checklist */}
         {isEmpty && !hasData && !deployOpen && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="font-mono text-text-tertiary text-xs leading-relaxed mb-6">
-              <div className="border border-border rounded-xl p-6 inline-block">
-                <div className="text-2xl mb-2" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o )</div>
-                <div className="text-text-secondary">hi there</div>
-                <div className="text-text-tertiary mt-1">no agents running</div>
-                <div className="text-text-tertiary">deploy one to start</div>
+          <div className="space-y-4">
+            {/* Welcome */}
+            <div className="text-center py-8">
+              <div className="font-mono text-2xl mb-3" style={{ animation: 'breathe 4s ease-in-out infinite' }}>( o_o )</div>
+              <h2 className="text-lg font-semibold text-text-primary font-mono">Welcome to Wooblay</h2>
+              <p className="text-xs text-text-secondary mt-1 max-w-md mx-auto">
+                The secure execution environment for AI agents. Set up your platform in 3 steps.
+              </p>
+            </div>
+
+            {/* Setup Checklist */}
+            <div className="bg-surface-1 border border-border rounded-xl p-5 max-w-lg mx-auto">
+              <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Setup Checklist</h3>
+              <div className="space-y-3">
+                <SetupStep
+                  number={1}
+                  title="Deploy an Instance"
+                  description="Deploy a hosted agent or an MCP proxy for external agents. Both are secured by the Gate."
+                  done={false}
+                  action={() => setDeployOpen('agent')}
+                  actionLabel="Deploy Agent"
+                />
+                <SetupStep
+                  number={2}
+                  title="Add Credentials"
+                  description="Link your services so Wooblay can detect events and execute actions securely."
+                  done={false}
+                  actionLabel="Add Credentials"
+                  href="/credentials"
+                />
+                <SetupStep
+                  number={3}
+                  title="Configure Policies"
+                  description="Set what your agents can do. Auto-allow safe actions, require approval for risky ones."
+                  done={false}
+                  actionLabel="Set Policies"
+                  href="/policies"
+                />
               </div>
             </div>
-            <button onClick={() => setDeployOpen(true)}
-              className="px-4 py-2 bg-accent text-white text-xs font-mono rounded-lg hover:bg-accent-bright transition-colors">
-              Deploy Your First Agent
-            </button>
+
+            {/* Security Preview */}
+            <div className="grid grid-cols-3 gap-3 max-w-lg mx-auto">
+              <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
+                <p className="text-[18px] font-bold text-emerald-400 font-mono">1</p>
+                <p className="text-[9px] text-text-tertiary mt-1">Policy Gate</p>
+              </div>
+              <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
+                <p className="text-[18px] font-bold text-blue-400 font-mono">2</p>
+                <p className="text-[9px] text-text-tertiary mt-1">Simulation</p>
+              </div>
+              <div className="bg-surface-1 border border-border rounded-lg p-3 text-center">
+                <p className="text-[18px] font-bold text-purple-400 font-mono">3</p>
+                <p className="text-[9px] text-text-tertiary mt-1">Secure Exec</p>
+              </div>
+            </div>
+
+            <p className="text-center text-[10px] text-text-muted max-w-sm mx-auto">
+              Every agent action flows through three layers of security. Agents declare intent — Wooblay executes safely. Credentials never touch the agent container.
+            </p>
           </div>
         )}
 
@@ -670,11 +969,49 @@ export function CommandCenter() {
         {/* Quick Nav */}
         {hasData && running.length > 0 && (
           <div className="pt-3 border-t border-border/30 flex items-center gap-6">
-            <Link to="/activity" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">activity →</Link>
+            <Link to="/audit" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">audit →</Link>
             <Link to="/policies" className="text-[10px] text-text-tertiary hover:text-text-secondary font-mono transition-colors">policies →</Link>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function SetupStep({
+  number, title, description, done, action, actionLabel, href,
+}: {
+  number: number; title: string; description: string; done: boolean;
+  action?: () => void; actionLabel: string; href?: string;
+}) {
+  const content = (
+    <div className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${done ? 'opacity-50' : 'hover:bg-surface-2/50'}`}>
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+        done ? 'bg-emerald-500/15 text-emerald-400' : 'bg-accent/10 text-accent'
+      }`}>
+        {done ? (
+          <span className="text-[10px]">*</span>
+        ) : (
+          <span className="text-[10px] font-bold font-mono">{number}</span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[12px] font-medium text-text-primary font-mono">{title}</p>
+        <p className="text-[10px] text-text-tertiary mt-0.5">{description}</p>
+      </div>
+      {!done && (
+        <span className="text-[10px] text-accent font-mono shrink-0 mt-0.5">{actionLabel} →</span>
+      )}
+    </div>
+  );
+
+  if (href && !action) {
+    return <Link to={href}>{content}</Link>;
+  }
+
+  return (
+    <button onClick={action} className="w-full text-left">
+      {content}
+    </button>
   );
 }

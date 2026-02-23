@@ -31,52 +31,6 @@ export const DEFAULT_CONFIG: WooblayPluginConfig = {
 };
 
 /**
- * Tools considered "risky" by default — these are the ones that execute code,
- * write to disk, browse the web, or spawn sub-processes.
- */
-export const RISKY_TOOLS = new Set([
-  'exec',
-  'process',
-  'write',
-  'edit',
-  'apply_patch',
-  'browser',
-  'web_fetch',
-  'web_search',
-  'sessions_spawn',
-  'sessions_send',
-  'cron',
-  'message',
-  'gateway',
-]);
-
-/**
- * Tools that are always safe and never gated (read-only, no side effects).
- */
-export const SAFE_TOOLS = new Set([
-  'read',
-  'image',
-  'canvas',
-]);
-
-/**
- * Determine if a given tool should be gated based on the plugin config.
- */
-export function shouldGateTool(toolName: string, config: WooblayPluginConfig): boolean {
-  switch (config.toolFilter) {
-    case 'all':
-      // Gate everything except explicitly safe tools
-      return !SAFE_TOOLS.has(toolName);
-    case 'risky':
-      return RISKY_TOOLS.has(toolName);
-    case 'custom':
-      return config.customToolList.includes(toolName);
-    default:
-      return RISKY_TOOLS.has(toolName);
-  }
-}
-
-/**
  * Merge partial user config with defaults.
  */
 export function resolveConfig(partial: Partial<WooblayPluginConfig>): WooblayPluginConfig {

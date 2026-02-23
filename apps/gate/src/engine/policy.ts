@@ -8,23 +8,7 @@
 import type { PrismaClient, ToolCall as PrismaToolCall } from '@prisma/client';
 import type { PolicyDecision } from '@wooblay/types';
 import { Decision } from '@wooblay/types';
-
-/**
- * Simple glob matching (supports "*" to match anything, and "prefix_*" style).
- * No external dependency required.
- */
-function globMatch(pattern: string, value: string): boolean {
-  // Exact match
-  if (pattern === value) return true;
-  // Wildcard: match everything
-  if (pattern === '*') return true;
-  // Trailing wildcard: "wooblay_*" matches "wooblay_exec"
-  if (pattern.endsWith('*')) {
-    const prefix = pattern.slice(0, -1);
-    return value.startsWith(prefix);
-  }
-  return false;
-}
+import { globMatch } from '../utils/glob-match.js';
 
 /**
  * Evaluate the policy rules for a given tool call.

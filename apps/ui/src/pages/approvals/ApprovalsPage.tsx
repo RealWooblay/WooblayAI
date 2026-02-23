@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import {
   useApprovals,
@@ -78,7 +79,7 @@ export function ApprovalsPage() {
         if (item) {
           approveMut.mutate(
             { id: item.id, body: { approver: 'dashboard' } },
-            { onSuccess: () => toast('Approved', 'success') },
+            { onSuccess: () => toast('Approved — running in secure container. See Activity for result.', 'success') },
           );
         }
       }
@@ -105,7 +106,7 @@ export function ApprovalsPage() {
   }, [items.length, selectedIdx]);
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto" data-tour="tour-approvals">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -144,12 +145,15 @@ export function ApprovalsPage() {
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <div className="text-3xl mb-3 opacity-20">✓</div>
           <p className="text-sm font-medium text-text-secondary">All clear</p>
-          <p className="text-xs text-text-muted mt-1">No actions waiting for approval</p>
+          <p className="text-xs text-text-muted mt-1">
+            No actions waiting for approval. Approved actions run in a secure container and show up in{' '}
+            <Link to="/activity" className="text-accent hover:text-accent-bright underline">Activity</Link> with execution status.
+          </p>
         </div>
       )}
 
       {/* Cards */}
-      <div className="space-y-3">
+      <div className="space-y-3" data-tour="tour-approval-cards">
         {items.map((item, idx) => {
           const tc = item.toolCall;
           const isSelected = idx === selectedIdx;
@@ -253,7 +257,7 @@ export function ApprovalsPage() {
                         { id: item.id, body: { approver: 'dashboard' } },
                         {
                           onSuccess: () => {
-                            toast('Approved + policy created', 'success');
+                            toast('Approved + policy created — running in secure container. See Activity for result.', 'success');
                             alwaysAllowMut.mutate(item);
                           },
                         },
@@ -280,6 +284,32 @@ export function ApprovalsPage() {
               {/* Expanded details */}
               {isExpanded && (
                 <div className="mt-4 pt-4 border-t border-border space-y-3 animate-slide-in-up">
+                  {/* Secure Execution Preview */}
+                  {tc?.toolName?.startsWith('structured_action') && (
+                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
+                      <h4 className="text-[10px] text-emerald-400 uppercase tracking-wider font-medium mb-2">
+                        Secure Execution Preview
+                      </h4>
+                      <p className="text-[10px] text-text-tertiary mb-2">
+                        This action will run in an ephemeral container. Credentials are injected from the vault and destroyed after execution.
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-[10px]">
+                        <div className="bg-surface-0 rounded px-2 py-1.5">
+                          <span className="text-text-muted block">Layer 1</span>
+                          <span className="text-text-primary font-medium">Policy + Scope</span>
+                        </div>
+                        <div className="bg-surface-0 rounded px-2 py-1.5">
+                          <span className="text-text-muted block">Layer 2</span>
+                          <span className="text-text-primary font-medium">Simulation</span>
+                        </div>
+                        <div className="bg-surface-0 rounded px-2 py-1.5">
+                          <span className="text-text-muted block">Layer 3</span>
+                          <span className="text-text-primary font-medium">Ephemeral Exec</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <h4 className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Full Arguments</h4>
                     <pre className="text-[11px] font-mono text-text-secondary bg-surface-0 rounded-lg p-3 overflow-x-auto max-h-40">

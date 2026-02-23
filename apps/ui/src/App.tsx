@@ -12,7 +12,10 @@ import { SignIn, SignUp, useUser, useAuth } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Sidebar } from './components/layout/Sidebar.tsx';
+import { TourProvider } from './contexts/TourContext.tsx';
+import { TourOverlay } from './components/tour/TourOverlay.tsx';
 import { useAuthSetup } from './hooks/useAuthSetup.ts';
+import { useTheme } from './contexts/ThemeContext.tsx';
 import { getMe } from './api/client.ts';
 
 // Pages
@@ -23,13 +26,23 @@ import { OnboardingPage } from './pages/onboarding/OnboardingPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
 import { PoliciesPage } from './pages/policies/PoliciesPage.tsx';
 import { ActivityPage } from './pages/activity/ActivityPage.tsx';
+import { SetupPage } from './pages/setup/SetupPage.tsx';
+import { NotificationsPage } from './pages/notifications/NotificationsPage.tsx';
+
+// Operation-first pages
+import { OperationsPage } from './pages/operations/OperationsPage.tsx';
+import { OperationPage } from './pages/operations/OperationPage.tsx';
+import { CredentialsPage } from './pages/credentials/CredentialsPage.tsx';
+import { SensorsPage } from './pages/sensors/SensorsPage.tsx';
+import { RunPage } from './pages/runs/RunPage.tsx';
+import { InsightsPage } from './pages/insights/InsightsPage.tsx';
+import { AdminPage } from './pages/admin/AdminPage.tsx';
 
 // Has Clerk key? If not, skip auth entirely (local dev / instance mode)
 const HAS_CLERK = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 export default function App() {
   if (!HAS_CLERK) {
-    // No Clerk configured — run without auth (backwards compatible, local dev)
     return <AuthenticatedApp />;
   }
 
@@ -108,40 +121,64 @@ function ActivationGate() {
 
 /** Main authenticated application shell. */
 function AuthenticatedApp() {
-  // Set up auth token forwarding (no-op if no Clerk)
-  if (HAS_CLERK) {
-    // Already called in ActivationGate, but safe to re-render
-  }
-
   return (
-    <div className="h-screen flex bg-void overflow-hidden">
-      <Sidebar />
+    <TourProvider>
+      <div className="h-screen flex bg-void overflow-hidden">
+        <Sidebar />
 
-      <main className="flex-1 overflow-hidden relative">
-        <Routes>
+        <main className="flex-1 overflow-hidden relative">
+          <Routes>
+          {/* Primary routes — sensor-first */}
+          <Route path="/operations" element={<PageShell><OperationsPage /></PageShell>} />
+          <Route path="/operations/:id" element={<PageShell><OperationPage /></PageShell>} />
+          <Route path="/credentials" element={<PageShell><CredentialsPage /></PageShell>} />
+          <Route path="/sensors" element={<PageShell><SensorsPage /></PageShell>} />
+          <Route path="/connections" element={<Navigate to="/credentials" replace />} />
+          <Route path="/runs/:id" element={<PageShell><RunPage /></PageShell>} />
+          <Route path="/insights" element={<PageShell><InsightsPage /></PageShell>} />
+
+          {/* Legacy redirects */}
+          <Route path="/inbox" element={<Navigate to="/operations" replace />} />
+          <Route path="/incidents/:id" element={<RedirectIncidentToOperation />} />
+
+          {/* Core pages */}
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/setup" element={<PageShell><SetupPage /></PageShell>} />
+          <Route path="/notifications" element={<PageShell><NotificationsPage /></PageShell>} />
           <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
           <Route path="/instances" element={<Navigate to="/" replace />} />
           <Route path="/instances/:id" element={<PageShell><InstanceDetailPage /></PageShell>} />
           <Route path="/settings" element={<PageShell><SettingsPage /></PageShell>} />
           <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
-          <Route path="/activity" element={<PageShell><ActivityPage /></PageShell>} />
-          <Route path="/audit" element={<Navigate to="/activity" replace />} />
+          <Route path="/audit" element={<PageShell><ActivityPage /></PageShell>} />
+          <Route path="/activity" element={<Navigate to="/audit" replace />} />
+          <Route path="/admin" element={<PageShell><AdminPage /></PageShell>} />
 
           {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/operations" replace />} />
         </Routes>
       </main>
-    </div>
+      </div>
+      <TourOverlay />
+    </TourProvider>
   );
 }
 
+/** Redirect /incidents/:id → /operations/:id */
+function RedirectIncidentToOperation() {
+  const params = new URL(window.location.href);
+  const id = params.pathname.split('/incidents/')[1];
+  return <Navigate to={`/operations/${id}`} replace />;
+}
+
 function AuthPage({ children }: { children: React.ReactNode }) {
+  const { resolved } = useTheme();
+  const isLight = resolved === 'light';
   return (
-    <div className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-4">
+    <div className={`min-h-screen flex flex-col items-center justify-center p-4 ${isLight ? 'bg-zinc-50' : 'bg-[#09090b]'}`}>
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-white tracking-tight">wooblay</h1>
-        <p className="text-sm text-zinc-400 mt-2">Supervised autonomy for AI agents</p>
+        <h1 className={`text-3xl font-bold tracking-tight ${isLight ? 'text-zinc-900' : 'text-white'}`}>wooblay</h1>
+        <p className={`text-sm mt-2 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>Supervised autonomy for AI agents</p>
       </div>
       <div className="w-full max-w-md flex justify-center">
         {children}

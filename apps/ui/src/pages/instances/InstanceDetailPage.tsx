@@ -16,6 +16,9 @@ import {
   getInstanceContributions,
   getInstanceCost,
   updateInstance,
+  startInstance,
+  stopInstance,
+  restartInstance,
   getActivity,
   getFlags,
   dismissFlag,
@@ -23,11 +26,33 @@ import {
   readFile,
   writeFile,
   getFileDownloadUrl,
+  getInstanceSecrets,
+  addInstanceSecret,
+  deleteInstanceSecret,
+  getMcpServers,
+  addMcpServer,
+  updateMcpServer,
+  deleteMcpServer,
+  getInstalledSkills,
+  installSkill,
+  removeSkill,
+  searchClawHub,
+  getAgentContainerState,
+  isContainerReady,
   type FileEntry,
   type MissionData,
   type Instance,
+  type McpServerConfig,
+  type CreateMcpServerRequest,
+  type InstalledSkill,
+  type ClawHubSkill,
+  getConnections,
+  createConnection,
+  addConnectionSecret,
 } from '../../api/client.ts';
 import { WeatherBackground, trustToWeather } from '../../components/weather/WeatherBackground.tsx';
+import { useToast } from '../../components/common/Toast.tsx';
+import { useTourOptional } from '../../contexts/TourContext.tsx';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +67,29 @@ const CAT_LABEL: Record<string, string> = {
   files: 'Files', network: 'Network', secrets: 'Secrets', infra: 'Infra',
   destructive: 'Destructive', data: 'Data', communication: 'Comms', other: 'Other',
 };
+
+function InstanceStatusBadge({ instance }: { instance: Instance }) {
+  const state = getAgentContainerState(instance);
+  const labels: Record<typeof state, string> = {
+    offline: 'offline',
+    starting: 'Starting…',
+    restarting: 'Restarting…',
+    online: 'online',
+    stopping: 'Stopping…',
+  };
+  const colors: Record<typeof state, string> = {
+    offline: 'bg-zinc-500/10 text-zinc-500',
+    starting: 'bg-amber-500/10 text-amber-400',
+    restarting: 'bg-amber-500/10 text-amber-400',
+    online: 'bg-emerald-500/10 text-emerald-400',
+    stopping: 'bg-amber-500/10 text-amber-400',
+  };
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium font-mono shrink-0 ${colors[state]}`}>
+      {labels[state]}
+    </span>
+  );
+}
 
 // ── SVG Pie Chart ─────────────────────────────────────────────────────────────
 
@@ -317,8 +365,7 @@ function AgentNetwork({ mission, instances }: { mission?: MissionData; instances
               return (
                 <div key={sa.sessionId} className="flex items-start gap-2">
                   <span className="text-border mt-2 text-[10px] select-none">{isLast ? '└─' : '├─'}</span>
-                  <div className={`flex-1 border rounded-lg p-2.5 transition-colors ${
-                    sa.status === 'awaiting_approval' ? 'border-amber-500/25 bg-amber-500/[0.03]' :
+                  <div className={`flex-1 border rounded-lg p-2.5 transition-colors ${sa.status === 'awaiting_approval' ? 'border-amber-500/25 bg-amber-500/[0.03]' :
                     sa.status === 'active' ? 'border-emerald-500/15 bg-emerald-500/[0.02]' :
                     'border-border/50'
                   }`}>
@@ -364,243 +411,1270 @@ function AgentNetwork({ mission, instances }: { mission?: MissionData; instances
   );
 }
 
-// ── Cloud Access Config ──────────────────────────────────────────────────────
+// ── Instance Mini-Tour — auto-triggers on first visit ────────────────────────
 
-function CloudAccessSection({ instance }: { instance: Instance }) {
-  const qc = useQueryClient();
-  const config = instance.configJson ? JSON.parse(instance.configJson) : {};
+const INSTANCE_TOUR_KEY = 'wooblay-instance-tour-seen';
 
-  const [githubToken, setGithubToken] = useState('');
-  const [showGithub, setShowGithub] = useState(false);
-  const [awsKey, setAwsKey] = useState('');
-  const [awsSecret, setAwsSecret] = useState('');
-  const [awsRegion, setAwsRegion] = useState(config.awsRegion ?? 'us-east-1');
-  const [gcpKey, setGcpKey] = useState('');
-  const [gcpProject, setGcpProject] = useState(config.gcpProjectId ?? '');
-  const [showAws, setShowAws] = useState(false);
-  const [showGcp, setShowGcp] = useState(false);
+interface MiniTourStep {
+  target: string;
+  title: string;
+  content: string;
+  tab?: 'overview' | 'profile' | 'tools' | 'workspace';
+}
 
-  const hasGithub = !!(config.githubPat || instance.githubPat);
-  const hasAws = !!(config.awsAccessKeyId || config.awsConfigured);
-  const hasGcp = !!(config.gcpConfigured || config.gcpProjectId);
+const INSTANCE_TOUR_STEPS: MiniTourStep[] = [
+  {
+    target: 'tour-instance-header',
+    title: 'Meet your agent',
+    content: 'Name, status, trust weather, and role. This is your agent\u2019s home base.',
+  },
+  {
+    target: 'tour-tab-overview',
+    tab: 'overview',
+    title: 'Overview',
+    content: 'Trust score, cost, contribution graph, and a live feed of every action.',
+  },
+  {
+    target: 'tour-tab-profile',
+    tab: 'profile',
+    title: 'Profile',
+    content: 'Edit the agent\u2019s name, role, and goal inline. This shapes how it behaves.',
+  },
+  {
+    target: 'tour-tab-tools',
+    tab: 'tools',
+    title: 'Tools & Credentials',
+    content: 'Built-in tools, ClawHub skills, MCP servers, and agent-exposed credentials. The agent is unrestricted — the Gate decides policy.',
+  },
+  {
+    target: 'tour-agent-keys',
+    tab: 'tools',
+    title: 'Agent API keys',
+    content: 'Keys here are fully visible to the agent as env vars. Only add what you trust it with.',
+  },
+  {
+    target: 'tour-tab-workspace',
+    tab: 'workspace',
+    title: 'Workspace',
+    content: 'Live file browser into the container. See what the agent is building right now.',
+  },
+];
 
-  const githubMutation = useMutation({
-    mutationFn: () => updateInstance(instance.id, {
-      githubToken,
-    } as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['instance', instance.id] });
-      setShowGithub(false);
-      setGithubToken('');
-    },
-  });
+function InstanceMiniTour({ setActiveTab }: { setActiveTab: (t: 'overview' | 'profile' | 'tools' | 'workspace') => void }) {
+  const mainTour = useTourOptional();
+  const [active, setActive] = useState(false);
+  const [idx, setIdx] = useState(0);
+  const [rect, setRect] = useState<DOMRect | null>(null);
 
-  const awsMutation = useMutation({
-    mutationFn: () => updateInstance(instance.id, {
-      awsAccessKeyId: awsKey,
-      awsSecretAccessKey: awsSecret,
-      awsRegion,
-    } as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['instance', instance.id] });
-      setShowAws(false);
-      setAwsKey(''); setAwsSecret('');
-    },
-  });
+  // Auto-trigger on first visit (unless main tour is running)
+  useEffect(() => {
+    if (mainTour?.isActive) return;
+    try {
+      if (localStorage.getItem(INSTANCE_TOUR_KEY)) return;
+    } catch { /* ignore */ }
+    const t = setTimeout(() => setActive(true), 600);
+    return () => clearTimeout(t);
+  }, [mainTour?.isActive]);
 
-  const gcpMutation = useMutation({
-    mutationFn: () => updateInstance(instance.id, {
-      gcpServiceAccountKey: gcpKey,
-      gcpProjectId: gcpProject,
-    } as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['instance', instance.id] });
-      setShowGcp(false);
-      setGcpKey('');
-    },
-  });
+  const step = active ? INSTANCE_TOUR_STEPS[idx] : null;
 
-  const handleGcpFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      // Base64 encode the key file
-      const content = reader.result as string;
-      try {
-        JSON.parse(content); // validate it's JSON
-        setGcpKey(btoa(content));
-      } catch {
-        setGcpKey(content); // might already be base64
-      }
+  // Switch tab when step changes
+  useEffect(() => {
+    if (step?.tab) setActiveTab(step.tab);
+  }, [step, setActiveTab]);
+
+  // Measure target
+  useEffect(() => {
+    if (!step) { setRect(null); return; }
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-tour="${step.target}"]`);
+      if (!el) { setRect(null); return; }
+      const r = el.getBoundingClientRect();
+      const pad = 10;
+      setRect(new DOMRect(r.left - pad, r.top - pad, r.width + pad * 2, r.height + pad * 2));
+    }, 150);
+    return () => clearTimeout(t);
+  }, [step, idx]);
+
+  // Re-measure on scroll/resize
+  useEffect(() => {
+    if (!step) return;
+    const measure = () => {
+      const el = document.querySelector(`[data-tour="${step.target}"]`);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const pad = 10;
+      setRect(new DOMRect(r.left - pad, r.top - pad, r.width + pad * 2, r.height + pad * 2));
     };
-    reader.readAsText(file);
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => { window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure); };
+  }, [step, idx]);
+
+  const finish = useCallback(() => {
+    setActive(false);
+    try { localStorage.setItem(INSTANCE_TOUR_KEY, 'true'); } catch { /* ignore */ }
   }, []);
 
+  if (!active || !step) return null;
+
+  const total = INSTANCE_TOUR_STEPS.length;
+  const pct = ((idx + 1) / total) * 100;
+
   return (
-    <div className="bg-surface-1 border border-border rounded-xl p-5 space-y-4">
-      <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Access Keys</h3>
-
-      {/* ── GitHub ──────────────────────────────────────────────────────── */}
-      <div className="space-y-2">
-        <button
-          onClick={() => setShowGithub(!showGithub)}
-          className="w-full flex items-center justify-between text-left group"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-text-primary font-medium">GitHub</span>
-            {hasGithub ? (
-              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">configured</span>
-            ) : (
-              <span className="text-[9px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded">not set</span>
-            )}
+    <div className="fixed inset-0 z-[9998] pointer-events-auto">
+      {!rect && <div className="absolute inset-0 bg-black/60" aria-hidden />}
+      {rect && (
+        <div className="absolute rounded-xl border-2 border-accent/80 bg-transparent transition-all duration-300 ease-out"
+          style={{
+            left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6), 0 0 30px 4px rgba(99,102,241,0.15)'
+          }} />
+      )}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-[420px] px-4">
+        <div className="bg-surface-1 border border-accent/20 rounded-2xl shadow-2xl overflow-hidden"
+          style={{ boxShadow: '0 0 40px 8px rgba(99,102,241,0.08), 0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+          <div className="h-[3px] bg-surface-2">
+            <div className="h-full bg-gradient-to-r from-accent to-accent-bright transition-all duration-300 ease-out rounded-full" style={{ width: `${pct}%` }} />
           </div>
-          <span className="text-text-tertiary text-[10px] group-hover:text-text-secondary">{showGithub ? '▾' : '▸'}</span>
-        </button>
-
-        {showGithub && (
-          <div className="pl-4 space-y-2 animate-fade-in">
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Personal Access Token</label>
-              <input
-                type="password"
-                value={githubToken}
-                onChange={e => setGithubToken(e.target.value)}
-                placeholder={hasGithub ? 'set — enter to change' : 'ghp_... or github_pat_...'}
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-              />
-              <p className="text-[9px] text-text-tertiary font-mono mt-1">Used for git operations — hot-injected, no restart needed</p>
+          <div className="p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-mono text-accent/70 font-medium tabular-nums">{idx + 1}/{total}</span>
+                <h3 className="text-[15px] font-semibold text-text-primary leading-tight">{step.title}</h3>
+              </div>
+              <button type="button" onClick={finish}
+                className="text-[10px] text-text-muted hover:text-text-secondary font-mono transition-colors">skip</button>
             </div>
-            <button
-              onClick={() => githubMutation.mutate()}
-              disabled={!githubToken || githubMutation.isPending}
-              className="px-4 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 font-mono"
-            >
-              {githubMutation.isPending ? 'saving...' : 'save GitHub token'}
-            </button>
+            <p className="text-[13px] text-text-secondary leading-relaxed">{step.content}</p>
+            <div className="flex items-center justify-between pt-2">
+              <button type="button" onClick={() => idx > 0 && setIdx(idx - 1)} disabled={idx === 0}
+                className="text-[12px] font-mono text-text-tertiary hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors">
+                {'\u2190'} back
+              </button>
+              <button type="button"
+                onClick={() => idx < total - 1 ? setIdx(idx + 1) : finish()}
+                className="px-5 py-2 rounded-lg bg-accent hover:bg-accent-bright text-white text-[12px] font-mono font-medium transition-colors shadow-lg shadow-accent/20">
+                {idx === total - 1 ? 'got it \u2713' : 'next \u2192'}
+              </button>
+            </div>
           </div>
-        )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Tools & Credentials Tab ──────────────────────────────────────────────────
+// ── Proxy Overview — SSE URL, config snippets, tool count ─────────────────────
+
+function ProxyOverview({ instance }: { instance: Instance }) {
+  const [copied, setCopied] = useState(false);
+  const [configTab, setConfigTab] = useState<'claude' | 'cursor' | 'rest'>('claude');
+
+  const { data: mcpServers } = useQuery({
+    queryKey: ['mcp-servers', instance.id],
+    queryFn: () => getMcpServers(instance.id),
+  });
+
+  const sseUrl = instance.endpoint || `http://wooblay-mcp-proxy-${instance.name}:3100/sse`;
+  const toolCount = mcpServers?.filter(s => s.enabled).length ?? 0;
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(sseUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const claudeConfig = JSON.stringify({
+    mcpServers: {
+      wooblay: {
+        command: "npx",
+        args: ["-y", "@anthropic-ai/mcp-client", sseUrl],
+      },
+    },
+  }, null, 2);
+
+  const cursorConfig = JSON.stringify({
+    mcpServers: {
+      wooblay: {
+        url: sseUrl,
+      },
+    },
+  }, null, 2);
+
+  const restExample = `curl -X POST ${sseUrl.replace('/sse', '/api/tool/execute')} \\
+  -H "Content-Type: application/json" \\
+  -d '{"action":"mcp:tool-call","toolName":"...","args":{...}}'`;
+
+  const snippets: Record<string, string> = { claude: claudeConfig, cursor: cursorConfig, rest: restExample };
+
+  return (
+    <div className="space-y-4">
+      {/* SSE Endpoint */}
+      <div className="bg-surface-1 border border-border rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">SSE Endpoint</h3>
+          <span className="text-[11px] text-text-muted font-mono">{toolCount} MCP server{toolCount !== 1 ? 's' : ''} configured</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 bg-surface-0 border border-border rounded-lg px-4 py-3 text-sm font-mono text-text-primary break-all select-all">
+            {sseUrl}
+          </code>
+          <button
+            onClick={copyUrl}
+            className="shrink-0 px-4 py-3 rounded-lg bg-accent/10 hover:bg-accent/20 text-accent text-xs font-mono font-medium transition-colors"
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
       </div>
 
-      {/* ── AWS ─────────────────────────────────────────────────────────── */}
-      <div className="space-y-2 pt-2 border-t border-border/30">
-        <button
-          onClick={() => setShowAws(!showAws)}
-          className="w-full flex items-center justify-between text-left group"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-text-primary font-medium">AWS</span>
-            {hasAws ? (
-              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">configured</span>
-            ) : (
-              <span className="text-[9px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded">not set</span>
-            )}
-          </div>
-          <span className="text-text-tertiary text-[10px] group-hover:text-text-secondary">{showAws ? '▾' : '▸'}</span>
-        </button>
+      {/* Config snippets */}
+      <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
+        <div className="flex border-b border-border">
+          {(['claude', 'cursor', 'rest'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setConfigTab(tab)}
+              className={`px-5 py-2.5 text-[11px] font-mono uppercase tracking-wider transition-colors ${
+                configTab === tab
+                  ? 'bg-accent/10 text-accent font-medium border-b-2 border-accent'
+                  : 'text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              {tab === 'claude' ? 'Claude Desktop' : tab === 'cursor' ? 'Cursor' : 'REST API'}
+            </button>
+          ))}
+        </div>
+        <pre className="p-5 text-xs font-mono text-text-secondary overflow-x-auto whitespace-pre">
+          {snippets[configTab]}
+        </pre>
+      </div>
 
-        {showAws && (
-          <div className="pl-4 space-y-2 animate-fade-in">
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Access Key ID</label>
+      {/* Quick actions */}
+      {toolCount === 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-5 text-center">
+          <p className="text-sm text-amber-300 font-medium mb-1">No MCP servers configured yet</p>
+          <p className="text-xs text-amber-400/60">Switch to the Tools tab to add MCP servers and vault credentials.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Unified view: native tools (always on), MCP servers, agent-exposed credentials.
+// NO restrictions, NO toggles on capabilities. The agent has full power.
+// The Gate evaluates every action at runtime — that's the security model.
+
+function CapabilitiesSection({ instance }: { instance: Instance }) {
+  const qc = useQueryClient();
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+  const [restartBaseline, setRestartBaseline] = useState<string | null>(null);
+
+  const { data: secretsData, isLoading: secretsLoading } = useQuery({
+    queryKey: ['instance-secrets', instance.id],
+    queryFn: () => getInstanceSecrets(instance.id),
+  });
+  const { data: mcpServers } = useQuery({
+    queryKey: ['mcp-servers', instance.id],
+    queryFn: () => getMcpServers(instance.id),
+  });
+  const { data: installedSkills } = useQuery({
+    queryKey: ['installed-skills', instance.id],
+    queryFn: () => getInstalledSkills(instance.id),
+  });
+
+  const restartFingerprint = useMemo(() => {
+    const secrets = (secretsData?.secrets ?? []).map((s: { key: string }) => s.key).sort();
+    const mcp = (mcpServers ?? []).map((s: { id: string; enabled: boolean; connectionIds?: string[] }) =>
+      `${s.id}:${s.enabled}:${(s.connectionIds ?? []).length}`,
+    ).sort();
+    const skills = (installedSkills ?? []).map((s) => s.name).sort();
+    return JSON.stringify({ mcp, skills, secrets });
+  }, [secretsData, mcpServers, installedSkills]);
+
+  useEffect(() => {
+    if (restartBaseline === null && restartFingerprint) {
+      setRestartBaseline(restartFingerprint);
+    }
+  }, [restartBaseline, restartFingerprint]);
+
+  const restartBannerVisible = restartBaseline !== null && restartFingerprint !== restartBaseline;
+
+  const addMut = useMutation({
+    mutationFn: () => addInstanceSecret(instance.id, {
+      key: newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
+      value: newValue,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance-secrets', instance.id] });
+      setNewKey('');
+      setNewValue('');
+    },
+  });
+
+  const delMut = useMutation({
+    mutationFn: (key: string) => deleteInstanceSecret(instance.id, key),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance-secrets', instance.id] });
+    },
+  });
+
+  const existingKeys = secretsData?.secrets ?? [];
+
+  const isProxy = instance.instanceType === 'proxy';
+
+  return (
+    <div className="space-y-4">
+      <RestartBanner
+        instanceId={instance.id}
+        visible={restartBannerVisible}
+        onRestarted={() => setRestartBaseline(restartFingerprint)}
+      />
+
+      {/* ── Built-in Tools (agent only) ──────────────────────── */}
+      {!isProxy && (
+        <div className="bg-surface-1 border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
+              Built-in Tools
+            </h3>
+            <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+              unrestricted
+            </span>
+          </div>
+          <p className="text-[10px] text-text-muted mb-4">
+            OpenClaw core tools — always available. Every call goes through the Gate for policy evaluation, risk classification, and audit logging. Add more tools via MCP servers below.
+          </p>
+
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { name: 'exec', desc: 'Shell commands' },
+              { name: 'write', desc: 'Create files' },
+              { name: 'edit', desc: 'Modify files' },
+              { name: 'read', desc: 'Read files' },
+              { name: 'search', desc: 'File search' },
+              { name: 'web_fetch', desc: 'HTTP requests' },
+              { name: 'browser', desc: 'Browser automation' },
+            ].map(t => (
+              <div key={t.name} className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-2/30 border border-border/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <div className="min-w-0">
+                  <code className="text-[10px] text-text-primary font-mono">{t.name}</code>
+                  <p className="text-[9px] text-text-muted truncate">{t.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-[9px] text-text-muted mt-3 pt-3 border-t border-border/30">
+            The agent is unrestricted.{' '}
+            <Link to="/policies" className="text-accent hover:underline">Policies</Link>{' '}
+            decide what gets EXECUTED, DENIED, or held for APPROVAL — per action, at runtime. Install community skills from ClawHub or add MCP servers below to extend capabilities.
+          </p>
+        </div>
+      )}
+
+      {/* ── ClawHub Skills (agent only) ──────────────────────── */}
+      {!isProxy && (
+        <ClawHubSkillsSection instanceId={instance.id} containerOnline={isContainerReady(instance)} onConfigChange={() => {}} />
+      )}
+
+      {/* ── MCP Tool Servers ────────────────────────────────────── */}
+      <McpToolsSection instanceId={instance.id} onConfigChange={() => {}} />
+
+      {/* ── Agent-Exposed Credentials (agent only) ──────────────── */}
+      {!isProxy && (
+        <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-agent-keys">
+          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-1">
+            Agent-Exposed Credentials
+          </h3>
+          <p className="text-[10px] text-text-muted mb-4">
+            Environment variables injected directly into the agent container.
+            The agent can read and use these. For secrets the agent should <em>not</em> see, use{' '}
+            <Link to="/credentials" className="text-accent hover:underline">exec-only vault credentials</Link> instead — those are injected only into ephemeral L3 containers.
+          </p>
+
+          {secretsLoading ? (
+            <div className="text-[10px] text-text-muted font-mono animate-pulse py-3">loading...</div>
+          ) : existingKeys.length > 0 ? (
+            <div className="space-y-1.5 mb-4">
+              {existingKeys.map((s: any) => (
+                <div key={s.key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-2/50 group">
+                  <div className="flex items-center gap-3">
+                    <code className="text-[11px] text-text-primary font-mono">{s.key}</code>
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20">
+                      agent-visible
+                    </span>
+          </div>
+                  <button
+                    onClick={() => delMut.mutate(s.key)}
+                    className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
+                  >
+                    remove
+        </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 min-w-0">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Key</label>
               <input
-                type="password"
-                value={awsKey}
-                onChange={e => setAwsKey(e.target.value)}
-                placeholder="AKIA..."
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                placeholder="OPENAI_API_KEY"
+                className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
               />
             </div>
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Secret Access Key</label>
+            <div className="flex-1 min-w-0">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Value</label>
               <input
                 type="password"
-                value={awsSecret}
-                onChange={e => setAwsSecret(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
-              />
-            </div>
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Region</label>
-              <input
-                value={awsRegion}
-                onChange={e => setAwsRegion(e.target.value)}
-                placeholder="us-east-1"
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                placeholder="sk-..."
+                className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
               />
             </div>
             <button
-              onClick={() => awsMutation.mutate()}
-              disabled={!awsKey || !awsSecret || awsMutation.isPending}
-              className="px-4 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 font-mono"
+              onClick={() => addMut.mutate()}
+              disabled={!newKey.trim() || !newValue.trim() || addMut.isPending}
+              className="shrink-0 px-3 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors"
             >
-              {awsMutation.isPending ? 'saving...' : 'save AWS credentials'}
+              {addMut.isPending ? '...' : 'Add'}
             </button>
           </div>
+          {addMut.isError && (
+            <p className="text-[10px] text-red-400 font-mono mt-2">
+              Failed to add — {(addMut.error as any)?.body ?? 'check server logs'}
+            </p>
         )}
       </div>
+      )}
 
-      {/* ── GCP ─────────────────────────────────────────────────────────── */}
-      <div className="space-y-2 pt-2 border-t border-border/30">
+      {/* Quick links */}
+      <div className="flex gap-3">
+        <Link to="/credentials" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Vault Credentials</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Exec-only secrets for L3 containers <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+        </Link>
+        <Link to="/policies" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Policies</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Runtime rules for allow / deny / approve <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+        </Link>
+        <Link to="/audit" className="flex-1 bg-surface-1 border border-border rounded-xl p-4 hover:border-border-bright transition-colors group">
+          <p className="text-[11px] font-medium text-text-primary">Audit</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Every action, every decision <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></p>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ── ClawHub Skills Section ────────────────────────────────────────────────────
+
+function ClawHubSkillsSection({ instanceId, containerOnline, onConfigChange }: { instanceId: string; containerOnline: boolean; onConfigChange: () => void }) {
+  const qc = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Skills list reads from host volume — works even when container is stopped
+  const { data: installed, isLoading: installedLoading } = useQuery({
+    queryKey: ['installed-skills', instanceId],
+    queryFn: () => getInstalledSkills(instanceId),
+  });
+
+  const { data: searchResults, isLoading: searchLoading, error: searchError } = useQuery({
+    queryKey: ['clawhub-search', searchTerm],
+    queryFn: () => searchClawHub(searchTerm),
+    enabled: searchTerm.length >= 2,
+  });
+
+  const installMut = useMutation({
+    mutationFn: (slug: string) => installSkill(instanceId, slug),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['installed-skills', instanceId] });
+      onConfigChange();
+    },
+  });
+
+  const removeMut = useMutation({
+    mutationFn: (name: string) => removeSkill(instanceId, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['installed-skills', instanceId] });
+      onConfigChange();
+    },
+  });
+
+  const handleSearch = () => {
+    if (searchQuery.trim().length >= 2) {
+      setSearchTerm(searchQuery.trim());
+    }
+  };
+
+  const installedNames = new Set((installed ?? []).map((s: InstalledSkill) => s.name));
+  const results: ClawHubSkill[] = (searchResults as any)?.skills ?? (Array.isArray(searchResults) ? searchResults : []);
+
+  return (
+    <div className="bg-surface-1 border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
+          ClawHub Skills
+        </h3>
+        <div className="flex items-center gap-3">
+          <a
+            href="https://clawhub.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] font-mono text-text-muted hover:text-text-secondary transition-colors"
+          >
+            browse registry
+          </a>
         <button
-          onClick={() => setShowGcp(!showGcp)}
-          className="w-full flex items-center justify-between text-left group"
-        >
+            onClick={() => setShowSearch(!showSearch)}
+            disabled={!containerOnline}
+            title={!containerOnline ? 'Start the agent to install skills' : undefined}
+            className="text-[10px] font-mono text-accent hover:text-accent-bright transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {showSearch ? 'cancel' : containerOnline ? '+ install skill' : '+ install (start agent)'}
+          </button>
+        </div>
+      </div>
+      <p className="text-[10px] text-text-muted mb-4">
+        Community-developed skills from ClawHub — the public skill registry for OpenClaw.
+        Skills extend the agent's capabilities with specialized knowledge and tool integrations.
+        Changes take effect on the next session (restart).
+      </p>
+
+      {/* Installed skills */}
+      {installedLoading ? (
+        <div className="text-[10px] text-text-muted font-mono animate-pulse py-3">scanning skills...</div>
+      ) : installed && installed.length > 0 ? (
+        <div className="space-y-2 mb-4">
+          {installed.map((skill: InstalledSkill) => (
+            <div key={skill.name} className="bg-surface-2/50 rounded-lg p-3 group">
+              <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-text-primary font-medium">GCP</span>
-            {hasGcp ? (
-              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">configured</span>
-            ) : (
-              <span className="text-[9px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded">not set</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
+                  <code className="text-[11px] text-text-primary font-mono">{skill.name}</code>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">
+                    skill
+                  </span>
+          </div>
+                <button
+                  onClick={() => removeMut.mutate(skill.name)}
+                  disabled={removeMut.isPending}
+                  className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
+                >
+                  remove
+        </button>
+              </div>
+              {skill.description && (
+                <p className="text-[10px] text-text-muted mt-1.5 ml-3.5 truncate">{skill.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : !showSearch ? (
+        <p className="text-[10px] text-text-muted font-mono py-3 text-center">
+          No skills installed. Search ClawHub to add community-developed capabilities.
+        </p>
+      ) : null}
+
+      {/* Search + install */}
+      {showSearch && (
+        <div className="border border-border rounded-lg p-4 space-y-3 bg-surface-0/50">
+          <div className="flex gap-2">
+              <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder="Search ClawHub... (e.g. postgres, summarize, calendar)"
+              className="flex-1 bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+            />
+            <button
+              onClick={handleSearch}
+              disabled={searchQuery.trim().length < 2 || searchLoading}
+              className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors shrink-0"
+            >
+              {searchLoading ? 'Searching...' : 'Search'}
+            </button>
+            </div>
+
+          {searchError && (
+            <p className="text-[10px] text-amber-400 font-mono">
+              Could not reach ClawHub — check your connection or try again later.
+            </p>
+          )}
+
+          {results.length > 0 && (
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {results.map((skill: ClawHubSkill) => {
+                const isInstalled = installedNames.has(skill.slug);
+                const isInstalling = installMut.isPending && installMut.variables === skill.slug;
+                return (
+                  <div key={skill.slug} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-surface-2/50 hover:bg-surface-2/80 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <code className="text-[11px] text-text-primary font-mono">{skill.slug}</code>
+                        {skill.version && (
+                          <span className="text-[9px] text-text-muted font-mono">v{skill.version}</span>
+                        )}
+                        {skill.downloads > 0 && (
+                          <span className="text-[9px] text-text-muted font-mono">{skill.downloads} installs</span>
+                        )}
+                        {skill.stars > 0 && (
+                          <span className="text-[9px] text-text-muted font-mono">{skill.stars} stars</span>
+                        )}
+            </div>
+                      {skill.description && (
+                        <p className="text-[10px] text-text-muted mt-0.5 truncate">{skill.description}</p>
+                      )}
+                      {skill.tags && skill.tags.length > 0 && (
+                        <div className="flex gap-1 mt-1">
+                          {skill.tags.slice(0, 4).map(tag => (
+                            <span key={tag} className="text-[8px] font-mono text-text-muted bg-surface-3 px-1.5 py-0.5 rounded">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+            </div>
+            <button
+                      onClick={() => !isInstalled && installMut.mutate(skill.slug)}
+                      disabled={isInstalled || isInstalling}
+                      className={`shrink-0 ml-3 px-3 py-1.5 rounded text-[10px] font-mono font-medium transition-colors ${
+                        isInstalled
+                          ? 'bg-emerald-500/10 text-emerald-400 cursor-default'
+                          : 'bg-accent text-surface-0 hover:bg-accent/90 disabled:opacity-40'
+                      }`}
+                    >
+                      {isInstalled ? 'installed' : isInstalling ? 'installing...' : 'install'}
+            </button>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+
+          {searchTerm && !searchLoading && results.length === 0 && !searchError && (
+            <p className="text-[10px] text-text-muted font-mono py-2 text-center">
+              No skills found for "{searchTerm}". Try a different search term.
+            </p>
+          )}
+
+          {installMut.isError && (
+            <p className="text-[10px] text-red-400 font-mono">
+              Install failed: {(installMut.error as any)?.body ?? (installMut.error as Error)?.message ?? 'Unknown error'}
+            </p>
+        )}
+      </div>
+      )}
+    </div>
+  );
+}
+
+// ── MCP Tools Section ────────────────────────────────────────────────────────
+
+function McpToolsSection({ instanceId, onConfigChange }: { instanceId: string; onConfigChange: () => void }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newTransport, setNewTransport] = useState<'stdio' | 'sse'>('stdio');
+  const [newSource, setNewSource] = useState('');
+  const [selectedConnIds, setSelectedConnIds] = useState<string[]>([]);
+  const [showInlineCredForm, setShowInlineCredForm] = useState(false);
+  const [inlineProvider, setInlineProvider] = useState('');
+  const [inlineCredName, setInlineCredName] = useState('');
+  const [inlineCredValue, setInlineCredValue] = useState('');
+  const [inlineEnvVar, setInlineEnvVar] = useState('');
+
+  const { data: servers, isLoading } = useQuery({
+    queryKey: ['mcp-servers', instanceId],
+    queryFn: () => getMcpServers(instanceId),
+  });
+
+  // Fetch available connections for the credential dropdown
+  const { data: connections } = useQuery({
+    queryKey: ['connections'],
+    queryFn: () => getConnections(),
+  });
+  const activeConns = (connections ?? []).filter((c: any) => c.status === 'active');
+
+  const addMut = useMutation({
+    mutationFn: (config: CreateMcpServerRequest) => addMcpServer(instanceId, config),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', instanceId] });
+      setNewName('');
+      setNewSource('');
+      setSelectedConnIds([]);
+      setShowAdd(false);
+      onConfigChange();
+    },
+  });
+
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [editingCredsServerId, setEditingCredsServerId] = useState<string | null>(null);
+  const [editingCredsIds, setEditingCredsIds] = useState<string[]>([]);
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      updateMcpServer(instanceId, id, { enabled }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', instanceId] });
+      onConfigChange();
+    },
+    onError: (err: Error) => {
+      toast(`Failed to toggle: ${err.message}`, 'error');
+    },
+  });
+
+  const delMut = useMutation({
+    mutationFn: (id: string) => deleteMcpServer(instanceId, id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', instanceId] });
+      setDeleteConfirmId(null);
+      onConfigChange();
+    },
+    onError: (err: Error) => {
+      toast(`Failed to remove: ${err.message}`, 'error');
+    },
+  });
+
+  const updateCredsMut = useMutation({
+    mutationFn: ({ serverId, connectionIds }: { serverId: string; connectionIds: string[] }) =>
+      updateMcpServer(instanceId, serverId, { connectionIds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mcp-servers', instanceId] });
+      setEditingCredsServerId(null);
+      onConfigChange();
+    },
+    onError: (err: Error) => {
+      toast(`Failed to update credentials: ${err.message}`, 'error');
+    },
+  });
+
+  const inlineCreateConnMut = useMutation({
+    mutationFn: async () => {
+      const normalized = inlineProvider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const conn = await createConnection({
+        provider: normalized,
+        name: inlineCredName.trim(),
+        credential: inlineCredValue,
+      });
+      if (inlineEnvVar.trim() && inlineCredValue) {
+        await addConnectionSecret(conn.id, { key: inlineEnvVar.trim(), value: inlineCredValue, mode: 'exec_only' });
+      }
+      return conn;
+    },
+    onSuccess: (conn: any) => {
+      qc.invalidateQueries({ queryKey: ['connections'] });
+      setSelectedConnIds(prev => [...prev, conn.id]);
+      setShowInlineCredForm(false);
+      setInlineProvider('');
+      setInlineCredName('');
+      setInlineCredValue('');
+      setInlineEnvVar('');
+      toast('Credential added', 'success');
+    },
+    onError: (err: Error) => {
+      toast(`Failed to create credential: ${err.message}`, 'error');
+    },
+  });
+
+  const startEditingCreds = (server: McpServerConfig) => {
+    setEditingCredsServerId(server.id);
+    setEditingCredsIds([...(server.connectionIds || [])]);
+  };
+
+  const toggleConn = (connId: string) => {
+    setSelectedConnIds(prev =>
+      prev.includes(connId) ? prev.filter(id => id !== connId) : [...prev, connId]
+    );
+  };
+
+  const toggleEditingConn = (connId: string) => {
+    setEditingCredsIds(prev =>
+      prev.includes(connId) ? prev.filter(id => id !== connId) : [...prev, connId]
+    );
+  };
+
+  const handleSubmit = () => {
+    if (!newName.trim() || !newSource.trim()) return;
+    addMut.mutate({
+      name: newName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+      transport: newTransport,
+      source: newSource.trim(),
+      connectionIds: selectedConnIds.length > 0 ? selectedConnIds : undefined,
+    });
+  };
+
+  return (
+    <div className="bg-surface-1 border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">
+          MCP Tool Servers
+        </h3>
+        <button
+          onClick={() => setShowAdd(!showAdd)}
+          className="text-[10px] font-mono text-accent hover:text-accent-bright transition-colors"
+        >
+          {showAdd ? 'cancel' : '+ add server'}
+        </button>
+      </div>
+      <p className="text-[10px] text-text-muted mb-4">
+        Upstream MCP servers whose tools your agent can use. Link vault connections to enable L3 isolation — credentials are resolved at execution time, never stored here or exposed to the agent. You can link or change credentials for any server anytime via <strong>edit credentials</strong>.
+      </p>
+
+      {/* Security callout */}
+      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3 mb-4">
+        <p className="text-[11px] text-emerald-400 font-medium mb-1">
+          Layer 3 Secure Execution
+        </p>
+        <p className="text-[10px] text-emerald-400/70">
+          Tools linked to vault connections run in ephemeral containers. Credentials are resolved from the vault at execution time, injected into a one-shot container, the tool executes, the result is captured, and the container is destroyed. Zero credential exposure to the agent or proxy.
+        </p>
+      </div>
+
+      {/* Existing servers */}
+      {isLoading ? (
+        <div className="text-[10px] text-text-muted font-mono animate-pulse py-3">loading...</div>
+      ) : servers && servers.length > 0 ? (
+        <div className="space-y-2 mb-4">
+          {servers.map((s: McpServerConfig) => (
+            <div key={s.id} className="bg-surface-2/50 rounded-lg p-3 group">
+              <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleMut.mutate({ id: s.id, enabled: !s.enabled })}
+                    disabled={toggleMut.isPending}
+                    className={`w-7 h-4 rounded-full transition-colors relative ${
+                      s.enabled ? 'bg-emerald-500' : 'bg-surface-3'
+                    } ${toggleMut.isPending ? 'opacity-50' : ''}`}
+                  >
+                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
+                      s.enabled ? 'left-3.5' : 'left-0.5'
+                    }`} />
+                  </button>
+                  <code className="text-[11px] text-text-primary font-mono">{s.name}</code>
+                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                    s.transport === 'stdio'
+                      ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
+                      : 'text-purple-400 bg-purple-500/10 border-purple-500/20'
+                  }`}>
+                    {s.transport}
+                  </span>
+                  {s.connectionIds.length > 0 && (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+                      L3 secure
+                    </span>
+                  )}
+                </div>
+                {deleteConfirmId === s.id ? (
+                  <span className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => delMut.mutate(s.id)}
+                      disabled={delMut.isPending}
+                      className="text-[10px] text-red-400 font-mono font-medium"
+                    >
+                      {delMut.isPending ? 'removing...' : 'confirm'}
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirmId(null)}
+                      className="text-[10px] text-text-muted font-mono"
+                    >
+                      cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirmId(s.id)}
+                    className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono"
+                  >
+                    remove
+                  </button>
             )}
           </div>
-          <span className="text-text-tertiary text-[10px] group-hover:text-text-secondary">{showGcp ? '▾' : '▸'}</span>
+              <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] text-text-muted font-mono truncate">{s.source}</span>
+                {s.connections && s.connections.map((c: any) => (
+                  <span key={c.id} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-3 text-text-secondary">
+                    {c.provider}: {c.name}
+                  </span>
+                ))}
+                {editingCredsServerId !== s.id && (
+                  <button
+                    type="button"
+                    onClick={() => startEditingCreds(s)}
+                    className="text-[9px] font-mono text-accent hover:text-accent-bright transition-colors"
+                  >
+                    edit credentials
         </button>
+                )}
+              </div>
+              {editingCredsServerId === s.id && (
+                <EditCredsPanel
+                  activeConns={activeConns}
+                  editingCredsIds={editingCredsIds}
+                  toggleEditingConn={toggleEditingConn}
+                  onCancel={() => setEditingCredsServerId(null)}
+                  onSave={() => updateCredsMut.mutate({ serverId: s.id, connectionIds: editingCredsIds })}
+                  saving={updateCredsMut.isPending}
+                  qc={qc}
+                  onNewConn={(connId) => setEditingCredsIds(prev => [...prev, connId])}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      ) : !showAdd ? (
+        <p className="text-[10px] text-text-muted font-mono py-3 text-center">
+          No MCP servers configured. Add one to extend your agent's tool capabilities.
+        </p>
+      ) : null}
 
-        {showGcp && (
-          <div className="pl-4 space-y-2 animate-fade-in">
-            <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Service Account Key (JSON)</label>
+      {/* Add server form */}
+      {showAdd && (
+        <div className="border border-border rounded-lg p-4 space-y-3 bg-surface-0/50">
               <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Name</label>
                 <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleGcpFileUpload}
-                  className="flex-1 bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono file:mr-2 file:px-2 file:py-0.5 file:rounded file:border-0 file:text-[10px] file:bg-surface-3 file:text-text-secondary file:cursor-pointer"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                placeholder="github-tools"
+                className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
                 />
               </div>
-              {gcpKey && (
-                <span className="text-[9px] text-emerald-400 font-mono">key loaded ({(gcpKey.length / 1024).toFixed(1)}KB)</span>
-              )}
-              <p className="text-[9px] text-text-tertiary font-mono mt-0.5">or paste base64-encoded key below</p>
-              <textarea
-                value={gcpKey}
-                onChange={e => setGcpKey(e.target.value)}
-                placeholder="paste base64-encoded service account key..."
-                rows={3}
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent resize-none"
-              />
+            <div className="w-24">
+              <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">Transport</label>
+              <select
+                value={newTransport}
+                onChange={(e) => setNewTransport(e.target.value as 'stdio' | 'sse')}
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1.5 text-[11px] font-mono text-text-primary outline-none"
+              >
+                <option value="stdio">stdio</option>
+                <option value="sse">SSE</option>
+              </select>
             </div>
+          </div>
+
             <div>
-              <label className="text-[9px] text-text-tertiary font-mono block mb-1">Project ID</label>
+            <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
+              {newTransport === 'stdio' ? 'Package / Command' : 'SSE URL'}
+            </label>
               <input
-                value={gcpProject}
-                onChange={e => setGcpProject(e.target.value)}
-                placeholder="my-project-123"
-                className="w-full bg-surface-0 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
+              value={newSource}
+              onChange={(e) => setNewSource(e.target.value)}
+              placeholder={newTransport === 'stdio' ? 'npx @modelcontextprotocol/server-github' : 'https://mcp.example.com/sse'}
+              className="w-full bg-surface-2 border border-border rounded px-2.5 py-1.5 text-[11px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
               />
             </div>
-            <button
-              onClick={() => gcpMutation.mutate()}
-              disabled={!gcpKey || gcpMutation.isPending}
-              className="px-4 py-1.5 bg-accent hover:bg-accent-bright text-white text-[10px] rounded-lg font-medium disabled:opacity-40 font-mono"
-            >
-              {gcpMutation.isPending ? 'saving...' : 'save GCP credentials'}
+
+          {/* Connection selection — vault-backed credentials */}
+          <div>
+            <label className="text-[9px] text-text-muted font-mono uppercase block mb-1">
+              Credentials <span className="normal-case text-text-muted">(enables L3 secure execution)</span>
+            </label>
+            <p className="text-[9px] text-text-muted mb-2">
+              Credentials are encrypted in the vault and only injected into ephemeral containers at execution time. The agent and proxy never see them.
+            </p>
+            {activeConns.length > 0 && (
+              <div className="space-y-1 mb-2">
+                {activeConns.map((c: any) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => toggleConn(c.id)}
+                    className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-[10px] font-mono transition-colors ${
+                      selectedConnIds.includes(c.id)
+                        ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                        : 'bg-surface-2 border border-transparent text-text-secondary hover:bg-surface-3'
+                    }`}
+                  >
+                    <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
+                      selectedConnIds.includes(c.id)
+                        ? 'border-emerald-500 bg-emerald-500'
+                        : 'border-border'
+                    }`}>
+                      {selectedConnIds.includes(c.id) && (
+                        <span className="text-white text-[8px]">{'\u2713'}</span>
+                      )}
+                    </span>
+                    <span className="text-text-primary">{c.name}</span>
+                    <span className="text-text-muted">{c.provider}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Inline credential creation */}
+            {!showInlineCredForm ? (
+              <button
+                type="button"
+                onClick={() => setShowInlineCredForm(true)}
+                className="text-[10px] font-mono text-accent hover:text-accent-bright transition-colors"
+              >
+                + add new credential
+              </button>
+            ) : (
+              <div className="border border-accent/30 rounded-lg p-3 space-y-2 bg-surface-0/50">
+                <p className="text-[9px] text-text-muted font-medium">New credential — encrypted, L3 only</p>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Provider</label>
+                    <input
+                      value={inlineProvider}
+                      onChange={(e) => setInlineProvider(e.target.value)}
+                      placeholder="github, aws, slack..."
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Name</label>
+                    <input
+                      value={inlineCredName}
+                      onChange={(e) => setInlineCredName(e.target.value)}
+                      placeholder="My GitHub Token"
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Secret / Token</label>
+                    <input
+                      type="password"
+                      value={inlineCredValue}
+                      onChange={(e) => setInlineCredValue(e.target.value)}
+                      placeholder="ghp_..., xoxb-..., AKIA..."
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                  <div className="w-40">
+                    <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Env var name</label>
+                    <input
+                      value={inlineEnvVar}
+                      onChange={(e) => setInlineEnvVar(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+                      placeholder="GITHUB_TOKEN"
+                      className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineCredForm(false)}
+                    className="text-[10px] font-mono text-text-muted hover:text-text-primary"
+                  >
+                    cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => inlineCreateConnMut.mutate()}
+                    disabled={!inlineProvider.trim() || !inlineCredName.trim() || !inlineCredValue || inlineCreateConnMut.isPending}
+                    className="px-3 py-1 rounded bg-accent text-surface-0 text-[10px] font-mono font-medium disabled:opacity-40"
+                  >
+                    {inlineCreateConnMut.isPending ? 'Creating...' : 'Create & Link'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => { setShowAdd(false); setSelectedConnIds([]); }}
+              className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary transition-colors">
+              Cancel
+            </button>
+            <button onClick={handleSubmit}
+              disabled={!newName.trim() || !newSource.trim() || addMut.isPending}
+              className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40 hover:bg-accent/90 transition-colors">
+              {addMut.isPending ? 'Adding...' : 'Add Server'}
             </button>
           </div>
-        )}
+
+          {addMut.isError && (
+            <p className="text-[10px] text-red-400 font-mono">
+              Failed: {(addMut.error as any)?.body ?? (addMut.error as Error)?.message ?? 'Unknown error'}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Edit Credentials Panel (shared between add + edit flows) ─────────────────
+
+function EditCredsPanel({
+  activeConns,
+  editingCredsIds,
+  toggleEditingConn,
+  onCancel,
+  onSave,
+  saving,
+  qc,
+  onNewConn,
+}: {
+  activeConns: any[];
+  editingCredsIds: string[];
+  toggleEditingConn: (id: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+  saving: boolean;
+  qc: any;
+  onNewConn: (connId: string) => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [provider, setProvider] = useState('');
+  const [credName, setCredName] = useState('');
+  const [credValue, setCredValue] = useState('');
+  const [envVar, setEnvVar] = useState('');
+
+  const createMut = useMutation({
+    mutationFn: async () => {
+      const normalized = provider.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const conn = await createConnection({ provider: normalized, name: credName.trim(), credential: credValue });
+      if (envVar.trim() && credValue) {
+        await addConnectionSecret(conn.id, { key: envVar.trim(), value: credValue, mode: 'exec_only' });
+      }
+      return conn;
+    },
+    onSuccess: (conn: any) => {
+      qc.invalidateQueries({ queryKey: ['connections'] });
+      onNewConn(conn.id);
+      setShowForm(false);
+      setProvider('');
+      setCredName('');
+      setCredValue('');
+      setEnvVar('');
+    },
+  });
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-2">
+      <p className="text-[9px] text-text-muted">Link credentials for L3 secure execution.</p>
+      {activeConns.length > 0 && (
+        <div className="space-y-1">
+          {activeConns.map((c: any) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => toggleEditingConn(c.id)}
+              className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-[10px] font-mono transition-colors ${
+                editingCredsIds.includes(c.id)
+                  ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                  : 'bg-surface-2 border border-transparent text-text-secondary hover:bg-surface-3'
+              }`}
+            >
+              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                editingCredsIds.includes(c.id) ? 'border-emerald-500 bg-emerald-500' : 'border-border'
+              }`}>
+                {editingCredsIds.includes(c.id) && <span className="text-white text-[8px]">{'\u2713'}</span>}
+              </span>
+              <span className="text-text-primary">{c.name}</span>
+              <span className="text-text-muted">{c.provider}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!showForm ? (
+        <button type="button" onClick={() => setShowForm(true)} className="text-[10px] font-mono text-accent hover:text-accent-bright">
+          + add new credential
+        </button>
+      ) : (
+        <div className="border border-accent/30 rounded-lg p-3 space-y-2 bg-surface-0/50">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Provider</label>
+              <input value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="github"
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+            <div className="flex-1">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Name</label>
+              <input value={credName} onChange={(e) => setCredName(e.target.value)} placeholder="My GitHub"
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Token / Secret</label>
+              <input type="password" value={credValue} onChange={(e) => setCredValue(e.target.value)} placeholder="ghp_..."
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+            <div className="w-36">
+              <label className="text-[8px] text-text-muted font-mono uppercase block mb-0.5">Env var</label>
+              <input value={envVar} onChange={(e) => setEnvVar(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))} placeholder="GITHUB_TOKEN"
+                className="w-full bg-surface-2 border border-border rounded px-2 py-1 text-[10px] font-mono text-text-primary placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setShowForm(false)} className="text-[10px] font-mono text-text-muted hover:text-text-primary">cancel</button>
+            <button type="button" onClick={() => createMut.mutate()}
+              disabled={!provider.trim() || !credName.trim() || !credValue || createMut.isPending}
+              className="px-3 py-1 rounded bg-accent text-surface-0 text-[10px] font-mono font-medium disabled:opacity-40">
+              {createMut.isPending ? 'Creating...' : 'Create & Link'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-1">
+        <button type="button" onClick={onCancel} className="px-3 py-1.5 text-[10px] font-mono text-text-secondary hover:text-text-primary">Cancel</button>
+        <button type="button" onClick={onSave} disabled={saving} className="px-4 py-1.5 rounded bg-accent text-surface-0 text-[11px] font-mono font-medium disabled:opacity-40">
+          {saving ? 'Saving...' : 'Save'}
+        </button>
       </div>
+    </div>
+  );
+}
+
+// ── Restart Banner ───────────────────────────────────────────────────────────
+
+function RestartBanner({
+  instanceId,
+  visible,
+  onRestarted,
+}: {
+  instanceId: string;
+  visible: boolean;
+  onRestarted: () => void;
+}) {
+  const qc = useQueryClient();
+  const restartMut = useMutation({
+    mutationFn: () => restartInstance(instanceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance', instanceId] });
+      qc.invalidateQueries({ queryKey: ['instances'] });
+      onRestarted();
+    },
+  });
+
+  if (!visible) return null;
+
+  return (
+    <div className="bg-amber-500/8 border border-amber-500/25 rounded-xl px-5 py-3 flex items-center justify-between gap-4 animate-fade-in">
+      <div>
+        <p className="text-[11px] text-amber-400 font-medium">Configuration changed</p>
+        <p className="text-[10px] text-amber-400/70">
+          Skill, MCP server, or environment changes require a restart to take effect. Memory and session state are preserved.
+        </p>
+      </div>
+      <button
+        onClick={() => restartMut.mutate()}
+        disabled={restartMut.isPending}
+        className="shrink-0 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-mono font-bold disabled:opacity-50 transition-colors"
+      >
+        {restartMut.isPending ? 'Restarting\u2026' : 'Restart to apply'}
+      </button>
     </div>
   );
 }
@@ -715,18 +1789,21 @@ function ProfileTab({ instanceId, instance, isRunning }: { instanceId: string; i
         ].join('\n');
 
         await writeFile(instanceId, '/root/clawd/IDENTITY.md', identityMd);
+
+        // Restart so the agent picks up the new role/goal (SOUL is read at startup)
+        await restartInstance(instanceId);
       }
     },
     onSuccess: () => {
       setStructDirty(false);
       setSoulDirty(false);
       setIdentityDirty(false);
-      setSaveStatus('Profile saved — SOUL.md + IDENTITY.md updated');
+      setSaveStatus('Profile saved — agent restarting to apply new role/goal');
       qc.invalidateQueries({ queryKey: ['instance', instanceId] });
       qc.invalidateQueries({ queryKey: ['instances'] });
       qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/SOUL.md'] });
       qc.invalidateQueries({ queryKey: ['file-content', instanceId, '/root/clawd/IDENTITY.md'] });
-      setTimeout(() => setSaveStatus(null), 2500);
+      setTimeout(() => setSaveStatus(null), 4000);
     },
     onError: () => setSaveStatus('Failed to save profile'),
   });
@@ -897,22 +1974,25 @@ function ProfileTab({ instanceId, instance, isRunning }: { instanceId: string; i
 
 // ── Workspace File Explorer ───────────────────────────────────────────────────
 
-function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning: boolean }) {
+function WorkspaceTab({ instanceId, instance }: { instanceId: string; instance: Instance }) {
   const [currentPath, setCurrentPath] = useState('/root/.openclaw/workspace');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
+  const isRunning = instance.status === 'running';
+  const containerReady = isContainerReady(instance);
+
   const { data: files, isLoading: filesLoading, error: filesError } = useQuery({
     queryKey: ['files', instanceId, currentPath],
     queryFn: () => listFiles(instanceId, currentPath),
-    enabled: isRunning,
+    enabled: containerReady,
     refetchInterval: autoRefresh ? 5000 : false,
   });
 
   const { data: fileContent, isLoading: contentLoading } = useQuery({
     queryKey: ['file-content', instanceId, selectedFile],
     queryFn: () => readFile(instanceId, selectedFile!),
-    enabled: !!selectedFile && isRunning,
+    enabled: !!selectedFile && containerReady,
   });
 
   if (!isRunning) {
@@ -921,6 +2001,16 @@ function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning
         <pre className="text-text-tertiary font-mono text-lg mb-2">( -_- )</pre>
         <p className="text-text-secondary font-mono text-sm">agent not running</p>
         <p className="text-text-tertiary font-mono text-[10px] mt-1">start the agent to browse its workspace</p>
+      </div>
+    );
+  }
+
+  if (!containerReady) {
+    return (
+      <div className="bg-surface-1 border border-border rounded-xl p-12 text-center">
+        <pre className="text-text-tertiary font-mono text-lg mb-2">( . . )</pre>
+        <p className="text-text-secondary font-mono text-sm">Agent is starting</p>
+        <p className="text-text-tertiary font-mono text-[10px] mt-1">Workspace will be available when the container is up</p>
       </div>
     );
   }
@@ -1003,8 +2093,7 @@ function WorkspaceTab({ instanceId, isRunning }: { instanceId: string; isRunning
                         setSelectedFile(fullPath);
                       }
                     }}
-                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-[11px] font-mono transition-colors group ${
-                      isSelected ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-surface-2/50 hover:text-text-primary'
+                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-[11px] font-mono transition-colors group ${isSelected ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-surface-2/50 hover:text-text-primary'
                     }`}
                   >
                     <span className={`shrink-0 w-3 text-center ${entry.type === 'dir' ? 'text-accent' : 'text-text-tertiary'}`}>
@@ -1075,7 +2164,7 @@ export function InstanceDetailPage() {
 
   const { data: instance, isLoading } = useQuery({
     queryKey: ['instance', id], queryFn: () => getInstance(id!),
-    enabled: !!id, refetchInterval: 10_000,
+    enabled: !!id, refetchInterval: 3_000,
   });
   const { data: mission } = useQuery({
     queryKey: ['mission', id], queryFn: () => getMission(id!),
@@ -1102,27 +2191,51 @@ export function InstanceDetailPage() {
     queryFn: () => getFlags({ dismissed: 'false', limit: '5' }),
     refetchInterval: 15_000,
   });
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'access' | 'workspace'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'tools' | 'workspace'>('overview');
+
+  // Listen for tour tab-switch events
+  const handleTourTab = useCallback((e: Event) => {
+    const tab = (e as CustomEvent).type.replace('tour:tab:', '') as typeof activeTab;
+    if (['overview', 'profile', 'tools', 'workspace'].includes(tab)) setActiveTab(tab);
+  }, []);
+  useEffect(() => {
+    const tabs = ['tour:tab:overview', 'tour:tab:profile', 'tour:tab:tools', 'tour:tab:workspace'];
+    tabs.forEach(t => window.addEventListener(t, handleTourTab));
+    return () => tabs.forEach(t => window.removeEventListener(t, handleTourTab));
+  }, [handleTourTab]);
+
   const qc = useQueryClient();
   const dismissMutation = useMutation({
     mutationFn: dismissFlag,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }),
   });
 
-  if (isLoading || !instance) {
-    return <div className="flex items-center justify-center h-64">
-      <span className="text-text-secondary text-sm font-mono animate-pulse">loading...</span>
-    </div>;
-  }
+  // ── Lifecycle controls ─────────────────────────────────────────────────
+  const lifecycleOpts = {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instance', id] });
+      qc.invalidateQueries({ queryKey: ['instances'] });
+    },
+  };
+  const startMut = useMutation({ mutationFn: () => startInstance(id!), ...lifecycleOpts });
+  const stopMut = useMutation({ mutationFn: () => stopInstance(id!), ...lifecycleOpts });
+  const restartHeaderMut = useMutation({ mutationFn: () => restartInstance(id!), ...lifecycleOpts });
+  const anyLifecycleLoading = startMut.isPending || stopMut.isPending || restartHeaderMut.isPending;
+  const containerState = instance ? getAgentContainerState(instance, {
+    startPending: startMut.isPending,
+    stopPending: stopMut.isPending,
+  }) : 'offline';
 
   const byDay = contributions?.byDay ?? [];
-  const dailyCounts = byDay.map(d => d.count);
+  const dailyCounts = byDay.map((d: any) => d.count);
   const flags = flagsData?.flags ?? [];
-  const criticalFlags = flags.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
+  const criticalFlags = flags.filter((f: any) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
   const trust = mission?.trustScore ?? 50;
   const totalCost = Number(cost?.costToday ?? mission?.estimatedCost ?? 0) || 0;
   const summary = contributions?.summary;
   const totalActions = summary?.totalActions ?? mission?.progress?.total ?? 0;
+
+  // These useMemo hooks MUST be before any early return to avoid React error #310
   const weather = useMemo(() => trustToWeather(trust), [trust]);
 
   const contributionScore = useMemo(() => {
@@ -1133,9 +2246,16 @@ export function InstanceDetailPage() {
     return Math.round(Math.min(100, (efficiency * 0.3 + (100 - denialRate) * 0.2 + outputScore * 0.5)));
   }, [summary]);
 
+  if (isLoading || !instance) {
+    return <div className="flex items-center justify-center h-64">
+      <span className="text-text-secondary text-sm font-mono animate-pulse">loading...</span>
+    </div>;
+  }
+
   return (
     <div className="relative">
       <WeatherBackground weather={weather} />
+      <InstanceMiniTour setActiveTab={setActiveTab} />
 
       <div className="max-w-5xl mx-auto space-y-5 relative z-10">
       <Link to="/" className="text-xs text-text-tertiary hover:text-text-secondary transition-colors font-mono inline-flex items-center gap-1.5">
@@ -1143,29 +2263,78 @@ export function InstanceDetailPage() {
       </Link>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl p-6">
+        <div className="bg-surface-1 border border-border rounded-xl p-6" data-tour="tour-instance-header">
         <div className="flex items-center gap-6">
-          {/* Face — clean, well-padded */}
+            {instance.instanceType !== 'proxy' && (
           <div className="shrink-0 w-20 h-20 rounded-xl bg-surface-0 border border-border/50 flex items-center justify-center">
             <AgentCharacter mission={mission} instance={instance} />
           </div>
+            )}
 
-          {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-xl font-bold text-text-primary font-mono truncate">{instance.name}</h1>
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium font-mono shrink-0 ${
-                instance.status === 'running' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'
-              }`}>{instance.status}</span>
-              {(mission?.subAgents?.length ?? 0) > 0 && (
+                <InstanceStatusBadge instance={instance} />
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0 ${
+                  instance.instanceType === 'proxy'
+                    ? 'bg-violet-500/10 text-violet-400'
+                    : 'text-text-muted bg-surface-2'
+                }`}>
+                  {instance.instanceType === 'proxy' ? 'MCP Proxy' : instance.agentRuntime}
+                </span>
+                {instance.instanceType !== 'proxy' && (mission?.subAgents?.length ?? 0) > 0 && (
                 <span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full shrink-0">
                   +{mission!.subAgents.length} sub-agent{mission!.subAgents.length !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
+              {instance.instanceType === 'proxy' ? (
+                <p className="text-xs text-text-tertiary font-mono mt-1">Secure MCP firewall for external agents</p>
+              ) : (
+                <>
             {mission?.role && <p className="text-sm text-text-secondary font-mono">{mission.role}</p>}
             {mission?.goal && mission.goal !== instance.name && (
               <p className="text-xs text-text-tertiary font-mono mt-0.5">goal: {mission.goal}</p>
+                  )}
+                  {isContainerReady(instance) && (
+                    <p className="text-xs text-amber-400/90 font-mono mt-2">
+                      API key active — stop when not in use to avoid spend. Memory is preserved.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Lifecycle controls */}
+            <div className="shrink-0 flex flex-col gap-2">
+              {containerState === 'offline' ? (
+                <button
+                  onClick={() => startMut.mutate()}
+                  disabled={anyLifecycleLoading}
+                  className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white text-[12px] font-mono font-bold disabled:opacity-40 transition-colors"
+                >
+                  {startMut.isPending ? 'Starting\u2026' : 'Start'}
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => restartHeaderMut.mutate()}
+                    disabled={anyLifecycleLoading}
+                    className="px-5 py-2 rounded-lg bg-accent/15 hover:bg-accent/25 text-accent text-[11px] font-mono font-medium disabled:opacity-40 transition-colors"
+                  >
+                    {restartHeaderMut.isPending ? 'Restarting\u2026' : 'Restart'}
+                  </button>
+                  <button
+                    onClick={() => stopMut.mutate()}
+                    disabled={anyLifecycleLoading}
+                    className="px-5 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[11px] font-mono font-medium disabled:opacity-40 transition-colors"
+                  >
+                    {stopMut.isPending ? 'Stopping\u2026' : 'Stop'}
+                  </button>
+                </>
+              )}
+              {instance.liveStatus && (
+                <span className="text-[9px] font-mono text-text-muted text-center">{instance.liveStatus}</span>
             )}
           </div>
         </div>
@@ -1173,12 +2342,15 @@ export function InstanceDetailPage() {
 
       {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 bg-surface-1 border border-border rounded-xl p-1.5">
-        {(['overview', 'profile', 'access', 'workspace'] as const).map(tab => (
+          {(instance.instanceType === 'proxy'
+            ? (['overview', 'tools'] as const)
+            : (['overview', 'profile', 'tools', 'workspace'] as const)
+          ).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors ${
-              activeTab === tab
+              data-tour={`tour-tab-${tab}`}
+              className={`px-5 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors ${activeTab === tab
                 ? 'bg-accent/10 text-accent font-medium'
                 : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-2/50'
             }`}
@@ -1188,12 +2360,14 @@ export function InstanceDetailPage() {
         ))}
       </div>
 
-      {activeTab === 'workspace' ? (
-        <WorkspaceTab instanceId={instance.id} isRunning={instance.status === 'running'} />
-      ) : activeTab === 'profile' ? (
-        <ProfileTab instanceId={instance.id} instance={instance} isRunning={instance.status === 'running'} />
-      ) : activeTab === 'access' ? (
-        <CloudAccessSection instance={instance} />
+        {activeTab === 'workspace' && instance.instanceType !== 'proxy' ? (
+          <WorkspaceTab instanceId={instance.id} instance={instance} />
+        ) : activeTab === 'profile' && instance.instanceType !== 'proxy' ? (
+          <ProfileTab instanceId={instance.id} instance={instance} isRunning={isContainerReady(instance)} />
+        ) : activeTab === 'tools' ? (
+          <CapabilitiesSection instance={instance} />
+        ) : instance.instanceType === 'proxy' ? (
+          <ProxyOverview instance={instance} />
       ) : (
       <>
       {/* ── At a Glance ───────────────────────────────────────────────────── */}
@@ -1239,8 +2413,7 @@ export function InstanceDetailPage() {
         {/* Score */}
         <div className="bg-surface-1 border border-border rounded-xl p-4">
           <div className="text-[10px] text-text-muted uppercase tracking-wider font-mono mb-3">Score</div>
-          <div className={`text-2xl font-bold font-mono tabular-nums ${
-            contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
+                <div className={`text-2xl font-bold font-mono tabular-nums ${contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
           }`}>{contributionScore}</div>
           <div className="text-[10px] text-text-tertiary font-mono mt-1">
             {summary?.approvalEfficiency ? `${summary.approvalEfficiency} eff.` : 'no data'}
@@ -1259,7 +2432,7 @@ export function InstanceDetailPage() {
                   <p className="text-sm text-red-300 font-medium">{flag.title}</p>
                   <p className="text-xs text-red-400/70 mt-1 truncate">{flag.description?.split('\n')[0]}</p>
                   <div className="flex items-center gap-4 mt-2.5">
-                    <Link to="/activity" className="text-[11px] text-red-300 font-medium hover:text-red-200 font-mono">view activity →</Link>
+                          <Link to="/audit" className="text-[11px] text-red-300 font-medium hover:text-red-200 font-mono">view audit →</Link>
                     <button onClick={() => dismissMutation.mutate(flag.id)} className="text-[11px] text-red-400/30 hover:text-red-400/70 font-mono">dismiss</button>
                   </div>
                 </div>
@@ -1272,7 +2445,7 @@ export function InstanceDetailPage() {
       {/* ── Activity Over Time ─────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Activity · Last 7 Days</h2>
+                <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Audit · Last 7 Days</h2>
           {summary && (
             <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
               <span>denial rate: {summary.denialRate ?? '—'}</span>
@@ -1320,11 +2493,11 @@ export function InstanceDetailPage() {
       {/* ── Agent Network ─────────────────────────────────────────────────── */}
       <AgentNetwork mission={mission} instances={allInstances ?? []} />
 
-      {/* ── Recent Activity ───────────────────────────────────────────────── */}
+            {/* ── Recent audit ────────────────────────────────────────────────────── */}
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-          <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Recent Activity</h3>
-          <Link to="/activity" className="text-[11px] text-accent hover:text-accent-bright font-mono">all →</Link>
+                <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Recent audit</h3>
+                <Link to="/audit" className="text-[11px] text-accent hover:text-accent-bright font-mono">all →</Link>
         </div>
         {!activity?.data?.length ? (
           <div className="p-10 text-center font-mono">
@@ -1338,8 +2511,7 @@ export function InstanceDetailPage() {
                   {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <span className="text-text-primary truncate flex-1 text-xs">{item.humanDescription}</span>
-                <span className={`text-[11px] font-mono font-medium shrink-0 ${
-                  item.status === 'denied' ? 'text-red-400' : item.status === 'pending' ? 'text-amber-400' : 'text-emerald-400'
+                      <span className={`text-[11px] font-mono font-medium shrink-0 ${item.status === 'denied' ? 'text-red-400' : item.status === 'pending' ? 'text-amber-400' : 'text-emerald-400'
                 }`}>{item.status}</span>
               </div>
             ))}

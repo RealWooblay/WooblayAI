@@ -10,6 +10,8 @@ import { ALL_PRESETS } from '../db/seed-policies.js';
 import { isAIEnabled } from '../services/ai-supervisor.js';
 import OpenAI from 'openai';
 import { config } from '../config.js';
+import { buildPolicyOptimizerPrompt } from '../prompts/policy-optimizer.js';
+import { resolveOrgIdForRequest } from '../middleware/org-resolve.js';
 
 export async function policyRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -283,37 +285,11 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       const response = await ai.chat.completions.create({
         model: config.OPENAI_MODEL,
         temperature: 0.2,
-        max_tokens: 1000,
+        max_tokens: 2500,
         messages: [
           {
             role: 'system',
-            content: `You are a policy optimizer for an AI agent supervision system. Analyze the agent's activity patterns and suggest policy rule changes.
-
-The agent's role is: "${agentRole}"
-
-Categories: code, git, packages, shell, files, network, secrets, infra, communication, destructive, data, other
-Decisions: ALLOW (auto-proceed), APPROVE (human review), DENY (block)
-
-Suggest rules that:
-- Auto-allow categories with high approval rates and zero denials (if the agent's role fits)
-- Require approval for categories with mixed history
-- Block categories that are outside the agent's role or have been frequently denied
-
-Respond in JSON ONLY:
-{
-  "suggestions": [
-    {
-      "action": "add|remove|update",
-      "matchCategory": "category_name",
-      "matchTool": "*",
-      "riskTier": "*",
-      "decision": "ALLOW|APPROVE|DENY",
-      "description": "Human-readable explanation",
-      "reasoning": "Why this change makes sense"
-    }
-  ],
-  "summary": "One sentence overview of changes"
-}`,
+            content: buildPolicyOptimizerPrompt(agentRole),
           },
           {
             role: 'user',
@@ -347,7 +323,7 @@ Suggest policy optimizations.`,
         return reply.code(500).send({ error: 'AI returned invalid response' });
       }
 
-      const result = JSON.parse(jsonMatch[0]) as {
+      let result: {
         suggestions: Array<{
           action: string;
           matchCategory: string;
@@ -359,6 +335,31 @@ Suggest policy optimizations.`,
         }>;
         summary: string;
       };
+
+      try {
+        result = JSON.parse(jsonMatch[0]);
+      } catch {
+        // LLM response was likely truncated by max_tokens — attempt repair
+        let repaired = jsonMatch[0];
+        // Close any open strings
+        const quoteCount = (repaired.match(/"/g) || []).length;
+        if (quoteCount % 2 !== 0) repaired += '"';
+        // Close any open arrays/objects
+        const openBrackets = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
+        const openBraces = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
+        // Remove trailing comma before closing
+        repaired = repaired.replace(/,\s*$/, '');
+        for (let i = 0; i < openBrackets; i++) repaired += ']';
+        for (let i = 0; i < openBraces; i++) repaired += '}';
+        try {
+          result = JSON.parse(repaired);
+        } catch (e2: any) {
+          return reply.code(500).send({
+            error: 'AI returned malformed JSON',
+            detail: `Parse failed after repair attempt: ${e2.message}`,
+          });
+        }
+      }
 
       // Auto-apply if requested
       if (autoApply && result.suggestions.length > 0) {
@@ -392,9 +393,109 @@ Suggest policy optimizations.`,
         applied: autoApply,
         agentRole,
       });
-    } catch (err) {
+    } catch (err: any) {
       request.log.error(err, 'AI policy optimization failed');
-      return reply.code(500).send({ error: 'AI analysis failed' });
+      const detail = err?.message ?? String(err);
+      const status = err?.status ?? 500;
+      return reply.code(status === 401 || status === 429 ? status : 500).send({
+        error: 'AI analysis failed',
+        detail,
+      });
+    }
+  });
+
+  // ── Org Settings (simulation threshold, etc.) ───────────────────────────
+
+  /**
+   * GET /api/policies/settings — Get org-level policy settings.
+   */
+  app.get('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const orgId = await resolveOrgIdForRequest(prisma, request);
+      if (!orgId) {
+        return reply.send({ simulationThreshold: 'high', platformMode: 'firewall' });
+      }
+
+      const orgRecord = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { settings: true },
+      });
+
+      const settings = orgRecord?.settings ? JSON.parse(orgRecord.settings) : {};
+      return reply.send({
+        simulationThreshold: settings.simulationThreshold ?? 'high',
+        platformMode: settings.platformMode ?? 'firewall',
+      });
+    } catch (err) {
+      request.log.error(err, 'Failed to get org settings');
+      return reply.code(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/policies/settings — Update org-level policy settings.
+   */
+  app.put('/api/policies/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const orgId = await resolveOrgIdForRequest(prisma, request);
+      if (!orgId) {
+        return reply.code(400).send({ error: 'No organization found. Create one in your account settings.' });
+      }
+
+      const body = request.body as {
+        simulationThreshold?: string;
+        platformMode?: string;
+        unlockPassword?: string;
+      };
+      const validThresholds = ['critical_only', 'high', 'medium', 'all'];
+
+      if (body.simulationThreshold && !validThresholds.includes(body.simulationThreshold)) {
+        return reply.code(400).send({
+          error: `Invalid simulationThreshold. Must be one of: ${validThresholds.join(', ')}`,
+        });
+      }
+
+      if (body.platformMode && !['firewall', 'full'].includes(body.platformMode)) {
+        return reply.code(400).send({ error: 'Invalid platformMode. Must be "firewall" or "full".' });
+      }
+
+      // Read existing settings and merge
+      const orgRecord = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { settings: true },
+      });
+
+      const existing = orgRecord?.settings ? JSON.parse(orgRecord.settings) : {};
+      const updated = { ...existing };
+      if (body.simulationThreshold) updated.simulationThreshold = body.simulationThreshold;
+
+      // Platform mode: Wooblay controls who gets Full Platform via env password (we give it to select customers)
+      if (body.platformMode === 'full') {
+        const unlockPassword = config.FULL_PLATFORM_UNLOCK_PASSWORD;
+        if (!unlockPassword) {
+          return reply.code(503).send({ error: 'Full Platform access is not configured. Contact Wooblay for access.' });
+        }
+        if (body.unlockPassword !== unlockPassword) {
+          return reply.code(403).send({ error: 'Incorrect platform password.' });
+        }
+        updated.platformMode = 'full';
+        delete updated.platformPassword;
+      } else if (body.platformMode === 'firewall') {
+        updated.platformMode = 'firewall';
+      }
+
+      await prisma.organization.update({
+        where: { id: orgId },
+        data: { settings: JSON.stringify(updated) },
+      });
+
+      return reply.send({
+        simulationThreshold: updated.simulationThreshold ?? 'high',
+        platformMode: updated.platformMode ?? 'firewall',
+      });
+    } catch (err) {
+      request.log.error(err, 'Failed to update org settings');
+      return reply.code(500).send({ error: 'Internal server error' });
     }
   });
 }

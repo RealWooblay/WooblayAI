@@ -34,21 +34,17 @@ export const authPlugin = fp(async function authPluginInner(app: FastifyInstance
       // Skip for GitHub webhook (uses its own HMAC-SHA256 verification)
       if (request.url === '/github/webhook' || request.url === '/github/webhook/') return;
 
-      // Skip agent auth for platform API routes (these use Clerk auth instead)
-      // Also skip for /api/tool/execute — in platform mode, managed agent containers
-      // run on the same Docker network and are trusted. The tool route reads
-      // agentPubkey from the request body. Ed25519 signatures are for future
-      // "bring your own instance" mode where agents connect over the internet.
-      const platformPaths = [
-        '/api/users/', '/api/coupons/', '/api/instances',
-        '/api/webhooks/', '/api/sync/', '/api/approvals/',
-        '/api/policies', '/api/stats', '/api/activity',
-        '/api/receipts', '/api/tool/', '/api/flags',
-        '/api/audit/', '/api/agents/', '/api/sessions/',
-        '/api/ai/',
-      ];
+      // Skip agent auth when the request carries Clerk auth (browser/platform).
+      // Clerk sends either an Authorization: Bearer header or a __session cookie.
+      // Agent requests use x-agent-pubkey instead — those still get verified below.
+      const authHeader = request.headers.authorization;
+      const cookieHeader = request.headers.cookie ?? '';
+      if (authHeader?.startsWith('Bearer ') || cookieHeader.includes('__session')) return;
+
+      // Also skip for platform API routes that don't carry agent headers
+      // (e.g. /api/tool/execute from managed containers on the Docker network)
       const path = request.url.split('?')[0];
-      if (platformPaths.some((p) => path.startsWith(p))) return;
+      if (path.startsWith('/api/tool/')) return;
 
       const pubkey = request.headers['x-agent-pubkey'] as string | undefined;
       const signature = request.headers['x-request-signature'] as string | undefined;

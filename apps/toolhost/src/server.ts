@@ -3,7 +3,7 @@
 /**
  * Wooblay Tool Host — MCP Server
  *
- * Exposes supervised tools (wooblay_exec, wooblay_browser, wooblay_http) via
+ * Exposes supervised tools (wooblay_exec, wooblay_http) via
  * the Model Context Protocol over stdio transport.
  *
  * Each tool call is routed through the Wooblay Gate for risk classification,
@@ -16,9 +16,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getAgentIdentity } from './identity/agent.js';
 import { createGateClient } from './gate/client.js';
 import { registerExecTool } from './tools/exec.js';
-import { registerBrowserTool } from './tools/browser.js';
 import { registerHttpTool } from './tools/http.js';
-import { TaskManager } from './tasks/manager.js';
 
 // ── Bootstrap ────────────────────────────────────────────────────────
 
@@ -42,15 +40,10 @@ async function main(): Promise<void> {
 
   // 4. Register tools
   registerExecTool(server, gateClient);
-  registerBrowserTool(server, gateClient);
   registerHttpTool(server, gateClient);
-  console.error('[toolhost] Tools registered: wooblay_exec, wooblay_browser, wooblay_http');
+  console.error('[toolhost] Tools registered: wooblay_exec, wooblay_http');
 
-  // 5. Initialize task manager (v1.5 placeholder)
-  const taskManager = new TaskManager();
-  await taskManager.initialize();
-
-  // 6. Connect via stdio transport
+  // 5. Connect via stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('[toolhost] MCP server running on stdio');
@@ -58,7 +51,6 @@ async function main(): Promise<void> {
   // 7. Graceful shutdown
   const shutdown = async () => {
     console.error('[toolhost] Shutting down…');
-    await taskManager.shutdown();
     await server.close();
     process.exit(0);
   };

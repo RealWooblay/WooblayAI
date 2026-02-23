@@ -72,8 +72,9 @@ services:
       COMPOSE_FILE: "/opt/wooblay/docker-compose.yml"
       INSTANCES_DIR: "/opt/wooblay/instances"
       GATE_INTERNAL_URL: "http://172.21.0.20:4800"
-      # ECR image for spawning new agent instances
+      # ECR images for spawning new instances
       AGENT_IMAGE: "${AGENT_IMAGE}"
+      MCP_PROXY_IMAGE: "${MCP_PROXY_IMAGE:-wooblay-mcp-proxy:latest}"
     depends_on:
       postgres:
         condition: service_healthy

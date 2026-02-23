@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "wooblay": {
+      "url": "http://localhost:4800/mcp/YOUR_INSTANCE_ID/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}

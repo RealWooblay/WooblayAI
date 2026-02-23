@@ -1,10 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "=== Wooblay OpenClaw Runtime (v7 — Unrestricted + Hook Monitoring) ==="
+echo "=== Wooblay OpenClaw Runtime ==="
 echo "  Gate URL:     ${GATE_URL}"
 echo "  Model:        ${OPENCLAW_MODEL:-claude-sonnet-4-20250514}"
-echo "  Strategy:     Full OpenClaw access — Hook monitors all actions via Gate"
+echo "  Enforcement:  All actions route through Wooblay Gate (plugin + hook)"
+echo "  Capabilities: UNRESTRICTED — Gate decides policy, not static config"
 
 # ── Gateway token ─────────────────────────────────────────────────────────
 if [ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
@@ -22,18 +23,12 @@ else
   echo "  Agents:       single (main) with model ${OPENCLAW_MODEL}"
 fi
 
-# ── GitHub Token ──────────────────────────────────────────────────────────
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-if [ -n "${GITHUB_TOKEN}" ]; then
-  echo "  GitHub:       Token set (${#GITHUB_TOKEN} chars)"
-  export GH_TOKEN="${GITHUB_TOKEN}"
-  export GITHUB_TOKEN="${GITHUB_TOKEN}"
-  git config --global credential.helper "!f() { echo \"username=token\"; echo \"password=${GITHUB_TOKEN}\"; }; f"
-else
-  echo "  GitHub:       not configured"
-fi
+# ── Credentials ───────────────────────────────────────────────────────────
+echo "  GitHub:       Secure Execution (credentials managed by Gate)"
+echo "  AWS:          Secure Execution (credentials managed by Gate)"
+echo "  GCP:          Secure Execution (credentials managed by Gate)"
 
-# ── Build channels config JSON ────────────────────────────────────────────
+# ── Channels ──────────────────────────────────────────────────────────────
 TELEGRAM_ENABLED="${TELEGRAM_ENABLED:-false}"
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_ALLOWED_USERS="${TELEGRAM_ALLOWED_USERS:-}"
@@ -50,25 +45,18 @@ else
   echo "  Telegram:     disabled"
 fi
 
-# ── Hybrid Identity: Seed SOUL.md + IDENTITY.md ─────────────────────────
-# The UI sets a base role → we seed it here.
-# The agent can then evolve SOUL.md/IDENTITY.md during its session.
-# Wooblay Gate tracks writes to these files so we can read back what the
-# agent "thinks it is" — best of both worlds.
+# ── Identity: Seed SOUL.md + IDENTITY.md ──────────────────────────────────
 INSTANCE_NAME="${INSTANCE_NAME:-agent}"
 OPENCLAW_AGENT_ROLE="${OPENCLAW_AGENT_ROLE:-}"
 OPENCLAW_AGENT_SOUL="${OPENCLAW_AGENT_SOUL:-}"
 OPENCLAW_AGENT_GOAL="${OPENCLAW_AGENT_GOAL:-}"
 
-# Ensure workspace dir exists
 mkdir -p /root/clawd
 
 if [ -n "${OPENCLAW_AGENT_SOUL}" ]; then
-  # Evolved SOUL content from a previous session — restore it
   echo "${OPENCLAW_AGENT_SOUL}" > /root/clawd/SOUL.md
   echo "  Identity:     restored evolved SOUL.md (${#OPENCLAW_AGENT_SOUL} chars)"
 elif [ -n "${OPENCLAW_AGENT_ROLE}" ]; then
-  # Seed initial SOUL.md from user-set role
   cat > /root/clawd/SOUL.md << SOULEOF
 # Soul
 
@@ -79,10 +67,10 @@ ${OPENCLAW_AGENT_ROLE}
 
 ## Principles
 - Stay within your assigned role. Actions outside it may be flagged or denied.
-- You operate under Wooblay's gated tool system — every risky action requires approval.
-- Be transparent about what you're doing and why.
-- You may evolve this file as you learn more about your task. Updates to SOUL.md
-  are tracked by Wooblay so your supervisor can see how your identity develops.
+- Every risky action (file writes, shell commands, network requests) goes through
+  Wooblay Gate for AI risk classification and policy evaluation.
+- If an action is denied, do not attempt workarounds. Explain to the user why it was blocked.
+- You may evolve this file as you learn more about your task.
 
 ## Goal
 ${OPENCLAW_AGENT_GOAL:-Work according to your role. Await instructions from your supervisor.}
@@ -92,7 +80,6 @@ else
   echo "  Identity:     no role set (agent will self-discover)"
 fi
 
-# Write IDENTITY.md as a compact reference for the agent
 if [ -n "${OPENCLAW_AGENT_ROLE}" ] || [ -n "${OPENCLAW_AGENT_SOUL}" ]; then
   cat > /root/clawd/IDENTITY.md << IDEOF
 # Identity — ${INSTANCE_NAME}
@@ -100,69 +87,40 @@ if [ -n "${OPENCLAW_AGENT_ROLE}" ] || [ -n "${OPENCLAW_AGENT_SOUL}" ]; then
 - **Name:** ${INSTANCE_NAME}
 - **Role:** ${OPENCLAW_AGENT_ROLE:-not set}
 - **Goal:** ${OPENCLAW_AGENT_GOAL:-awaiting instructions}
-- **Supervisor:** Wooblay Gate (all risky actions are gated)
+- **Supervisor:** Wooblay Gate (all risky actions are policy-gated)
 - **Session:** This file was generated at startup. You may update it as you work.
 IDEOF
   echo "  Identity:     wrote IDENTITY.md"
 fi
 
-# ── AWS Credentials ──────────────────────────────────────────────────────
-AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
-AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
-AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+# ── Create agent user (non-root) ──────────────────────────────────────────
+# The agent runs as uid 1000. This is NOT capability restriction — the agent
+# can still do anything through the gate (exec, write, delete, curl, etc.).
+# This protects the GATE ITSELF: the plugin, hook, and config files are
+# owned by root and read-only to the agent. The agent cannot modify the
+# enforcement mechanism — same principle as a firewall on a separate VLAN.
+AGENT_HOME="/home/agent"
+id -u agent &>/dev/null 2>&1 || useradd -u 1000 -m -d "${AGENT_HOME}" -s /bin/bash agent
 
-if [ -n "${AWS_ACCESS_KEY_ID}" ] && [ -n "${AWS_SECRET_ACCESS_KEY}" ]; then
-  mkdir -p /root/.aws
-  cat > /root/.aws/credentials << AWSCRED
-[default]
-aws_access_key_id = ${AWS_ACCESS_KEY_ID}
-aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
-AWSCRED
-  cat > /root/.aws/config << AWSCONF
-[default]
-region = ${AWS_DEFAULT_REGION}
-output = json
-AWSCONF
-  echo "  AWS:          configured (region: ${AWS_DEFAULT_REGION})"
-else
-  echo "  AWS:          not configured"
+# Move identity files to agent home
+if [ -d /root/clawd ]; then
+  cp -r /root/clawd "${AGENT_HOME}/clawd"
+  chown -R agent:agent "${AGENT_HOME}/clawd"
 fi
 
-# ── GCP Credentials ─────────────────────────────────────────────────────
-GCP_SERVICE_ACCOUNT_KEY="${GCP_SERVICE_ACCOUNT_KEY:-}"
-GCP_PROJECT_ID="${GCP_PROJECT_ID:-}"
+# ── Install plugin + config (root-owned, agent-readable) ─────────────────
+# These files are the enforcement mechanism. Agent can read them but not modify.
+OPENCLAW_DIR="${AGENT_HOME}/.openclaw"
+mkdir -p "${OPENCLAW_DIR}/extensions/wooblay"
 
-if [ -n "${GCP_SERVICE_ACCOUNT_KEY}" ]; then
-  echo "${GCP_SERVICE_ACCOUNT_KEY}" | base64 -d > /root/gcp-key.json 2>/dev/null || \
-    echo "${GCP_SERVICE_ACCOUNT_KEY}" > /root/gcp-key.json
-  export GOOGLE_APPLICATION_CREDENTIALS="/root/gcp-key.json"
-
-  if [ -n "${GCP_PROJECT_ID}" ]; then
-    export GCLOUD_PROJECT="${GCP_PROJECT_ID}"
-    export GOOGLE_CLOUD_PROJECT="${GCP_PROJECT_ID}"
-  fi
-
-  # Activate service account if gcloud CLI is available
-  if command -v gcloud &> /dev/null; then
-    gcloud auth activate-service-account --key-file=/root/gcp-key.json 2>/dev/null && \
-      echo "  GCP:          authenticated via gcloud (project: ${GCP_PROJECT_ID:-auto})" || \
-      echo "  GCP:          key file set but gcloud auth failed — GOOGLE_APPLICATION_CREDENTIALS is set"
-    if [ -n "${GCP_PROJECT_ID}" ]; then
-      gcloud config set project "${GCP_PROJECT_ID}" 2>/dev/null || true
-    fi
-  else
-    echo "  GCP:          key file set (GOOGLE_APPLICATION_CREDENTIALS) — no gcloud CLI"
-  fi
-else
-  echo "  GCP:          not configured"
-fi
+cp /opt/wooblay/plugin/openclaw.plugin.json "${OPENCLAW_DIR}/extensions/wooblay/openclaw.plugin.json"
+cp /opt/wooblay/plugin/index.ts "${OPENCLAW_DIR}/extensions/wooblay/index.ts"
+cp /opt/wooblay/exec-approvals.json "${OPENCLAW_DIR}/exec-approvals.json"
 
 # ── Generate OpenClaw config ──────────────────────────────────────────────
 echo "→ Writing OpenClaw config..."
 
-mkdir -p /root/.openclaw
-
-cat > /root/.openclaw/openclaw.json << JSONEOF
+cat > "${OPENCLAW_DIR}/openclaw.json" << JSONEOF
 {
   "gateway": {
     "mode": "local",
@@ -194,19 +152,82 @@ cat > /root/.openclaw/openclaw.json << JSONEOF
 }
 JSONEOF
 
-echo "  OK: /root/.openclaw/openclaw.json"
-echo "      Tools:  UNRESTRICTED — OpenClaw has full access to all tools"
-echo "      Gate:   Hook monitors ALL tool events (audit + logging)"
-echo "      Extras: gated_exec, gated_write, gated_edit, gated_web_fetch (via plugin)"
+echo "  OK: ${OPENCLAW_DIR}/openclaw.json"
+echo "      Agent has full tool access — no capability restrictions"
+echo "      Plugin overrides exec/write/edit/web_fetch → routes through Gate"
+echo "      Hook monitors ALL tool events → blocks on DENY (fail-safe)"
 
-# ── Verify plugin is installed ────────────────────────────────────────────
-if [ -f /root/.openclaw/extensions/wooblay/index.ts ] && [ -f /root/.openclaw/extensions/wooblay/openclaw.plugin.json ]; then
-  echo "  OK: Wooblay plugin at ~/.openclaw/extensions/wooblay/"
-  echo "      → Registers gated_exec, gated_write, gated_edit, gated_web_fetch"
-  echo "      → Each tool calls Wooblay Gate for policy decision before executing"
+# ── Lock down ONLY Wooblay enforcement files ─────────────────────────────
+# The Wooblay plugin, config, and exec-approvals are the enforcement mechanism.
+# These are root-owned and read-only — agent cannot modify the firewall.
+#
+# EVERYTHING ELSE in .openclaw is agent-writable:
+#   - Other plugins (user-installed OpenClaw extensions)
+#   - MCP server configs
+#   - Custom tool definitions
+#   - Session data, caches, etc.
+#
+# We protect the gate, not the agent's capabilities.
+chown root:root "${OPENCLAW_DIR}/extensions/wooblay/openclaw.plugin.json"
+chown root:root "${OPENCLAW_DIR}/extensions/wooblay/index.ts"
+chown root:root "${OPENCLAW_DIR}/exec-approvals.json"
+chown root:root "${OPENCLAW_DIR}/openclaw.json"
+chmod 444 "${OPENCLAW_DIR}/extensions/wooblay/openclaw.plugin.json"
+chmod 444 "${OPENCLAW_DIR}/extensions/wooblay/index.ts"
+chmod 444 "${OPENCLAW_DIR}/exec-approvals.json"
+chmod 444 "${OPENCLAW_DIR}/openclaw.json"
+
+# Agent owns everything else — free to install plugins, MCP servers, tools, skills
+chown agent:agent "${OPENCLAW_DIR}"
+chown agent:agent "${OPENCLAW_DIR}/extensions"
+chown -R agent:agent "${AGENT_HOME}/clawd" 2>/dev/null || true
+mkdir -p "${AGENT_HOME}/workspace"
+chown -R agent:agent "${AGENT_HOME}/workspace"
+
+# Skills directory — persisted so skills survive restart
+mkdir -p "${OPENCLAW_DIR}/skills"
+chown -R agent:agent "${OPENCLAW_DIR}/skills"
+
+# ── MCP Proxy sidecar integration ─────────────────────────────────────────
+# When a MCP proxy sidecar is running alongside this container, the agent
+# connects to it instead of upstream MCP servers directly. This ensures
+# all tool calls are gated and credentials are never exposed.
+MCP_PROXY_URL="${MCP_PROXY_URL:-}"
+if [ -n "${MCP_PROXY_URL}" ]; then
+  cat > "${OPENCLAW_DIR}/mcp-servers.json" << MCPEOF
+[{"name":"wooblay-proxy","url":"${MCP_PROXY_URL}","transport":"sse","headers":{"Authorization":"Bearer ${OPENCLAW_GATEWAY_TOKEN}"}}]
+MCPEOF
+  chown agent:agent "${OPENCLAW_DIR}/mcp-servers.json"
+  echo "  MCP:          proxy sidecar at ${MCP_PROXY_URL} (authenticated, all tools gated)"
+elif [ -n "${OPENCLAW_MCP_SERVERS:-}" ]; then
+  # Legacy: direct MCP server config (still gated through Gate plugin)
+  echo "${OPENCLAW_MCP_SERVERS}" > "${OPENCLAW_DIR}/mcp-servers.json"
+  chown agent:agent "${OPENCLAW_DIR}/mcp-servers.json"
+  echo "  MCP:          custom servers configured"
+fi
+
+# ── Install user-provided plugins ─────────────────────────────────────────
+# Users can mount additional plugins at /opt/user-plugins/
+# Each subdirectory becomes an OpenClaw extension.
+if [ -d /opt/user-plugins ]; then
+  for plugin_dir in /opt/user-plugins/*/; do
+    plugin_name=$(basename "$plugin_dir")
+    if [ "$plugin_name" = "wooblay" ]; then
+      echo "  WARN: Skipping user plugin named 'wooblay' — cannot override enforcement plugin"
+      continue
+    fi
+    cp -r "$plugin_dir" "${OPENCLAW_DIR}/extensions/${plugin_name}"
+    chown -R agent:agent "${OPENCLAW_DIR}/extensions/${plugin_name}"
+    echo "  Plugin:       installed user plugin '${plugin_name}'"
+  done
+fi
+
+# ── Verify plugin ─────────────────────────────────────────────────────────
+if [ -f "${OPENCLAW_DIR}/extensions/wooblay/index.ts" ]; then
+  echo "  OK: Wooblay plugin installed (root-owned, agent-immutable)"
 else
-  echo "  WARN: Wooblay plugin not found at ~/.openclaw/extensions/wooblay/"
-  echo "        Agent will have NO risky tools available (all denied, no gated replacements)"
+  echo "  FATAL: Wooblay plugin not found — actions will NOT go through Gate"
+  exit 1
 fi
 
 # ── Wait for Wooblay Gate ─────────────────────────────────────────────────
@@ -217,25 +238,25 @@ for i in $(seq 1 30); do
     break
   fi
   if [ "$i" -eq 30 ]; then
-    echo "  WARN: Gate not available after 60s — gated tools will BLOCK all actions"
+    echo "  WARN: Gate not available after 60s — gated tools will BLOCK all actions (fail-safe)"
   fi
   sleep 2
 done
 
-# ── Run doctor --fix to finalize setup ──────────────────────────────────
+# ── Run doctor --fix (as agent user) ──────────────────────────────────────
 echo "→ Running OpenClaw doctor --fix..."
-node /app/openclaw.mjs doctor --fix 2>&1 || echo "  WARN: doctor --fix had non-zero exit (may be ok)"
-echo "  OK: Doctor complete"
+su -s /bin/bash agent -c "HOME=${AGENT_HOME} node /app/openclaw.mjs doctor --fix" 2>&1 || echo "  WARN: doctor --fix had non-zero exit (may be ok)"
 
-# ── Start OpenClaw Gateway ────────────────────────────────────────────────
+# ── Start OpenClaw Gateway (drops to non-root) ───────────────────────────
 echo ""
-echo "→ Starting OpenClaw gateway..."
-echo "  OpenClaw runs UNRESTRICTED — full access to all tools including sub-agents."
-echo "  Wooblay Hook monitors ALL tool events → audit + timeline in Gate."
-echo "  Gate UI: ${GATE_URL}"
+echo "→ Starting OpenClaw gateway as agent (uid 1000)..."
+echo "  Agent has full capabilities — Wooblay Gate enforces policy dynamically"
+echo "  Agent CANNOT modify: plugin, hook, openclaw.json, exec-approvals (root-owned)"
 if [ "${TELEGRAM_ENABLED}" = "true" ]; then
-  echo "  Telegram bot active — message your bot to interact with the agent."
+  echo "  Telegram bot active"
 fi
 echo ""
 
-exec node /app/openclaw.mjs gateway
+# Drop to non-root. Agent can do anything through the gate, but cannot
+# modify the gate itself. This is exec (replaces shell) — no way back to root.
+exec su -s /bin/bash agent -c "HOME=${AGENT_HOME} exec node /app/openclaw.mjs gateway"

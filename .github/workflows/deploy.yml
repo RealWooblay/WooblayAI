@@ -3,13 +3,15 @@ name: Build & Deploy
 on:
   push:
     branches: [mvp, main]
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch: # Manual trigger — run from Actions tab if you pushed to another branch
 
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: 050752647977.dkr.ecr.us-east-1.amazonaws.com
   GATE_REPO: wooblay-gate
   AGENT_REPO: openclaw-wooblay
+  MCP_PROXY_REPO: wooblay-mcp-proxy
+  MCP_EXECUTOR_REPO: wooblay-mcp-executor
   INSTANCE_ID: i-018d018e8e511b4b0
 
 jobs:
@@ -32,6 +34,13 @@ jobs:
       - name: Login to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repositories exist
+        run: |
+          for repo in ${{ env.GATE_REPO }} ${{ env.AGENT_REPO }} ${{ env.MCP_PROXY_REPO }} ${{ env.MCP_EXECUTOR_REPO }}; do
+            aws ecr describe-repositories --repository-names "$repo" --region ${{ env.AWS_REGION }} 2>/dev/null || \
+            aws ecr create-repository --repository-name "$repo" --region ${{ env.AWS_REGION }}
+          done
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -84,6 +93,32 @@ jobs:
           cache-from: type=gha,scope=agent
           cache-to: type=gha,mode=max,scope=agent
 
+      - name: Build and push MCP Proxy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/runtimes/mcp-proxy/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.MCP_PROXY_REPO }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.MCP_PROXY_REPO }}:latest
+          cache-from: type=gha,scope=mcp-proxy
+          cache-to: type=gha,mode=max,scope=mcp-proxy
+
+      - name: Build and push MCP Executor image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/runtimes/mcp-executor
+          file: docker/runtimes/mcp-executor/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:latest
+          cache-from: type=gha,scope=mcp-executor
+          cache-to: type=gha,mode=max,scope=mcp-executor
+
       - name: Deploy to EC2 via SSM
         run: |
           COMMAND_ID=$(aws ssm send-command \
@@ -95,16 +130,26 @@ jobs:
               \"aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}\",
               \"sed -i 's|GATE_IMAGE=.*|GATE_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.GATE_REPO }}:mvp|' .env\",
               \"sed -i 's|AGENT_IMAGE=.*|AGENT_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest|' .env\",
+              \"grep -q '^MCP_PROXY_IMAGE=' .env && sed -i 's|MCP_PROXY_IMAGE=.*|MCP_PROXY_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.MCP_PROXY_REPO }}:latest|' .env || echo 'MCP_PROXY_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.MCP_PROXY_REPO }}:latest' >> .env\",
               \"grep -q '^OPENAI_API_KEY=' .env || echo 'OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}' >> .env\",
               \"sed -i 's|OPENAI_API_KEY=.*|OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}|' .env\",
               \"grep -q '^OPENAI_MODEL=' .env || echo 'OPENAI_MODEL=gpt-4.1-mini' >> .env\",
-              \"sed -i 's|OPENAI_API_KEY:.*|OPENAI_API_KEY: \\\"${{ secrets.OPENAI_API_KEY }}\\\"|' docker-compose.yml\",
-              \"sed -i 's|OPENAI_MODEL:.*|OPENAI_MODEL: \\\"gpt-4.1-mini\\\"|' docker-compose.yml\",
+              \"grep -q '^VAULT_MASTER_KEY=' .env || echo 'VAULT_MASTER_KEY=${{ secrets.VAULT_MASTER_KEY }}' >> .env\",
+              \"sed -i 's|VAULT_MASTER_KEY=.*|VAULT_MASTER_KEY=${{ secrets.VAULT_MASTER_KEY }}|' .env\",
+              \"grep -q '^FULL_PLATFORM_UNLOCK_PASSWORD=' .env || echo 'FULL_PLATFORM_UNLOCK_PASSWORD=${{ secrets.FULL_PLATFORM_UNLOCK_PASSWORD }}' >> .env\",
+              \"sed -i 's|FULL_PLATFORM_UNLOCK_PASSWORD=.*|FULL_PLATFORM_UNLOCK_PASSWORD=${{ secrets.FULL_PLATFORM_UNLOCK_PASSWORD }}|' .env\",
+              \"grep -q 'env_file:' docker-compose.yml || { cp docker-compose.yml dc.bak && awk '/^    environment:/{print \\\"    env_file:\\\"; print \\\"      - .env\\\"}1' dc.bak > docker-compose.yml && rm dc.bak; }\",
+              \"docker compose down || true\",
+              \"docker image prune -af || true\",
               \"docker compose pull gate\",
               \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.AGENT_REPO }}:latest\",
+              \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.MCP_PROXY_REPO }}:latest\",
+              \"docker pull ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:latest\",
+              \"docker tag ${{ env.ECR_REGISTRY }}/${{ env.MCP_EXECUTOR_REPO }}:latest wooblay/mcp-executor:latest\",
               \"docker compose up -d --force-recreate\",
-              \"sleep 15\",
-              \"curl -sf http://localhost:4800/health || exit 1\",
+              \"sleep 30\",
+              \"docker logs wooblay-gate 2>&1 | tail -30\",
+              \"curl -sf http://localhost:4800/health || { echo 'Health check failed — dumping gate logs:'; docker logs wooblay-gate 2>&1 | tail -80; exit 1; }\",
               \"echo DEPLOY_SUCCESS\"
             ],\"executionTimeout\":[\"300\"]}" \
             --query "Command.CommandId" \

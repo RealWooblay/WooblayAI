@@ -115,7 +115,7 @@ docker compose up -d
 | `AGENT_IMAGE` | Yes | Docker image for OpenClaw containers |
 | `INSTANCES_DIR` | No | Where instance configs are stored (default: `/opt/wooblay/instances`) |
 | `GATE_INTERNAL_URL` | No | Gate URL for agent containers (default: `http://172.21.0.20:4800`) |
-| `OPENAI_API_KEY` | No | Enables AI supervisor (threat detection, behavioral analysis) |
+| `OPENAI_API_KEY` | No | Enables AI supervisor (threat detection, behavioral analysis) and **agent router** (Operation → instance routing) |
 | `OPENAI_MODEL` | No | OpenAI model to use (default: `gpt-4.1-mini`) |
 
 ### Build-time (baked into UI)

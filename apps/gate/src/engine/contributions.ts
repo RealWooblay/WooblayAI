@@ -14,30 +14,8 @@
 import type { PrismaClient } from '@prisma/client';
 import { assessContributions, isAIEnabled, type ContributionAssessment } from '../services/ai-supervisor.js';
 
-export interface ContributionSummary {
-  filesCreated: number;
-  filesEdited: number;
-  commandsExecuted: number;
-  linesWritten: number;
-  prsAndCommits: number;
-  researchActions: number;
-  approvalEfficiency: string;
-  denialRate: string;
-  totalActions: number;
-}
-
-export interface ContributionsByCategory {
-  planning: number;   // read, web_search, web_fetch (read), memory
-  executing: number;  // exec, write, edit
-  blocked: number;    // denied actions
-}
-
-export interface ContributionResult {
-  summary: ContributionSummary;
-  byCategory: ContributionsByCategory;
-  byDay: Array<{ date: string; count: number }>;
-  aiAssessment?: ContributionAssessment | null;
-}
+import type { ContributionSummary, ContributionsByCategory, ContributionResult } from '../types/trust.js';
+export type { ContributionSummary, ContributionsByCategory, ContributionResult };
 
 export async function computeContributions(
   prisma: PrismaClient,

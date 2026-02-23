@@ -113,6 +113,7 @@ The policy engine starts with static rules but evolves:
 ## Long-Term Vision
 
 ### Phase 1: Agent Governance (Shipped)
+- **Sensor-first operations** — Connect sensors (e.g. GitHub); they produce Operations. AI router assigns to the right agent; approve or assign manually. Operations and Sensors pages.
 - Deploy and supervise OpenClaw agents from the dashboard
 - Approve/deny actions with human-readable descriptions
 - Cryptographic receipt trail with hash chain integrity verification

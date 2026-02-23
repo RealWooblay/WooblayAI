@@ -182,7 +182,7 @@ async function runAIAnalysis(
     }
 
     // 3. Role inference — update inferredRole on the instance
-    if (input.instanceId || true) { // Always try to infer
+    {
       try {
         const roleResult = await inferRole(
           enriched.map(a => ({ toolName: a.toolName, args: a.args, category: a.category })),

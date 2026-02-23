@@ -3,6 +3,7 @@ import { Hero } from './components/Hero'
 import { WhySection } from './components/WhySection'
 import { HowItWorks } from './components/HowItWorks'
 import { Features } from './components/Features'
+import { Services } from './components/Services'
 import { Closing } from './components/Closing'
 
 export default function Home() {
@@ -13,6 +14,7 @@ export default function Home() {
       <WhySection />
       <HowItWorks />
       <Features />
+      <Services />
       <Closing />
     </main>
   )

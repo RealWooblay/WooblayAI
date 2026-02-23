@@ -1,24 +1,24 @@
 /**
- * Policies — Per-Agent, AI-Driven, Transparent
+ * Policies — Global guardrails for all agents.
  *
- * Pick an agent → see/edit its policies.
- * Shared among sub-agents of the same instance.
- * Monitor-only mode available (AI detection, zero blocking).
+ * Rules apply org-wide. Monitor-only mode available (AI detection, zero blocking).
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getPolicies,
   getPresets,
-  getInstances,
   createPolicy,
   updatePolicy,
   deletePolicy,
   applyPreset,
   optimizePolicies,
+  getOrgPolicySettings,
+  updateOrgPolicySettings,
   type PolicyRule,
   type AIPolicySuggestion,
+  type OrgPolicySettings,
 } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
 
@@ -97,24 +97,11 @@ export function PoliciesPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  // ── Instance selector ───────────────────────────────────────────────────
-  const { data: instances = [] } = useQuery({ queryKey: ['instances'], queryFn: getInstances });
-  const [selectedInstanceId, setSelectedInstanceId] = useState<string | undefined>(undefined);
-
-  // Auto-select first running instance
-  useEffect(() => {
-    if (!selectedInstanceId && instances.length > 0) {
-      const running = instances.find(i => i.status === 'running');
-      setSelectedInstanceId(running?.id ?? instances[0]?.id);
-    }
-  }, [instances, selectedInstanceId]);
-
-  const selectedInstance = instances.find(i => i.id === selectedInstanceId);
-  const policyKey = ['policies', selectedInstanceId ?? 'global'];
+  const policyKey = ['policies'];
 
   const { data: rules = [], isLoading } = useQuery({
     queryKey: policyKey,
-    queryFn: () => getPolicies(selectedInstanceId),
+    queryFn: () => getPolicies(),
   });
   const { data: presets = [] } = useQuery({ queryKey: ['presets'], queryFn: getPresets });
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -128,7 +115,7 @@ export function PoliciesPage() {
   const [rulePromptLoading, setRulePromptLoading] = useState(false);
 
   const presetMutation = useMutation({
-    mutationFn: (id: string) => applyPreset(id, selectedInstanceId),
+    mutationFn: (id: string) => applyPreset(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: policyKey });
       setPresetConfirm(null);
@@ -147,10 +134,26 @@ export function PoliciesPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: policyKey }); toast('Rule deleted', 'info'); },
   });
 
+  // ── Org simulation threshold ────────────────────────────────────────────
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-policy-settings'],
+    queryFn: getOrgPolicySettings,
+  });
+
+  const simThresholdMutation = useMutation({
+    mutationFn: (threshold: OrgPolicySettings['simulationThreshold']) =>
+      updateOrgPolicySettings({ simulationThreshold: threshold }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['org-policy-settings'] });
+      toast('Simulation threshold updated', 'success');
+    },
+    onError: (err: Error) => toast(`Failed: ${err.message}`, 'error'),
+  });
+
   const runAI = async () => {
     setAiLoading(true);
     try {
-      const data = await optimizePolicies(false, selectedInstanceId);
+      const data = await optimizePolicies(false);
       setAiSuggestions(data.suggestions);
       setAiSummary(data.summary);
       setAiRole(data.agentRole);
@@ -173,7 +176,7 @@ export function PoliciesPage() {
     setRulePromptLoading(true);
     try {
       // Use the AI optimize endpoint with the prompt as context
-      const data = await optimizePolicies(false, selectedInstanceId, rulePrompt.trim());
+      const data = await optimizePolicies(false, undefined, rulePrompt.trim());
       if (data.suggestions?.length > 0) {
         // Apply each suggestion as a new rule
         for (const s of data.suggestions) {
@@ -184,7 +187,6 @@ export function PoliciesPage() {
             matchCategory: s.matchCategory,
             source: 'ai-learned',
             description: s.description,
-            instanceId: selectedInstanceId,
           });
         }
         qc.invalidateQueries({ queryKey: policyKey });
@@ -223,7 +225,6 @@ export function PoliciesPage() {
         matchCategory: s.matchCategory,
         source: 'ai-learned',
         description: s.description,
-        instanceId: selectedInstanceId,
       }),
     onSuccess: (_data, s) => {
       // Remove the applied suggestion from the list
@@ -249,7 +250,6 @@ export function PoliciesPage() {
           matchCategory: s.matchCategory,
           source: 'ai-learned',
           description: s.description,
-          instanceId: selectedInstanceId,
         });
         applied++;
       } catch { /* skip individual failures */ }
@@ -268,34 +268,82 @@ export function PoliciesPage() {
   const enabledCount = rules.filter(r => r.enabled).length;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="max-w-4xl mx-auto space-y-5" data-tour="tour-policies">
 
-      {/* ── Header + Agent Selector ─────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-bold text-text-primary font-mono">
-            <span className="text-accent">[</span> policies <span className="text-accent">]</span>
-          </h1>
-          <p className="text-xs text-text-secondary mt-1">
-            {enabledCount} rules for <span className="text-text-primary font-medium">{selectedInstance?.name ?? 'global default'}</span>
-          </p>
-        </div>
-        {instances.length > 0 && (
-          <div className="shrink-0">
-            <label className="text-[9px] text-text-tertiary uppercase tracking-wider font-mono block mb-1">Agent</label>
-            <select
-              value={selectedInstanceId ?? ''}
-              onChange={e => { setSelectedInstanceId(e.target.value || undefined); setAiEnabled(false); setAiSuggestions([]); }}
-              className="bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-accent min-w-[160px]"
-            >
-              {instances.map(inst => (
-                <option key={inst.id} value={inst.id}>
-                  {inst.name} {inst.status === 'running' ? '●' : '○'}
-                </option>
-              ))}
-            </select>
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div>
+        <h1 className="text-lg font-bold text-text-primary font-mono">
+          <span className="text-accent">[</span> policies <span className="text-accent">]</span>
+        </h1>
+        <p className="text-xs text-text-secondary mt-1">
+          {enabledCount} rule{enabledCount !== 1 ? 's' : ''} — apply to all agents in this org
+        </p>
+      </div>
+
+      {/* ── Three-Layer Security Summary ─────────────────────────────────── */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold text-emerald-400 font-mono">1</span>
+            <span className="text-[11px] font-medium text-emerald-400">Policy Gate</span>
+            <span className="text-[9px] text-emerald-400/60 ml-auto font-mono">this page</span>
           </div>
-        )}
+          <p className="text-[10px] text-text-tertiary">Rules + scope boundaries evaluate every action before anything else happens.</p>
+        </div>
+        <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold text-blue-400 font-mono">2</span>
+            <span className="text-[11px] font-medium text-blue-400">Simulation</span>
+          </div>
+          <p className="text-[10px] text-text-tertiary">Sandbox execution + AI intent verification. Verifies command behavior matches stated intent.</p>
+        </div>
+        <div className="bg-purple-500/5 border border-purple-500/15 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold text-purple-400 font-mono">3</span>
+            <span className="text-[11px] font-medium text-purple-400">Secure Execution</span>
+          </div>
+          <p className="text-[10px] text-text-tertiary">Ephemeral containers with scoped credentials. Agent never touches secrets.</p>
+        </div>
+      </div>
+
+      {/* ── Simulation Threshold ──────────────────────────────────────────── */}
+      <div className="bg-surface-1 border border-border rounded-xl p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xs font-semibold text-text-primary font-mono">
+              <span className="text-blue-400">[~]</span> simulation threshold
+            </h2>
+            <p className="text-[10px] text-text-tertiary mt-1">
+              Controls which local actions trigger sandbox simulation (Layer 2) before execution.
+              Credential actions are always simulated regardless of this setting.
+            </p>
+          </div>
+          <div className="shrink-0 flex items-center gap-2">
+            {([
+              { value: 'critical_only', label: 'Critical only', desc: 'Only credential actions' },
+              { value: 'high', label: 'High risk', desc: 'DESTRUCTIVE + credentials' },
+              { value: 'medium', label: 'Medium+', desc: 'WRITE + DESTRUCTIVE' },
+              { value: 'all', label: 'All', desc: 'Every action simulated' },
+            ] as const).map(opt => {
+              const isActive = (orgSettings?.simulationThreshold ?? 'high') === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => simThresholdMutation.mutate(opt.value)}
+                  disabled={simThresholdMutation.isPending}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono transition-all border ${
+                    isActive
+                      ? 'bg-blue-500/15 border-blue-500/30 text-blue-400'
+                      : 'bg-surface-2/50 border-border text-text-tertiary hover:text-text-secondary hover:border-border/80'
+                  }`}
+                  title={opt.desc}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* ── AI Supervisor Section ──────────────────────────────────────────── */}
@@ -435,12 +483,12 @@ export function PoliciesPage() {
       </div>
 
       {/* ── Active Policy Summary ──────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border rounded-xl p-5">
+      <div className="bg-surface-1 border border-border rounded-xl p-5" data-tour="tour-policy-summary">
         <h2 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3 font-mono">What your agent can do</h2>
         {summary.length === 0 ? (
           <div className="text-center py-6">
             <pre className="text-text-tertiary text-xs font-mono mb-3">{`  ( ?_? ) no rules set  `}</pre>
-            <p className="text-xs text-text-secondary mb-2">No policy rules — the agent operates in <span className="text-text-primary font-medium">monitor-only mode</span>.</p>
+            <p className="text-xs text-text-secondary mb-2">No policy rules — all agents operate in <span className="text-text-primary font-medium">monitor-only mode</span>.</p>
             <p className="text-[10px] text-text-tertiary leading-relaxed max-w-md mx-auto">
               All actions are allowed and logged. AI anomaly detection still runs on every action.
               To enforce approvals or blocks, apply a preset or use AI to generate rules.

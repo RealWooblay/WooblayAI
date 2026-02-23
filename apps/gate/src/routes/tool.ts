@@ -21,6 +21,15 @@ import { createApproval } from '../services/approval.js';
 import { validateBody } from '../middleware/validate.js';
 import { describeToolCall, explainWhyFlagged } from '../engine/analysis.js';
 import { detectFlags } from '../engine/flags.js';
+import { getActionDefinition } from '../engine/action-registry.js';
+import { parseScopeBoundaries, checkScope } from '../engine/scope.js';
+import { simulateAction, simulateLocalAction, shouldSimulate, verifyMcpPreExecution } from '../engine/simulate.js';
+import { executeSecureAction } from '../engine/secure-exec.js';
+import { reportExecution } from '../services/execution.js';
+import { emitRunEvent } from '../engine/run-events.js';
+import { redactSecrets } from '../services/vault.js';
+import { getOrgScope } from '../middleware/org-scope.js';
+import type { SimulationThreshold } from '../types/simulation.js';
 
 /** Default decision trail when none is provided by the agent. */
 const defaultTrail: DecisionTrail = {
@@ -29,6 +38,23 @@ const defaultTrail: DecisionTrail = {
   inputs_used: [],
   citations: [],
 };
+
+/** Read org simulation threshold from settings. Defaults to 'high'. */
+async function getOrgSimulationThreshold(orgId: string | null): Promise<SimulationThreshold> {
+  if (!orgId) return 'high';
+  try {
+    const org = await prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { settings: true },
+    });
+    if (org?.settings) {
+      const settings = JSON.parse(org.settings);
+      const valid: SimulationThreshold[] = ['critical_only', 'high', 'medium', 'all'];
+      if (valid.includes(settings.simulationThreshold)) return settings.simulationThreshold;
+    }
+  } catch { /* default */ }
+  return 'high';
+}
 
 export async function toolRoutes(app: FastifyInstance): Promise<void> {
   app.post(
@@ -136,7 +162,76 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
         // 5. Handle the decision
         switch (policyDecision.decision) {
           case Decision.ALLOW: {
-            // ALLOW → EXECUTE immediately
+            // Policy says ALLOW — now check if Layer 2 (simulation) should trigger.
+            // This is dynamic: based on the AI risk tier and the org's threshold setting.
+            const org = getOrgScope(request);
+            const simThreshold = await getOrgSimulationThreshold(org.orgId ?? null);
+            const needsSim = shouldSimulate(riskTier, simThreshold, false);
+
+            let simResult = null;
+            if (needsSim) {
+              try {
+                const syntheticRunId = `gate-${toolCall.id}`;
+                simResult = await simulateLocalAction(prisma, {
+                  toolName: body.toolName,
+                  args: parsedArgs,
+                  riskTier,
+                  aiDescription: aiDescription ?? undefined,
+                  runId: syntheticRunId,
+                });
+
+                if (!simResult.passed) {
+                  // Simulation failed (intent mismatch) — block the action
+                  const receipt = await createReceipt(prisma, {
+                    toolCallId: toolCall.id,
+                    agentPubkey: body.agentPubkey,
+                    toolName: body.toolName,
+                    riskTier,
+                    policyDecision: 'DENY',
+                    policyRuleId: policyDecision.ruleId ?? null,
+                    decisionTrail,
+                  });
+
+                  return reply.code(200).send({
+                    decision: 'DENY',
+                    toolCallId: toolCall.id,
+                    receiptId: receipt.id,
+                    reason: `Simulation blocked: ${simResult.summary}`,
+                    description,
+                    whyFlagged: simResult.summary,
+                    riskTier,
+                    simulation: {
+                      strategy: simResult.strategy,
+                      passed: false,
+                      summary: simResult.summary,
+                      aiAnalysis: simResult.aiAnalysis,
+                    },
+                  });
+                }
+              } catch (err: any) {
+                request.log.error(err, 'Simulation failed — blocking action (fail-closed)');
+                const receipt = await createReceipt(prisma, {
+                  toolCallId: toolCall.id,
+                  agentPubkey: body.agentPubkey,
+                  toolName: body.toolName,
+                  riskTier,
+                  policyDecision: 'DENY',
+                  policyRuleId: policyDecision.ruleId ?? null,
+                  decisionTrail,
+                });
+                return reply.code(200).send({
+                  decision: 'DENY',
+                  toolCallId: toolCall.id,
+                  receiptId: receipt.id,
+                  reason: 'Simulation failed (timeout or error). Action blocked for safety.',
+                  description,
+                  whyFlagged: err?.message ?? 'Simulation failed',
+                  riskTier,
+                });
+              }
+            }
+
+            // ALLOW → EXECUTE
             const receipt = await createReceipt(prisma, {
               toolCallId: toolCall.id,
               agentPubkey: body.agentPubkey,
@@ -154,6 +249,11 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
               reason: policyDecision.reason,
               description,
               riskTier,
+              simulation: simResult ? {
+                strategy: simResult.strategy,
+                passed: simResult.passed,
+                summary: simResult.summary,
+              } : undefined,
             });
           }
 
@@ -204,4 +304,315 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   );
+
+  /**
+   * POST /api/tool/structured-execute
+   *
+   * Called by the OpenClaw plugin's structured_action tool AFTER policy approval.
+   * Runs the full three-layer moat: scope check → simulation → secure execution.
+   * The agent never sees credentials — this endpoint resolves them from the vault.
+   */
+  app.post('/api/tool/structured-execute', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as {
+      action: string;
+      params: Record<string, unknown>;
+      agentPubkey?: string;
+      adapter?: string;
+    };
+
+    if (!body.action || !body.params) {
+      return reply.code(400).send({ error: 'action and params are required' });
+    }
+
+    // Look up optional convenience shortcut — NOT a gatekeeper
+    const actionDef = getActionDefinition(body.action);
+
+    // Connection resolution: direct IDs (from MCP proxy) or provider-based lookup
+    const org = getOrgScope(request);
+    let connection;
+
+    const directConnectionIds = body.params.connectionIds;
+    if (Array.isArray(directConnectionIds) && directConnectionIds.length > 0) {
+      const ids = directConnectionIds.map(String);
+      const matches = await prisma.connection.findMany({
+        where: { id: { in: ids }, status: 'active', ...org.filter },
+      });
+      if (matches.length !== ids.length) {
+        return reply.code(404).send({
+          error: 'One or more connection IDs not found or not accessible.',
+        });
+      }
+      connection = matches[0];
+    } else {
+      // Provider-based lookup: params.provider > action def > default
+      const effectiveProvider = body.params.provider
+        ? String(body.params.provider)
+        : actionDef?.provider ?? 'generic';
+
+      connection = await prisma.connection.findFirst({
+        where: { provider: effectiveProvider, status: 'active', ...org.filter },
+      });
+
+      if (!connection) {
+        return reply.code(404).send({
+          error: `No active ${effectiveProvider} connection found. Add one on the Connections page.`,
+        });
+      }
+    }
+
+    // Layer 1: Scope check
+    const scopeBoundaries = parseScopeBoundaries(connection.scopeBoundaries);
+    const scopeResult = checkScope(scopeBoundaries, body.action, body.params);
+    if (!scopeResult.allowed) {
+      return reply.code(403).send({
+        success: false,
+        error: 'Action blocked by scope boundary',
+        reason: scopeResult.reason,
+      });
+    }
+
+    // ── MCP tool calls → L3 executor + L2 post-verification ──────────
+    // MCP flow: L1 (policy) → L3 (secure exec) → L2 (AI result verification)
+    //
+    // L2 is POST-execution for MCP because sandbox simulation can't work
+    // (MCP servers need real credentials + network). Instead, after L3
+    // returns the result, AI verifies that the output matches the expected
+    // behaviour of the tool + args. Mismatches raise audit flags.
+    //
+    // Credential resolution merges ALL linked connections — env var names
+    // are controlled by connection secrets[].key, so any MCP server's
+    // expected env vars are satisfied without hardcoding.
+    if (body.action === 'mcp:tool-call') {
+      const { resolveMultiConnectionCredentials, executeMcpToolCall } = await import('../engine/secure-exec.js');
+
+      // Resolve all connection IDs — from the proxy's connectionIds param,
+      // or falling back to the single connection resolved above.
+      const allConnectionIds = Array.isArray(directConnectionIds) && directConnectionIds.length > 0
+        ? directConnectionIds.map(String)
+        : [connection.id];
+
+      let credentials: Record<string, string>;
+      try {
+        credentials = await resolveMultiConnectionCredentials(prisma, allConnectionIds);
+      } catch (err: any) {
+        return reply.code(500).send({
+          success: false,
+          error: `Credential resolution failed: ${redactSecrets(err.message)}`,
+        });
+      }
+
+      const serverCommand = String(body.params.serverCommand ?? '');
+      const toolName = String(body.params.toolName ?? '');
+      const toolArgs = (body.params.toolArgs ?? {}) as Record<string, unknown>;
+
+      if (!serverCommand || !toolName) {
+        return reply.code(400).send({
+          success: false,
+          error: 'mcp:tool-call requires serverCommand and toolName in params',
+        });
+      }
+
+      // ── L2 PRE-EXECUTION: Verify server+tool+credential safety ────
+      // This runs BEFORE any credentials leave the vault.
+      // If the AI or rule engine determines the combination is unsafe
+      // (e.g., GitHub token going to an unknown package), execution is
+      // BLOCKED and credentials are never exposed.
+      const credentialEnvVars = Object.keys(credentials).filter(k =>
+        !['MCP_SERVER_CMD', 'MCP_TOOL_NAME', 'MCP_TOOL_ARGS'].includes(k),
+      );
+
+      try {
+        const preCheck = await verifyMcpPreExecution(prisma, {
+          serverCommand,
+          toolName,
+          toolArgs,
+          credentialEnvVars,
+        });
+
+        if (!preCheck.safe) {
+          request.log.warn({
+            serverCommand, toolName, credentialEnvVars,
+            threatLevel: preCheck.threatLevel,
+            concerns: preCheck.concerns,
+          }, 'MCP L2 pre-execution check BLOCKED — credentials NOT injected');
+
+          return reply.code(403).send({
+            success: false,
+            error: 'Pre-execution security check failed — credentials were NOT exposed',
+            verification: {
+              stage: 'pre-execution',
+              safe: false,
+              threatLevel: preCheck.threatLevel,
+              reasoning: preCheck.reasoning,
+              concerns: preCheck.concerns,
+              durationMs: preCheck.durationMs,
+            },
+          });
+        }
+
+        request.log.info({
+          serverCommand, toolName, threatLevel: preCheck.threatLevel,
+        }, 'MCP L2 pre-execution check PASSED — proceeding to L3');
+      } catch (err: any) {
+        // Fail-closed: if pre-exec check errors, block execution
+        request.log.error(err, 'MCP L2 pre-execution check failed — blocking (fail-closed)');
+        return reply.code(503).send({
+          success: false,
+          error: 'Pre-execution security check failed (error). Credentials NOT exposed.',
+        });
+      }
+
+      try {
+        // ── L3: Secure Execution ──────────────────────────────────────
+        const mcpResult = await executeMcpToolCall(prisma, {
+          serverCommand,
+          toolName,
+          toolArgs,
+          credentials,
+          image: body.params.image ? String(body.params.image) : undefined,
+        });
+
+        // ── Record Execution (makes it visible in Activity + Admin) ──
+        // Use toolCallId if the proxy passed it through. Otherwise fall back
+        // to name-based lookup (proxy stores prefixed "mcp:github:tool" name).
+        const toolCallId = body.params.toolCallId ? String(body.params.toolCallId) : null;
+        let linkedToolCallId = toolCallId;
+
+        if (!linkedToolCallId) {
+          const recentToolCall = await prisma.toolCall.findFirst({
+            where: {
+              OR: [
+                { toolName: toolName },
+                { toolName: { contains: toolName } },
+              ],
+              execution: { is: null },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          linkedToolCallId = recentToolCall?.id ?? null;
+        }
+
+        if (linkedToolCallId) {
+          await reportExecution(prisma, {
+            toolCallId: linkedToolCallId,
+            status: mcpResult.success ? 'SUCCESS' : 'FAILED',
+            stdout: redactSecrets(mcpResult.stdout.slice(0, 5000)),
+            stderr: redactSecrets(mcpResult.stderr.slice(0, 2000)),
+            exitCode: mcpResult.exitCode,
+            durationMs: mcpResult.durationMs,
+          }).catch((err: any) => request.log.warn(err, 'Failed to record MCP execution'));
+        } else {
+          request.log.warn({ toolName }, 'No ToolCall record found to link execution');
+        }
+
+        return reply.send({
+          success: mcpResult.success,
+          stdout: mcpResult.stdout,
+          stderr: mcpResult.stderr,
+          exitCode: mcpResult.exitCode,
+          durationMs: mcpResult.durationMs,
+          containerId: mcpResult.containerId,
+          error: mcpResult.error ? redactSecrets(mcpResult.error) : undefined,
+        });
+      } catch (err: any) {
+        request.log.error(err, 'MCP L3 execution failed');
+        return reply.code(500).send({
+          success: false,
+          error: `MCP execution failed: ${redactSecrets(err.message)}`,
+        });
+      }
+    }
+
+    // ── Generic structured actions → simulation + secure exec ───────────
+    // Layer 2: Simulation — credential actions ALWAYS get simulated
+    let simulationResult = null;
+    const syntheticRunId = `agent-${Date.now()}`;
+    try {
+      simulationResult = await simulateAction(prisma, {
+        actionSpec: { action: body.action, params: body.params },
+        connectionId: connection.id,
+        runId: syntheticRunId,
+        statedIntent: body.action,
+      });
+      if (!simulationResult.passed) {
+        return reply.code(403).send({
+          success: false,
+          error: 'Pre-execution simulation failed — intent mismatch detected',
+          simulation: {
+            strategy: simulationResult.strategy,
+            summary: simulationResult.summary,
+            details: simulationResult.details,
+            aiAnalysis: simulationResult.aiAnalysis,
+          },
+        });
+      }
+    } catch (err: any) {
+      request.log.error(err, 'Simulation failed — blocking action (fail-closed)');
+      return reply.code(503).send({
+        success: false,
+        error: 'Simulation failed (timeout or error). Action blocked for safety.',
+        detail: err?.message ?? 'Simulation failed',
+      });
+    }
+
+    // Layer 3: Secure execution
+    const execResult = await executeSecureAction(prisma, {
+      actionSpec: { action: body.action, params: body.params },
+      connectionId: connection.id,
+      runId: syntheticRunId,
+    });
+
+    return reply.send({
+      success: execResult.success,
+      data: {
+        stdout: execResult.stdout,
+        stderr: execResult.stderr,
+        exitCode: execResult.exitCode,
+        containerId: execResult.containerId,
+        durationMs: execResult.durationMs,
+        description: execResult.description,
+      },
+      simulation: simulationResult ? {
+        strategy: simulationResult.strategy,
+        passed: simulationResult.passed,
+        summary: simulationResult.summary,
+      } : undefined,
+      error: execResult.error ? redactSecrets(execResult.error) : undefined,
+    });
+  });
+
+  /**
+   * POST /api/tool/probe-mcp — Auto-detect env var requirements for an MCP server.
+   *
+   * Runs the server command in an ephemeral container with NO credentials.
+   * Parses error output to detect which env vars the server expects.
+   * Returns detected var names so the UI can prompt the user for values.
+   */
+  app.post('/api/tool/probe-mcp', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { serverCommand } = request.body as { serverCommand?: string };
+    if (!serverCommand || typeof serverCommand !== 'string') {
+      return reply.code(400).send({ error: 'serverCommand is required' });
+    }
+
+    try {
+      const { probeMcpServer } = await import('../engine/secure-exec.js');
+      const result = await probeMcpServer(serverCommand.trim());
+      return reply.send(result);
+    } catch (err: any) {
+      request.log.error(err, 'MCP probe failed');
+      return reply.code(500).send({ error: `Probe failed: ${err.message}` });
+    }
+  });
+
+  /**
+   * GET /api/tool/scan-image?image=... — Advisory image safety scanner.
+   * Returns trust classification for a Docker image. Never blocks.
+   */
+  app.get('/api/tool/scan-image', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { image } = request.query as { image?: string };
+    if (!image) return reply.code(400).send({ error: 'image query parameter required' });
+
+    const { scanImage } = await import('../engine/action-registry.js');
+    return reply.send(scanImage(image));
+  });
 }

@@ -13,7 +13,24 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import { prisma } from '../db/client.js';
+import { config } from '../config.js';
 import { execSync } from 'child_process';
+
+async function verifyInstanceAccess(request: FastifyRequest, reply: FastifyReply, instanceId: string) {
+  const instance = await prisma.instance.findUnique({ where: { id: instanceId } });
+  if (!instance) { reply.code(404).send({ error: 'Instance not found' }); return null; }
+  if (config.PLATFORM_MODE) {
+    const clerkId = request.clerkUserId;
+    if (clerkId) {
+      const user = await prisma.user.findUnique({ where: { clerkId }, select: { id: true } });
+      if (user && instance.userId && instance.userId !== user.id) {
+        reply.code(403).send({ error: 'Access denied' });
+        return null;
+      }
+    }
+  }
+  return instance;
+}
 
 // Allow browsing the entire agent home dir — not just /root/clawd
 // Agent files can be anywhere: /root/.openclaw, /root/clawd, /root/project, etc.
@@ -113,11 +130,8 @@ async function workspaceRoutesInner(app: FastifyInstance): Promise<void> {
     request.log.info({ id, dirPath }, 'Workspace: listing files');
 
     try {
-      const instance = await prisma.instance.findUnique({ where: { id } });
-      if (!instance) {
-        request.log.warn({ id }, 'Workspace: instance not found in DB');
-        return reply.code(404).send({ error: 'Instance not found', instanceId: id });
-      }
+      const instance = await verifyInstanceAccess(request, reply, id);
+      if (!instance) return;
 
       const cname = containerName(instance.name);
       const target = safePath(dirPath);
@@ -219,8 +233,8 @@ async function workspaceRoutesInner(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const instance = await prisma.instance.findUnique({ where: { id } });
-      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+      const instance = await verifyInstanceAccess(request, reply, id);
+      if (!instance) return;
 
       const cname = containerName(instance.name);
       const target = safePath(filePath);
@@ -275,8 +289,8 @@ async function workspaceRoutesInner(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const instance = await prisma.instance.findUnique({ where: { id } });
-      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+      const instance = await verifyInstanceAccess(request, reply, id);
+      if (!instance) return;
 
       const cname = containerName(instance.name);
       const target = safePath(filePath);
@@ -320,13 +334,12 @@ async function workspaceRoutesInner(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const instance = await prisma.instance.findUnique({ where: { id } });
-      if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+      const instance = await verifyInstanceAccess(request, reply, id);
+      if (!instance) return;
 
       const cname = containerName(instance.name);
       const target = safePath(filePath);
 
-      // Check container is running
       const cinfo = getRunningContainer(cname);
       if (!cinfo) {
         return reply.code(400).send({ error: 'Agent is not running' });

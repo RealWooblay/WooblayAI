@@ -17,6 +17,7 @@ import cors from '@fastify/cors';
 import { config } from './config.js';
 import { authPlugin } from './middleware/auth.js';
 import { clerkAuthPlugin } from './middleware/clerk-auth.js';
+import { rateLimitPlugin } from './middleware/rate-limit.js';
 import { registerStatic } from './static.js';
 
 // Route modules — shared (both modes)
@@ -36,9 +37,26 @@ import { webhookRoutes } from './routes/webhooks.js';
 import { aiAnalysisRoutes } from './routes/ai-analysis.js';
 import { workspaceRoutes } from './routes/workspace.js';
 
+// MVP route modules
+import { operationRoutes } from './routes/operations.js';
+import { runRoutes } from './routes/runs.js';
+import { proposalRoutes } from './routes/proposals.js';
+import { gatewayRoutes } from './routes/gateway.js';
+import { sensorRoutes } from './routes/sensors.js';
+import { insightsRoutes } from './routes/insights.js';
+import { caseFileRoutes } from './routes/case-file.js';
+import { connectionRoutes } from './routes/connections.js';
+import { repoConfigRoutes } from './routes/repo-config.js';
+import { verificationRoutes } from './routes/verifications.js';
+import { workspaceRunnerRoutes } from './routes/workspace-runner.js';
+import { apiKeyRoutes } from './routes/api-keys.js';
+import { mcpProxyRoutes } from './routes/mcp-proxy.js';
+
 // Route modules — platform mode only
 import { userRoutes } from './routes/users.js';
 import { syncRoutes } from './routes/sync.js';
+import { sseRoutes } from './routes/sse.js';
+import { adminRoutes } from './routes/admin.js';
 
 /**
  * Build and configure the Fastify application.
@@ -52,9 +70,16 @@ export async function buildApp() {
   });
 
   // ── Global plugins ──────────────────────────────────────────────────
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Agent-Pubkey', 'X-Request-Signature'],
+  });
 
   // ── Middleware ───────────────────────────────────────────────────────
+  // Rate limiting (all API routes)
+  await app.register(rateLimitPlugin);
   // Agent signature auth (instance mode — agent-to-gate requests)
   await app.register(authPlugin);
   // Clerk JWT auth (platform mode — browser-to-API requests)
@@ -78,9 +103,26 @@ export async function buildApp() {
   await app.register(webhookRoutes);
   await app.register(aiAnalysisRoutes);
 
+  // ── MVP Routes ────────────────────────────────────────────────────────
+  await app.register(operationRoutes);
+  await app.register(runRoutes);
+  await app.register(proposalRoutes);
+  await app.register(gatewayRoutes);
+  await app.register(sensorRoutes);
+  await app.register(insightsRoutes);
+  await app.register(caseFileRoutes);
+  await app.register(connectionRoutes);
+  await app.register(repoConfigRoutes);
+  await app.register(verificationRoutes);
+  await app.register(workspaceRunnerRoutes);
+  await app.register(apiKeyRoutes);
+  await app.register(mcpProxyRoutes);
+
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);
   await app.register(syncRoutes);
+  await app.register(sseRoutes);
+  await app.register(adminRoutes);
 
   // ── Static UI ───────────────────────────────────────────────────────
   await registerStatic(app);
@@ -93,6 +135,22 @@ export async function buildApp() {
 import { prisma } from './db/client.js';
 
 async function start() {
+  // ── Pre-flight checks ────────────────────────────────────────────────
+  if (config.NODE_ENV === 'production' && !config.VAULT_MASTER_KEY) {
+    console.error(
+      '\n╔══════════════════════════════════════════════════════════════════╗\n' +
+      '║  FATAL: VAULT_MASTER_KEY is not set.                            ║\n' +
+      '║                                                                  ║\n' +
+      '║  Connections and credential encryption require this env var.     ║\n' +
+      '║  Generate one:                                                   ║\n' +
+      '║    node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"  ║\n' +
+      '║                                                                  ║\n' +
+      '║  Add it to your deployment environment variables.                ║\n' +
+      '╚══════════════════════════════════════════════════════════════════╝\n',
+    );
+    process.exit(1);
+  }
+
   const app = await buildApp();
 
   // Seed default policies if the table is empty
@@ -118,6 +176,7 @@ async function start() {
       console.error('[seed] Failed to seed default coupon:', err);
     }
   }
+
 
   try {
     await app.listen({ port: config.PORT, host: '0.0.0.0' });

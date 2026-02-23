@@ -6,24 +6,24 @@ import { motion, useInView } from 'framer-motion'
 const steps = [
   {
     number: '01',
-    title: 'Agent acts',
-    description: 'Your AI agent decides to run a command, write a file, call an API, or access data. Business as usual.',
+    title: 'Set the boundaries',
+    description: 'Connect the systems your agent uses and define exactly what it’s allowed to touch.',
     color: 'text-white/60',
     borderColor: 'border-white/[0.08]',
     bgColor: 'bg-white/[0.02]',
   },
   {
     number: '02',
-    title: 'Wooblay intercepts',
-    description: 'Before execution, Wooblay catches the action, classifies risk, and evaluates your policy rules. Safe actions flow through. Dangerous ones stop.',
+    title: 'Nothing runs unchecked',
+    description: 'Every action is reviewed against your rules before anything changes.',
     color: 'text-amber-400/80',
     borderColor: 'border-amber-400/[0.15]',
     bgColor: 'bg-amber-400/[0.03]',
   },
   {
     number: '03',
-    title: 'You decide',
-    description: 'High-risk actions wait for your approval. You see exactly what the agent wants to do, in plain English. Approve or deny. Every decision is cryptographically signed.',
+    title: 'Execute with confidence',
+    description: 'Approved actions run in isolation. No exposed keys. Every change is recorded.',
     color: 'text-accent',
     borderColor: 'border-accent/[0.15]',
     bgColor: 'bg-accent/[0.03]',
@@ -44,10 +44,10 @@ export function HowItWorks() {
           className="text-center mb-16"
         >
           <p className="text-accent/60 text-[12px] font-mono tracking-widest uppercase mb-4">
-            How it works
+            Your autonomous agent
           </p>
           <h2 className="font-display text-[clamp(1.8rem,4vw,2.8rem)] font-bold tracking-tight text-white">
-            Three steps between your agent and disaster
+            Controlled by you.
           </h2>
         </motion.div>
 
@@ -85,7 +85,7 @@ export function HowItWorks() {
           className="text-center mt-10"
         >
           <p className="text-white/25 text-[13px] font-mono">
-            Result: tamper-proof receipt chain for every action, every decision
+            Credential isolation · scope boundaries · simulation · ephemeral execution · signed receipts
           </p>
         </motion.div>
       </div>

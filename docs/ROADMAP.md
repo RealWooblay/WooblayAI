@@ -2,6 +2,9 @@
 
 ## Shipped (MVP)
 
+### Sensor-first operations & agent routing
+Connect sensors (e.g. GitHub via per-connection webhooks); they create Operations. Global AI router evaluates each Operation against all active agent instances and routes to the best fit (auto-route, or pending approval, or manual). Operations and Sensors pages; routing status and approval UI. No “incidents” — Operations only.
+
 ### Execution-Layer Gating
 Tool calls from agents are intercepted, risk-classified, and routed through policy evaluation. Actions are auto-allowed, auto-denied, or held for human approval with a 24-hour window. Every decision produces a cryptographically signed receipt.
 
