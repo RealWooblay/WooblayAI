@@ -9,6 +9,9 @@
 #
 # The agent NEVER sees credentials. They exist only inside this
 # ephemeral container for the duration of one tool call, then are gone.
+#
+# Runs as root inside the container. Security comes from container isolation
+# (--rm, --read-only, resource limits, ephemeral), not from the user.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim
 
@@ -19,20 +22,9 @@ RUN apt-get update -qq && \
 
 WORKDIR /opt/wooblay
 
-# package.json enables ESM ("type":"module") and installs the MCP SDK locally
-# so `import '@modelcontextprotocol/sdk/...'` resolves from node_modules here.
 COPY package.json /opt/wooblay/package.json
 RUN npm install --omit=dev && npm cache clean --force
 
 COPY executor.js /opt/wooblay/mcp-executor.js
 
-# Pre-install popular MCP servers globally so npx finds them instantly.
-RUN npm install -g \
-    @modelcontextprotocol/server-github \
-    @modelcontextprotocol/server-filesystem \
-    @modelcontextprotocol/server-fetch \
-    2>/dev/null || true && \
-    npm cache clean --force
-
-USER node
 WORKDIR /tmp

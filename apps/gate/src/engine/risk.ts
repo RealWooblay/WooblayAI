@@ -300,8 +300,18 @@ export function classifyRisk(
     case 'gateway':
       return RiskTier.WRITE;
 
-    default:
+    default: {
+      // MCP proxy tools: "mcp:serverName:toolName" — classify by bare tool name
+      if (normalized.startsWith('mcp:')) {
+        const bareName = normalized.split(':').pop() ?? normalized;
+        const readOnlyPattern = /^(search_|get_|list_|read_|fetch_|show_|describe_|inspect_)/i;
+        const destructivePattern = /^(delete_|remove_|destroy_|drop_|revoke_|uninstall_)/i;
+        if (readOnlyPattern.test(bareName)) return RiskTier.READ;
+        if (destructivePattern.test(bareName)) return RiskTier.DESTRUCTIVE;
+        return RiskTier.WRITE;
+      }
       return RiskTier.WRITE;
+    }
   }
 }
 

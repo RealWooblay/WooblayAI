@@ -28,6 +28,10 @@ import {
   buildSandboxAnalysisUserMessage,
   buildContentAnalysisPrompt,
   buildContentAnalysisUserMessage,
+  buildMcpResultVerificationPrompt,
+  buildMcpResultVerificationUserMessage,
+  buildMcpPreExecVerificationPrompt,
+  buildMcpPreExecVerificationUserMessage,
 } from '../prompts/sandbox-analysis.js';
 
 import type {
@@ -333,4 +337,273 @@ export function shouldSimulate(
   const minLevel = thresholdToMinTier[threshold] ?? 2;
 
   return actionLevel >= minLevel;
+}
+
+// ── MCP Post-Execution Verification (L2 for MCP) ───────────────────────
+
+export interface McpVerificationRequest {
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  serverCommand: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
+}
+
+export interface McpVerificationResult {
+  passed: boolean;
+  strategy: 'MCP_RESULT_VERIFICATION';
+  summary: string;
+  aiAnalysis?: AIIntentAnalysis;
+  durationMs: number;
+}
+
+/**
+ * Post-execution intent verification for MCP tool calls.
+ *
+ * Since MCP servers need real credentials + network, we can't sandbox them.
+ * Instead, L2 runs AFTER L3: AI verifies the result matches the tool + args.
+ *
+ * This is the MCP equivalent of the sandbox simulation — it catches:
+ *   - Tool returning data unrelated to its stated purpose
+ *   - Evidence of credential exfiltration in the output
+ *   - MCP server calling a different API than expected
+ *   - Anomalous encoded payloads hiding exfiltrated secrets
+ *
+ * If verification fails, the result is still returned (execution already
+ * happened), but an audit flag is raised and the verification result is
+ * included in the response for the caller to act on.
+ */
+export async function verifyMcpToolResult(
+  prisma: PrismaClient,
+  request: McpVerificationRequest,
+): Promise<McpVerificationResult> {
+  const startTime = Date.now();
+
+  const aiResult = await analyzeWithAI(
+    buildMcpResultVerificationPrompt(),
+    buildMcpResultVerificationUserMessage(
+      request.toolName,
+      request.toolArgs,
+      request.serverCommand,
+      request.stdout,
+      request.exitCode,
+      request.stderr,
+    ),
+  );
+
+  const durationMs = Date.now() - startTime;
+
+  if (!aiResult) {
+    return {
+      passed: true,
+      strategy: 'MCP_RESULT_VERIFICATION',
+      summary: 'AI verification unavailable — passed by default (no OpenAI key or AI error)',
+      durationMs,
+    };
+  }
+
+  await persistEvent(prisma, {
+    type: 'mcp_verification.completed',
+    data: {
+      toolName: request.toolName,
+      serverCommand: request.serverCommand,
+      passed: aiResult.intentMatch,
+      reasoning: aiResult.reasoning,
+      discrepancies: aiResult.discrepancies,
+      durationMs,
+    },
+  });
+
+  return {
+    passed: aiResult.intentMatch,
+    strategy: 'MCP_RESULT_VERIFICATION',
+    summary: aiResult.intentMatch
+      ? `Verified: result matches expected behaviour of ${request.toolName}`
+      : `MISMATCH: ${aiResult.reasoning}`,
+    aiAnalysis: aiResult,
+    durationMs,
+  };
+}
+
+// ── MCP Pre-Execution Verification (L2 BEFORE credentials) ─────────────
+
+export interface McpPreExecRequest {
+  serverCommand: string;
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  /** Env var names (NOT values) that will be injected */
+  credentialEnvVars: string[];
+}
+
+export interface McpPreExecResult {
+  safe: boolean;
+  reasoning: string;
+  threatLevel: 'none' | 'low' | 'medium' | 'high' | 'critical';
+  concerns: string[];
+  durationMs: number;
+}
+
+/**
+ * Pre-execution L2 verification for MCP tool calls.
+ *
+ * Runs BEFORE credentials are injected. Verifies that the server command,
+ * tool name, arguments, and credential env var names form a safe combination.
+ *
+ * This is the primary defence against the main MCP threat: a malicious server
+ * package that steals injected credentials. If this returns safe=false,
+ * execution is BLOCKED and no credentials leave the vault.
+ */
+export async function verifyMcpPreExecution(
+  prisma: PrismaClient,
+  request: McpPreExecRequest,
+): Promise<McpPreExecResult> {
+  const startTime = Date.now();
+
+  const aiResult = await analyzePreExec(
+    buildMcpPreExecVerificationPrompt(),
+    buildMcpPreExecVerificationUserMessage(
+      request.serverCommand,
+      request.toolName,
+      request.toolArgs,
+      request.credentialEnvVars,
+    ),
+  );
+
+  const durationMs = Date.now() - startTime;
+
+  if (!aiResult) {
+    // No AI available — use rule-based fallback
+    const ruleResult = ruleBasedMcpCheck(request);
+    await persistEvent(prisma, {
+      type: 'mcp_pre_verification.completed',
+      data: {
+        serverCommand: request.serverCommand,
+        toolName: request.toolName,
+        credentialEnvVars: request.credentialEnvVars,
+        safe: ruleResult.safe,
+        threatLevel: ruleResult.threatLevel,
+        reasoning: ruleResult.reasoning,
+        concerns: ruleResult.concerns,
+        source: 'rules',
+        durationMs,
+      },
+    });
+    return { ...ruleResult, durationMs };
+  }
+
+  await persistEvent(prisma, {
+    type: 'mcp_pre_verification.completed',
+    data: {
+      serverCommand: request.serverCommand,
+      toolName: request.toolName,
+      credentialEnvVars: request.credentialEnvVars,
+      safe: aiResult.safe,
+      threatLevel: aiResult.threatLevel,
+      reasoning: aiResult.reasoning,
+      concerns: aiResult.concerns,
+      source: 'ai',
+      durationMs,
+    },
+  });
+
+  return {
+    safe: aiResult.safe,
+    reasoning: aiResult.reasoning,
+    threatLevel: aiResult.threatLevel,
+    concerns: aiResult.concerns,
+    durationMs,
+  };
+}
+
+/** AI pre-execution analysis — separate from the general analyzeWithAI to parse the different response shape. */
+async function analyzePreExec(
+  systemPrompt: string,
+  userMessage: string,
+): Promise<{ safe: boolean; reasoning: string; threatLevel: 'none' | 'low' | 'medium' | 'high' | 'critical'; concerns: string[] } | null> {
+  try {
+    const { config } = await import('../config.js');
+    if (!config.OPENAI_API_KEY) return null;
+
+    const { default: OpenAI } = await import('openai');
+    const client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+
+    const response = await client.chat.completions.create({
+      model: config.OPENAI_MODEL ?? 'gpt-4o-mini',
+      temperature: 0,
+      max_tokens: 400,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    });
+
+    const text = response.choices[0]?.message?.content ?? '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const result = JSON.parse(jsonMatch[0]);
+    return {
+      safe: Boolean(result.safe),
+      reasoning: String(result.reasoning ?? ''),
+      threatLevel: ['none', 'low', 'medium', 'high', 'critical'].includes(result.threatLevel) ? result.threatLevel : 'medium',
+      concerns: Array.isArray(result.concerns) ? result.concerns.map(String) : [],
+    };
+  } catch (err) {
+    console.warn('[simulate] Pre-exec AI analysis failed:', err);
+    return null;
+  }
+}
+
+/** Rule-based fallback when AI is unavailable. */
+function ruleBasedMcpCheck(request: McpPreExecRequest): Omit<McpPreExecResult, 'durationMs'> {
+  const cmd = request.serverCommand.toLowerCase();
+  const concerns: string[] = [];
+
+  // Known official MCP packages
+  const isOfficialMcp = cmd.includes('@modelcontextprotocol/');
+
+  // Check credential-server alignment
+  const hasGithubCreds = request.credentialEnvVars.some(v =>
+    /github|gh_token/i.test(v),
+  );
+  const isGithubServer = cmd.includes('server-github');
+
+  if (hasGithubCreds && !isGithubServer && !isOfficialMcp) {
+    concerns.push('GitHub credentials being sent to non-GitHub server');
+  }
+
+  const hasAwsCreds = request.credentialEnvVars.some(v =>
+    /aws/i.test(v),
+  );
+  if (hasAwsCreds && !cmd.includes('server-aws') && !isOfficialMcp) {
+    concerns.push('AWS credentials being sent to non-AWS server');
+  }
+
+  // Unknown packages with any credentials
+  if (!isOfficialMcp && request.credentialEnvVars.length > 0) {
+    concerns.push(`Non-official MCP package receiving ${request.credentialEnvVars.length} credential(s)`);
+  }
+
+  // Suspicious tool names
+  const suspiciousTools = ['shell', 'exec', 'eval', 'exfiltrate', 'upload', 'send'];
+  if (suspiciousTools.some(s => request.toolName.toLowerCase().includes(s))) {
+    concerns.push(`Suspicious tool name: ${request.toolName}`);
+  }
+
+  const safe = concerns.length === 0;
+  const threatLevel = concerns.length === 0 ? 'none' as const
+    : concerns.length === 1 ? 'low' as const
+    : concerns.some(c => c.includes('credentials being sent')) ? 'high' as const
+    : 'medium' as const;
+
+  return {
+    safe,
+    reasoning: safe
+      ? `Official MCP server with matching credentials for ${request.toolName}`
+      : `Blocked: ${concerns.join('; ')}`,
+    threatLevel,
+    concerns,
+  };
 }

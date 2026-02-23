@@ -67,6 +67,7 @@ interface DeferredToolCall {
   serverName: string;
   config: McpServerConfigEntry;
   tool: UpstreamTool;
+  toolCallId?: string;
   createdAt: number;
 }
 
@@ -160,6 +161,7 @@ async function executeApprovedToolCall(
   serverName: string,
   config: McpServerConfigEntry,
   args: Record<string, unknown>,
+  toolCallId?: string,
 ): Promise<ToolResult> {
   const hasCredentials = config.connectionIds && config.connectionIds.length > 0;
 
@@ -172,6 +174,7 @@ async function executeApprovedToolCall(
           toolName: tool.name,
           toolArgs: args,
           connectionIds: config.connectionIds,
+          ...(toolCallId ? { toolCallId } : {}),
         },
       });
 
@@ -269,6 +272,7 @@ async function executeToolCall(
       serverName,
       config,
       tool,
+      toolCallId: decision.toolCallId,
       createdAt: Date.now(),
     });
 
@@ -297,7 +301,7 @@ async function executeToolCall(
   }
 
   // EXECUTE — approved by policy, run immediately
-  return executeApprovedToolCall(tool, serverName, config, args);
+  return executeApprovedToolCall(tool, serverName, config, args, decision.toolCallId);
 }
 
 // ── MCP Server Factory ───────────────────────────────────────────────────
@@ -392,7 +396,7 @@ function createMcpServerInstance(): McpServer {
       // APPROVED — execute the deferred tool call and return the real result
       deferredCalls.delete(approvalId as string);
       process.stderr.write(`[proxy] Executing deferred call: ${deferred.tool.name} (approval: ${approvalId})\n`);
-      return executeApprovedToolCall(deferred.tool, deferred.serverName, deferred.config, deferred.args);
+      return executeApprovedToolCall(deferred.tool, deferred.serverName, deferred.config, deferred.args, deferred.toolCallId);
     },
   );
 

@@ -5,20 +5,30 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../components/common/Button.tsx';
-import { getWebhooks, createWebhook, deleteWebhook, testWebhook, type Webhook, getApprovals } from '../../api/client.ts';
+import { getWebhooks, createWebhook, deleteWebhook, testWebhook, type Webhook, getApprovals, getOrgPolicySettings } from '../../api/client.ts';
 import { useToast } from '../../components/common/Toast.tsx';
 
-const WEBHOOK_EVENTS = [
+const WEBHOOK_EVENTS: { id: string; label: string; fullPlatformOnly?: boolean }[] = [
   { id: 'approval.pending', label: 'New Approval Pending' },
   { id: 'approval.stale', label: 'Stale Approval (>15 min)' },
   { id: 'flag.critical', label: 'Critical Flag Raised' },
   { id: 'flag.high', label: 'High Severity Flag' },
-  { id: 'agent.trust_low', label: 'Low Trust Score (<40)' },
+  { id: 'agent.trust_low', label: 'Low Trust Score (<40)', fullPlatformOnly: true },
 ];
 
 export function NotificationsPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: getOrgPolicySettings,
+    staleTime: 60_000,
+  });
+  const isFullPlatform = (orgSettings as { platformMode?: string })?.platformMode === 'full';
+  const visibleEvents = isFullPlatform
+    ? WEBHOOK_EVENTS
+    : WEBHOOK_EVENTS.filter((e) => !e.fullPlatformOnly);
 
   // Pending approvals for the alert summary
   const { data: approvals = [] } = useQuery({
@@ -33,7 +43,11 @@ export function NotificationsPage() {
   const [newEvents, setNewEvents] = useState<string[]>(['approval.pending', 'flag.critical']);
 
   const addWebhookMut = useMutation({
-    mutationFn: () => createWebhook({ url: newUrl, events: newEvents }),
+    mutationFn: () =>
+      createWebhook({
+        url: newUrl,
+        events: newEvents.filter((id) => visibleEvents.some((e) => e.id === id)),
+      }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['webhooks'] }); setNewUrl(''); toast('Webhook added', 'success'); },
   });
 
@@ -134,7 +148,7 @@ export function NotificationsPage() {
           <div>
             <label className="block text-[11px] text-text-muted mb-2">Events</label>
             <div className="flex flex-wrap gap-2">
-              {WEBHOOK_EVENTS.map((evt) => (
+              {visibleEvents.map((evt) => (
                 <button
                   key={evt.id}
                   onClick={() => toggleEvent(evt.id)}

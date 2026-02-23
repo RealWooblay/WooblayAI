@@ -30,25 +30,25 @@ export function Hero() {
       <div className="relative text-center px-6 max-w-4xl mx-auto">
         <FadeIn>
           <p className="text-accent/80 text-[13px] font-mono tracking-widest uppercase mb-6">
-            Secure execution for AI agents
+            Secure your agent actions.
           </p>
         </FadeIn>
 
         <FadeIn delay={0.04}>
           <h1 className="font-display text-[clamp(2.8rem,7vw,5.5rem)] font-bold tracking-[-0.04em] leading-[0.92]">
-            <span className="text-gradient">Gate, approve, and control</span>
+            <span className="text-gradient">Agents decide</span>
             <br />
-            <span className="text-white/20">everywhere your agents run.</span>
+            <span className="text-white/20">Wooblay executes.</span>
           </h1>
         </FadeIn>
 
-        <FadeIn delay={0.06}>
-          <p className="mt-7 text-white/50 text-[17px] sm:text-[19px] leading-relaxed max-w-2xl mx-auto">
-            MCP tools, vault-held credentials, human approval when it matters. One gate for every agent action.
+        <FadeIn delay={0.05}>
+          <p className="mt-6 text-white/50 text-[16px] sm:text-[18px] max-w-lg mx-auto">
+            Every action is policy-checked, simulated, executed in an ephemeral container, and cryptographically receipted.
           </p>
         </FadeIn>
 
-        <FadeIn delay={0.12}>
+        <FadeIn delay={0.1}>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
               href="https://x.com/RealWooblay"

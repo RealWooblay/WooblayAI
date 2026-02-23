@@ -69,6 +69,14 @@ async function authenticateApiKey(
 
 export async function mcpProxyRoutes(app: FastifyInstance): Promise<void> {
   /**
+   * POST /mcp/:instanceId/sse — Reject with 405. Cursor may try Streamable HTTP first;
+   * we only support SSE (GET here, POST to /mcp/:id/messages).
+   */
+  app.post('/mcp/:instanceId/sse', async (_request: FastifyRequest, reply: FastifyReply) => {
+    return reply.code(405).header('Allow', 'GET').send({ error: 'Use GET for SSE; POST messages to /mcp/:instanceId/messages' });
+  });
+
+  /**
    * GET /mcp/:instanceId/sse — SSE connection to the MCP proxy.
    * Streams tool list and events. The client connects here.
    */
@@ -113,12 +121,35 @@ export async function mcpProxyRoutes(app: FastifyInstance): Promise<void> {
         return;
       }
 
+      // Rewrite endpoint so Cursor/Claude POST to /mcp/:id/messages (not /messages → 404).
+      // Proxy sends "event: endpoint\ndata: /messages?sessionId=...\n\n". Buffer by \n\n for chunk safety.
+      const messagesPathPrefix = `/mcp/${instanceId}/messages`;
+      const dec = new TextDecoder();
+      let buf = '';
+      const flushEvent = (event: string) => {
+        const rewritten = event.replace(
+          /^data:\s*\/messages(\?sessionId=[^\s]+)?$/m,
+          (_, qs) => `data: ${messagesPathPrefix}${qs ?? ''}`,
+        );
+        reply.raw.write(rewritten + (rewritten.endsWith('\n') ? '' : '\n'));
+      };
       const pump = async () => {
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            reply.raw.write(value);
+            buf += dec.decode(value, { stream: true });
+            const events = buf.split('\n\n');
+            buf = events.pop() ?? '';
+            for (const event of events) {
+              if (!event) continue;
+              flushEvent(event);
+              reply.raw.write('\n');
+            }
+          }
+          if (buf) {
+            flushEvent(buf);
+            reply.raw.write('\n');
           }
         } catch (err: any) {
           if (err.name !== 'AbortError') {

@@ -23,8 +23,9 @@ import { describeToolCall, explainWhyFlagged } from '../engine/analysis.js';
 import { detectFlags } from '../engine/flags.js';
 import { getActionDefinition } from '../engine/action-registry.js';
 import { parseScopeBoundaries, checkScope } from '../engine/scope.js';
-import { simulateAction, simulateLocalAction, shouldSimulate } from '../engine/simulate.js';
+import { simulateAction, simulateLocalAction, shouldSimulate, verifyMcpPreExecution } from '../engine/simulate.js';
 import { executeSecureAction } from '../engine/secure-exec.js';
+import { reportExecution } from '../services/execution.js';
 import { emitRunEvent } from '../engine/run-events.js';
 import { redactSecrets } from '../services/vault.js';
 import { getOrgScope } from '../middleware/org-scope.js';
@@ -370,20 +371,17 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // ── MCP tool calls → dedicated L3 executor ──────────────────────────
-    // MCP tool calls already passed L1+L2 via callGate() in the proxy.
-    // Simulation is skipped: the sandbox can't meaningfully simulate an MCP
-    // server startup + tool call, and policy already approved the action.
-    // executeMcpToolCall starts an ephemeral container with the MCP server,
-    // credentials injected as env vars, calls the single tool, captures
-    // the result, and destroys the container.
+    // ── MCP tool calls → L3 executor + L2 post-verification ──────────
+    // MCP flow: L1 (policy) → L3 (secure exec) → L2 (AI result verification)
     //
-    // Credential resolution merges ALL linked connections. An MCP server
-    // may need credentials from multiple providers (e.g., GitHub token +
-    // database password). Each connection contributes its credentials and
-    // exec_only secrets — env var names are controlled by the connection's
-    // secrets[].key field, so any MCP server's expected env vars can be
-    // satisfied without hardcoding.
+    // L2 is POST-execution for MCP because sandbox simulation can't work
+    // (MCP servers need real credentials + network). Instead, after L3
+    // returns the result, AI verifies that the output matches the expected
+    // behaviour of the tool + args. Mismatches raise audit flags.
+    //
+    // Credential resolution merges ALL linked connections — env var names
+    // are controlled by connection secrets[].key, so any MCP server's
+    // expected env vars are satisfied without hardcoding.
     if (body.action === 'mcp:tool-call') {
       const { resolveMultiConnectionCredentials, executeMcpToolCall } = await import('../engine/secure-exec.js');
 
@@ -414,7 +412,58 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
+      // ── L2 PRE-EXECUTION: Verify server+tool+credential safety ────
+      // This runs BEFORE any credentials leave the vault.
+      // If the AI or rule engine determines the combination is unsafe
+      // (e.g., GitHub token going to an unknown package), execution is
+      // BLOCKED and credentials are never exposed.
+      const credentialEnvVars = Object.keys(credentials).filter(k =>
+        !['MCP_SERVER_CMD', 'MCP_TOOL_NAME', 'MCP_TOOL_ARGS'].includes(k),
+      );
+
       try {
+        const preCheck = await verifyMcpPreExecution(prisma, {
+          serverCommand,
+          toolName,
+          toolArgs,
+          credentialEnvVars,
+        });
+
+        if (!preCheck.safe) {
+          request.log.warn({
+            serverCommand, toolName, credentialEnvVars,
+            threatLevel: preCheck.threatLevel,
+            concerns: preCheck.concerns,
+          }, 'MCP L2 pre-execution check BLOCKED — credentials NOT injected');
+
+          return reply.code(403).send({
+            success: false,
+            error: 'Pre-execution security check failed — credentials were NOT exposed',
+            verification: {
+              stage: 'pre-execution',
+              safe: false,
+              threatLevel: preCheck.threatLevel,
+              reasoning: preCheck.reasoning,
+              concerns: preCheck.concerns,
+              durationMs: preCheck.durationMs,
+            },
+          });
+        }
+
+        request.log.info({
+          serverCommand, toolName, threatLevel: preCheck.threatLevel,
+        }, 'MCP L2 pre-execution check PASSED — proceeding to L3');
+      } catch (err: any) {
+        // Fail-closed: if pre-exec check errors, block execution
+        request.log.error(err, 'MCP L2 pre-execution check failed — blocking (fail-closed)');
+        return reply.code(503).send({
+          success: false,
+          error: 'Pre-execution security check failed (error). Credentials NOT exposed.',
+        });
+      }
+
+      try {
+        // ── L3: Secure Execution ──────────────────────────────────────
         const mcpResult = await executeMcpToolCall(prisma, {
           serverCommand,
           toolName,
@@ -422,6 +471,39 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           credentials,
           image: body.params.image ? String(body.params.image) : undefined,
         });
+
+        // ── Record Execution (makes it visible in Activity + Admin) ──
+        // Use toolCallId if the proxy passed it through. Otherwise fall back
+        // to name-based lookup (proxy stores prefixed "mcp:github:tool" name).
+        const toolCallId = body.params.toolCallId ? String(body.params.toolCallId) : null;
+        let linkedToolCallId = toolCallId;
+
+        if (!linkedToolCallId) {
+          const recentToolCall = await prisma.toolCall.findFirst({
+            where: {
+              OR: [
+                { toolName: toolName },
+                { toolName: { contains: toolName } },
+              ],
+              execution: { is: null },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          linkedToolCallId = recentToolCall?.id ?? null;
+        }
+
+        if (linkedToolCallId) {
+          await reportExecution(prisma, {
+            toolCallId: linkedToolCallId,
+            status: mcpResult.success ? 'SUCCESS' : 'FAILED',
+            stdout: redactSecrets(mcpResult.stdout.slice(0, 5000)),
+            stderr: redactSecrets(mcpResult.stderr.slice(0, 2000)),
+            exitCode: mcpResult.exitCode,
+            durationMs: mcpResult.durationMs,
+          }).catch((err: any) => request.log.warn(err, 'Failed to record MCP execution'));
+        } else {
+          request.log.warn({ toolName }, 'No ToolCall record found to link execution');
+        }
 
         return reply.send({
           success: mcpResult.success,

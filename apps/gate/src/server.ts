@@ -56,6 +56,7 @@ import { mcpProxyRoutes } from './routes/mcp-proxy.js';
 import { userRoutes } from './routes/users.js';
 import { syncRoutes } from './routes/sync.js';
 import { sseRoutes } from './routes/sse.js';
+import { adminRoutes } from './routes/admin.js';
 
 /**
  * Build and configure the Fastify application.
@@ -121,6 +122,7 @@ export async function buildApp() {
   await app.register(userRoutes);
   await app.register(syncRoutes);
   await app.register(sseRoutes);
+  await app.register(adminRoutes);
 
   // ── Static UI ───────────────────────────────────────────────────────
   await registerStatic(app);

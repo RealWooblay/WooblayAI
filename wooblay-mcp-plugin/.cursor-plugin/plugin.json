@@ -1,0 +1,13 @@
+{
+  "name": "wooblay-mcp",
+  "displayName": "Wooblay MCP",
+  "version": "0.1.0",
+  "description": "Connect Cursor to the Wooblay MCP proxy so MCP tool calls go through the Gate: policy checks, human approval, and secure execution. Credentials never reach the agent.",
+  "author": { "name": "Wooblay" },
+  "license": "MIT",
+  "keywords": ["wooblay", "mcp", "proxy", "security", "approval", "gate"],
+  "category": "developer-tools",
+  "tags": ["security", "mcp", "agents"],
+  "skills": "./skills/",
+  "rules": "./rules/"
+}

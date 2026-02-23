@@ -1,0 +1,21 @@
+---
+description: When using Wooblay MCP proxy, handle PENDING_APPROVAL by polling with wooblay__check_approval; do not block or assume the call will complete in-place.
+alwaysApply: true
+---
+
+# Wooblay approval flow
+
+When the agent uses MCP tools through the Wooblay proxy:
+
+1. **If a tool returns a message about "human approval" or "PENDING_APPROVAL":**
+   - The response will include an **Approval ID**. Do not block or wait indefinitely.
+   - Tell the user that the action is pending approval and that they can approve or deny it in the Wooblay dashboard.
+   - To retrieve the result after a reviewer approves, call **`wooblay__check_approval`** with the returned `approvalId`, e.g. `wooblay__check_approval({ "approvalId": "<the-id>" })`.
+   - The agent may continue with other tasks and poll `wooblay__check_approval` later.
+
+2. **To list all pending approvals in the current session:**  
+   Call **`wooblay__list_pending()`**. Use this to show the user what is waiting for approval or to poll the right approval IDs.
+
+3. **Do not:**
+   - Assume the tool will complete in the same call when approval is required.
+   - Ignore the approval ID or ask the user to "retry" the same tool for a pending action — use `wooblay__check_approval` instead.

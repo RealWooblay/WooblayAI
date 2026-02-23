@@ -20,3 +20,6 @@ coverage/
 
 # Local instance data
 .instances/
+
+# Cursor MCP config (may contain API key)
+.cursor/mcp.json

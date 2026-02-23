@@ -536,8 +536,7 @@ export async function executeMcpToolCall(
     `--name ${containerName}`,
     '--read-only',
     '--tmpfs /tmp:rw,nosuid,size=512m',
-    '--tmpfs /home/node/.npm:rw,nosuid,size=128m',
-    '--tmpfs /root/.npm:rw,nosuid,size=128m',
+    '--tmpfs /root/.npm:rw,nosuid,size=256m',
     '--memory 1g',
     '--cpus 1',
     '--pids-limit 256',
@@ -589,15 +588,33 @@ export async function executeMcpToolCall(
     });
   }
 
+  // Credential env var names (never values) for admin visibility
+  const credentialEnvVars = Object.keys(request.credentials ?? {});
+
   await persistEvent(prisma, {
     type: 'secure_exec.completed',
     data: {
       runId: request.runId ?? `mcp-${containerName}`,
       action: 'mcp:tool-call',
       toolName: request.toolName,
+      serverCommand: serverCmd,
       success: exitCode === 0,
       durationMs,
       containerId: containerName,
+      image,
+      credentialEnvVars,
+      containerSecurity: {
+        readOnly: true,
+        tmpfs: ['/tmp:rw,nosuid,size=512m', '/root/.npm:rw,nosuid,size=256m'],
+        memoryLimit: '1g',
+        cpuLimit: 1,
+        pidsLimit: 256,
+        autoRemove: true,
+        envFileInjection: true,
+        networkMode: 'bridge (outbound only)',
+      },
+      stderr: redactSecrets((stderr || '').slice(0, 1000)),
+      exitCode,
     },
   });
 
@@ -655,8 +672,7 @@ export async function probeMcpServer(serverCommand: string): Promise<McpProbeRes
     `--name ${containerName}`,
     '--read-only',
     '--tmpfs /tmp:rw,nosuid,size=512m',
-    '--tmpfs /home/node/.npm:rw,nosuid,size=128m',
-    '--tmpfs /root/.npm:rw,nosuid,size=128m',
+    '--tmpfs /root/.npm:rw,nosuid,size=256m',
     '--memory 512m',
     '--cpus 0.5',
     '--pids-limit 128',
