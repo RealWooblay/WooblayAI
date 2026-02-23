@@ -53,18 +53,31 @@ const MCP_CATALOG: McpCatalogEntry[] = [
     requiredEnvVars: [] },
 ];
 
-const MCP_ICONS: Record<string, string> = {
-  github: '🐙',
-  filesystem: '📁',
-  'brave-search': '🦁',
-  slack: '💬',
-  postgres: '🐘',
-  gdrive: '📄',
-  puppeteer: '🎭',
-  memory: '🧠',
-  fetch: '🌐',
-  'sequential-thinking': '💭',
+/** Real brand icon URLs (Simple Icons CDN). Fallback for unknown: generic gear. */
+const MCP_ICON_URLS: Record<string, string> = {
+  github: 'https://cdn.simpleicons.org/github/a1a1aa',
+  slack: 'https://cdn.simpleicons.org/slack/a1a1aa',
+  postgres: 'https://cdn.simpleicons.org/postgresql/a1a1aa',
+  gdrive: 'https://cdn.simpleicons.org/googledrive/a1a1aa',
+  'brave-search': 'https://cdn.simpleicons.org/brave/a1a1aa',
 };
+
+function McpCatalogIcon({ name }: { name: string }) {
+  const url = MCP_ICON_URLS[name];
+  if (url) {
+    return (
+      <img src={url} alt="" className="w-6 h-6 object-contain shrink-0" />
+    );
+  }
+  return (
+    <div className="w-6 h-6 rounded bg-surface-3 flex items-center justify-center shrink-0">
+      <svg className="w-3.5 h-3.5 text-text-tertiary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+      </svg>
+    </div>
+  );
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -177,7 +190,7 @@ function ApiKeysSection() {
 
 // ── Section 2: Your Firewall ────────────────────────────────────────────────
 
-type ConnectTab = 'claude' | 'cursor' | 'http';
+type ConnectTab = 'sse' | 'http';
 
 function FirewallSection() {
   const qc = useQueryClient();
@@ -189,7 +202,7 @@ function FirewallSection() {
   const sseEndpoint = proxy ? `${API_BASE}/mcp/${proxy.id}/sse` : '';
 
   const [proxyName, setProxyName] = useState('');
-  const [tab, setTab] = useState<ConnectTab>('claude');
+  const [tab, setTab] = useState<ConnectTab>('sse');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const deployMut = useMutation({
@@ -204,28 +217,37 @@ function FirewallSection() {
     onError: (err: any) => toast(`Failed: ${err.message}`, 'error'),
   });
 
-  const configSnippet = (url: string) => JSON.stringify({
+  const cursorSnippet = JSON.stringify({
     mcpServers: {
       wooblay: {
-        url: url || 'https://your-domain.com/mcp/.../sse',
+        url: sseEndpoint || 'https://wooblay.com/mcp/YOUR_INSTANCE_ID/sse',
         transport: 'sse',
-        headers: { Authorization: 'Bearer wbl_ak_...' },
+        headers: { Authorization: 'Bearer YOUR_API_KEY' },
       },
     },
   }, null, 2);
 
-  const snippets: Record<ConnectTab, string> = {
-    claude: configSnippet(sseEndpoint),
-    cursor: configSnippet(sseEndpoint),
-    http: `curl -X POST ${API_BASE}/api/gateway/execute \\
-  -H "Authorization: Bearer wbl_ak_..." \\
+  const claudeSnippet = JSON.stringify({
+    mcpServers: {
+      wooblay: {
+        command: 'node',
+        args: [
+          '/path/to/wooblay-mcp-plugin/scripts/claude-desktop-bridge.mjs',
+          sseEndpoint || 'https://wooblay.com/mcp/YOUR_INSTANCE_ID/sse',
+          'YOUR_API_KEY',
+        ],
+      },
+    },
+  }, null, 2);
+
+  const httpSnippet = `curl -X POST ${API_BASE}/api/gateway/execute \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "action": "mcp:tool-call",
     "toolName": "github__create_issue",
     "args": { "title": "Bug fix", "repo": "org/repo" }
-  }'`,
-  };
+  }'`;
 
   return (
     <div className="bg-surface-1 border border-border rounded-xl p-5">
@@ -280,22 +302,49 @@ function FirewallSection() {
               </code>
               <CopyButton text={sseEndpoint} />
             </div>
-            <p className="text-[9px] text-text-muted mt-1.5">Use your API key as the Bearer token. Both Cursor and Claude Desktop require it.</p>
+            <p className="text-[9px] text-text-muted mt-1.5">Use your API key as the Bearer token. Replace YOUR_API_KEY with your key in the snippets below.</p>
           </div>
 
           <div className="bg-surface-0 border border-border rounded-xl overflow-hidden">
             <div className="flex border-b border-border">
-              {([['claude', '🤖 Claude Desktop'], ['cursor', '⌨️ Cursor'], ['http', '🔗 HTTP / cURL']] as const).map(([key, label]) => (
+              {([['sse', 'SSE (Cursor & Claude)'], ['http', 'HTTP / cURL']] as const).map(([key, label]) => (
                 <button key={key} onClick={() => setTab(key as ConnectTab)}
                   className={clsx(
-                    'flex-1 px-4 py-2 text-[11px] font-mono transition-colors',
-                    tab === key ? 'bg-accent/10 text-accent font-medium border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary',
+                    'flex-1 px-4 py-2 text-[11px] font-medium transition-colors',
+                    tab === key ? 'bg-accent/10 text-accent border-b-2 border-accent' : 'text-text-tertiary hover:text-text-secondary',
                   )}>
                   {label}
                 </button>
               ))}
             </div>
-            <pre className="p-4 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed">{snippets[tab]}</pre>
+            {tab === 'sse' ? (
+              <div className="divide-y divide-border">
+                <div className="p-4">
+                  <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2">Cursor — .cursor/mcp.json</p>
+                  <p className="text-[10px] text-text-tertiary mb-2">Cursor supports SSE natively. Add this to your project or user MCP config.</p>
+                  <div className="flex gap-2">
+                    <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{cursorSnippet}</pre>
+                    <CopyButton text={cursorSnippet} />
+                  </div>
+                </div>
+                <div className="p-4">
+                  <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2">Claude Desktop — claude_desktop_config.json</p>
+                  <p className="text-[10px] text-text-tertiary mb-2">Claude only supports stdio. Use the bridge script (replace the path with your clone of wooblay-mcp-plugin).</p>
+                  <div className="flex gap-2">
+                    <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{claudeSnippet}</pre>
+                    <CopyButton text={claudeSnippet} />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4">
+                <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2">Direct API</p>
+                <div className="flex gap-2">
+                  <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{httpSnippet}</pre>
+                  <CopyButton text={httpSnippet} />
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -528,7 +577,9 @@ function McpToolsSection() {
                   : 'border-border bg-surface-0 hover:border-accent/40 hover:bg-accent/5',
               )}
             >
-              <div className="text-lg mb-1">{MCP_ICONS[item.name] ?? '⚙️'}</div>
+              <div className="mb-1.5 flex items-center justify-start">
+                <McpCatalogIcon name={item.name} />
+              </div>
               <div className="text-[11px] font-medium text-text-primary mb-0.5">{item.label}</div>
               <div className="text-[9px] text-text-muted leading-snug">{item.desc}</div>
               {added && (() => {
