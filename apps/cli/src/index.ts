@@ -24,8 +24,9 @@ program
   .option('--api-key <key>', 'Wooblay API key (wbl_ak_...)')
   .option('--endpoint <url>', 'Wooblay Gate URL', 'https://gate.wooblay.com')
   .option('--instance-id <id>', 'Proxy instance ID')
+  .option('--agents <list>', 'Comma-separated agents to configure (cursor,claude,vscode). Omit for all.')
   .action(async (opts) => {
-    await setup({ apiKey: opts.apiKey, endpoint: opts.endpoint, instanceId: opts.instanceId });
+    await setup({ apiKey: opts.apiKey, endpoint: opts.endpoint, instanceId: opts.instanceId, agents: opts.agents });
   });
 
 // ── Status ──────────────────────────────────────────────────────────

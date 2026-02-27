@@ -199,7 +199,7 @@ function ApiKeysSection() {
 
 // ── Section 2: Your Firewall ────────────────────────────────────────────────
 
-type ConnectTab = 'sse' | 'http';
+type ConnectTab = 'cursor' | 'claude' | 'vscode' | 'http';
 
 function FirewallSection() {
   const qc = useQueryClient();
@@ -211,7 +211,7 @@ function FirewallSection() {
   const sseEndpoint = proxy ? `${API_BASE}/mcp/${proxy.id}/sse` : '';
 
   const [proxyName, setProxyName] = useState('');
-  const [tab, setTab] = useState<ConnectTab>('sse');
+  const [tab, setTab] = useState<ConnectTab>('cursor');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const deployMut = useMutation({
@@ -226,11 +226,12 @@ function FirewallSection() {
     onError: (err: any) => toast(`Failed: ${err.message}`, 'error'),
   });
 
+  const endpointUrl = sseEndpoint || `${API_BASE}/mcp/YOUR_INSTANCE_ID/sse`;
+
   const cursorSnippet = JSON.stringify({
     mcpServers: {
       wooblay: {
-        url: sseEndpoint || `${API_BASE}/mcp/YOUR_INSTANCE_ID/sse`,
-        transport: 'sse',
+        url: endpointUrl,
         headers: { Authorization: 'Bearer YOUR_API_KEY' },
       },
     },
@@ -239,8 +240,16 @@ function FirewallSection() {
   const claudeSnippet = JSON.stringify({
     mcpServers: {
       wooblay: {
-        url: sseEndpoint || `${API_BASE}/mcp/YOUR_INSTANCE_ID/sse`,
-        transport: 'sse',
+        url: endpointUrl,
+        headers: { Authorization: 'Bearer YOUR_API_KEY' },
+      },
+    },
+  }, null, 2);
+
+  const vscodeSnippet = JSON.stringify({
+    mcpServers: {
+      wooblay: {
+        url: endpointUrl,
         headers: { Authorization: 'Bearer YOUR_API_KEY' },
       },
     },
@@ -312,18 +321,31 @@ function FirewallSection() {
           </div>
 
           {/* CLI quickstart */}
-          <div className="bg-accent/5 border border-accent/20 rounded-xl p-4">
-            <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-2">Quickstart — one command, all agents</p>
-            <p className="text-[10px] text-text-tertiary mb-3">Automatically configures Cursor, Claude Desktop, and VS Code in one shot.</p>
-            <div className="flex gap-2">
-              <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`}</pre>
-              <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`} />
+          <div className="bg-accent/5 border border-accent/20 rounded-xl p-4 space-y-3">
+            <div>
+              <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-1">Quickstart — one command</p>
+              <p className="text-[10px] text-text-tertiary">Automatically configures Cursor, Claude Desktop, and VS Code in one shot.</p>
+            </div>
+            <div>
+              <p className="text-[9px] text-text-muted font-mono mb-1.5">All agents:</p>
+              <div className="flex gap-2">
+                <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup \\\n  --api-key YOUR_API_KEY \\\n  --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} \\\n  --endpoint ${API_BASE}`}</pre>
+                <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`} />
+              </div>
+            </div>
+            <div>
+              <p className="text-[9px] text-text-muted font-mono mb-1.5">Specific agent only:</p>
+              <div className="flex gap-2">
+                <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup \\\n  --api-key YOUR_API_KEY \\\n  --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} \\\n  --endpoint ${API_BASE} \\\n  --agents cursor`}</pre>
+                <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE} --agents cursor`} />
+              </div>
+              <p className="text-[9px] text-text-muted mt-1.5">Options: <code className="text-accent/80">cursor</code>, <code className="text-accent/80">claude</code>, <code className="text-accent/80">vscode</code> — comma-separated for multiple (e.g. <code className="text-accent/80">--agents cursor,claude</code>)</p>
             </div>
           </div>
 
           <div className="bg-surface-0 border border-border rounded-xl overflow-hidden">
             <div className="flex border-b border-border">
-              {([['sse', 'SSE (Cursor & Claude)'], ['http', 'HTTP / cURL']] as const).map(([key, label]) => (
+              {([['cursor', 'Cursor'], ['claude', 'Claude Desktop'], ['vscode', 'VS Code'], ['http', 'HTTP / cURL']] as const).map(([key, label]) => (
                 <button key={key} onClick={() => setTab(key as ConnectTab)}
                   className={clsx(
                     'flex-1 px-4 py-2 text-[11px] font-medium transition-colors',
@@ -333,26 +355,40 @@ function FirewallSection() {
                 </button>
               ))}
             </div>
-            {tab === 'sse' ? (
-              <div className="divide-y divide-border">
-                <div className="p-4">
-                  <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2">Cursor — .cursor/mcp.json</p>
-                  <p className="text-[10px] text-text-tertiary mb-2">Cursor supports SSE natively. Add this to your project or user MCP config.</p>
-                  <div className="flex gap-2">
-                    <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{cursorSnippet}</pre>
-                    <CopyButton text={cursorSnippet} />
-                  </div>
-                </div>
-                <div className="p-4">
-                  <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2">Claude Desktop — claude_desktop_config.json</p>
-                  <p className="text-[10px] text-text-tertiary mb-2">Add this to your Claude Desktop config. Claude supports SSE transports natively.</p>
-                  <div className="flex gap-2">
-                    <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{claudeSnippet}</pre>
-                    <CopyButton text={claudeSnippet} />
-                  </div>
+            {tab === 'cursor' && (
+              <div className="p-4">
+                <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">File: <code className="text-text-secondary">.cursor/mcp.json</code></p>
+                <p className="text-[10px] text-text-tertiary mb-2">Add this to your project root or user-level <code className="text-text-secondary">~/.cursor/mcp.json</code>.</p>
+                <div className="flex gap-2">
+                  <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{cursorSnippet}</pre>
+                  <CopyButton text={cursorSnippet} />
                 </div>
               </div>
-            ) : (
+            )}
+            {tab === 'claude' && (
+              <div className="p-4">
+                <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">File: <code className="text-text-secondary">claude_desktop_config.json</code></p>
+                <p className="text-[10px] text-text-tertiary mb-2">
+                  macOS: <code className="text-text-secondary text-[9px]">~/Library/Application Support/Claude/claude_desktop_config.json</code><br/>
+                  Windows: <code className="text-text-secondary text-[9px]">%APPDATA%\Claude\claude_desktop_config.json</code>
+                </p>
+                <div className="flex gap-2">
+                  <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{claudeSnippet}</pre>
+                  <CopyButton text={claudeSnippet} />
+                </div>
+              </div>
+            )}
+            {tab === 'vscode' && (
+              <div className="p-4">
+                <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">File: <code className="text-text-secondary">.vscode/mcp.json</code></p>
+                <p className="text-[10px] text-text-tertiary mb-2">Add this to your project <code className="text-text-secondary">.vscode/mcp.json</code> or user-level <code className="text-text-secondary">~/.vscode/mcp.json</code>.</p>
+                <div className="flex gap-2">
+                  <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{vscodeSnippet}</pre>
+                  <CopyButton text={vscodeSnippet} />
+                </div>
+              </div>
+            )}
+            {tab === 'http' && (
               <div className="p-4">
                 <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2">Direct API</p>
                 <div className="flex gap-2">

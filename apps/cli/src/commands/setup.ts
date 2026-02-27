@@ -10,6 +10,7 @@ interface SetupOptions {
   apiKey?: string;
   endpoint?: string;
   instanceId?: string;
+  agents?: string;
 }
 
 interface AgentConfig {
@@ -63,7 +64,37 @@ export async function setup(opts: SetupOptions): Promise<void> {
   console.log(chalk.gray(`  Endpoint: ${sseUrl}`));
   console.log(chalk.gray(`  API Key:  ${apiKey.slice(0, 12)}...${apiKey.slice(-4)}\n`));
 
-  const agents = detectAgents();
+  const allAgents = detectAgents();
+
+  // Filter by --agents flag if provided (comma-separated: cursor,claude,vscode)
+  const agentFilter = opts.agents
+    ? new Set(opts.agents.split(',').map((a) => a.trim().toLowerCase()))
+    : null;
+
+  const AGENT_ALIASES: Record<string, string> = {
+    cursor: 'Cursor',
+    claude: 'Claude Desktop',
+    'claude-desktop': 'Claude Desktop',
+    vscode: 'VS Code',
+    'vs-code': 'VS Code',
+  };
+
+  const agents = agentFilter
+    ? allAgents.filter((a) => {
+        const nameLC = a.name.toLowerCase();
+        return Array.from(agentFilter).some(
+          (f) => nameLC.includes(f) || AGENT_ALIASES[f]?.toLowerCase() === nameLC,
+        );
+      })
+    : allAgents;
+
+  if (agentFilter && agents.length === 0) {
+    console.log(chalk.yellow(`  No matching agents for: ${opts.agents}`));
+    console.log(chalk.gray('  Valid names: cursor, claude, vscode'));
+    console.log(chalk.gray('  Example: --agents cursor,claude\n'));
+    return;
+  }
+
   const detected = agents.filter((a) => a.detected);
 
   if (detected.length === 0) {
