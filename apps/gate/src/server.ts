@@ -11,7 +11,7 @@
  *     tool gating, and local receipts.
  */
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 
 import { config } from './config.js';
@@ -78,7 +78,7 @@ export async function buildApp() {
   });
 
   // ── Global error handler ────────────────────────────────────────────
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler((error: FastifyError, request, reply) => {
     const status = error.statusCode ?? 500;
     if (status >= 500) {
       request.log.error(error, 'Unhandled server error');

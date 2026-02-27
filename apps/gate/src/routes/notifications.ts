@@ -12,7 +12,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { ApprovalStatus } from '@wooblay/types';
+import { ApprovalStatus } from '@wooblay/types';
 import { prisma } from '../db/client.js';
 import { resolveApprovalAtomic } from '../services/approval.js';
 import { createReceipt } from '../engine/receipt.js';
@@ -119,7 +119,7 @@ export async function notificationRoutes(app: FastifyInstance) {
         }
 
         // S5: Atomic resolve — only succeeds if status is still PENDING
-        const status: ApprovalStatus = action.decision === 'approve' ? 'APPROVED' : 'DENIED';
+        const status = action.decision === 'approve' ? ApprovalStatus.APPROVED : ApprovalStatus.DENIED;
         const resolved = await resolveApprovalAtomic(
           prisma,
           action.approvalId,
