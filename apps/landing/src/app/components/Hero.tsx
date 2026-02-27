@@ -30,21 +30,23 @@ export function Hero() {
       <div className="relative text-center px-6 max-w-4xl mx-auto">
         <FadeIn>
           <p className="text-accent/80 text-[13px] font-mono tracking-widest uppercase mb-6">
-            Enterprise AI agent governance
+            AI agent governance for teams that ship
           </p>
         </FadeIn>
 
         <FadeIn delay={0.04}>
           <h1 className="font-display text-[clamp(2.8rem,7vw,5.5rem)] font-bold tracking-[-0.04em] leading-[0.92]">
-            <span className="text-gradient">Your agents act.</span>
+            <span className="text-gradient">Your agents have keys</span>
             <br />
-            <span className="text-white/20">You stay in control.</span>
+            <span className="text-gradient">to everything.</span>
+            <br />
+            <span className="text-white/20">Who&rsquo;s watching?</span>
           </h1>
         </FadeIn>
 
         <FadeIn delay={0.05}>
           <p className="mt-6 text-white/50 text-[16px] sm:text-[18px] max-w-xl mx-auto">
-            One governance layer for every AI agent in your organization. Policy enforcement, credential isolation, human approvals, and a cryptographic audit trail — across Cursor, Claude, ChatGPT, and every MCP-connected tool.
+            Every agent on your team — Cursor, Claude, ChatGPT, custom — routes through one governance layer. Credentials never leave the vault. High-risk actions require human approval. Every decision is cryptographically signed.
           </p>
         </FadeIn>
 

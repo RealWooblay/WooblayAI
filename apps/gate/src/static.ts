@@ -43,7 +43,9 @@ export async function registerStatic(app: FastifyInstance): Promise<void> {
         if (
           request.method === 'GET' &&
           !request.url.startsWith('/api/') &&
-          !request.url.startsWith('/health')
+          !request.url.startsWith('/health') &&
+          !request.url.startsWith('/mcp/') &&
+          !request.url.startsWith('/view/')
         ) {
           return reply.type('text/html').send(indexHtml);
         }

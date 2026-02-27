@@ -1,6 +1,6 @@
 {
   "name": "@wooblaymcp/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -23,11 +23,6 @@
   "dependencies": {
     "chalk": "^5.4.0",
     "commander": "^13.1.0"
-  },
-  "optionalDependencies": {
-    "@wooblay/crypto": "workspace:*",
-    "@wooblay/gate-client": "workspace:*",
-    "@wooblay/types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

@@ -66,10 +66,12 @@ export function WhySection() {
           className="mt-16 text-center"
         >
           <p className="font-display text-[clamp(1.8rem,4vw,2.6rem)] font-bold tracking-tight leading-[1.1]">
-            <span className="text-white">This is happening at every company deploying AI agents.</span>
+            <span className="text-white">Your auditor will ask.</span>
+            <br />
+            <span className="text-white/30">What will you show them?</span>
           </p>
           <p className="mt-4 text-white/40 text-[15px] leading-relaxed max-w-md mx-auto">
-            Every team has agents connecting to Stripe, GitHub, Salesforce, databases, and cloud infrastructure. No central policy. No credential isolation. No audit trail that satisfies compliance.
+            Every team has agents connecting to Stripe, GitHub, Salesforce, databases, and cloud infrastructure. API keys in plaintext on 20 laptops. No central policy. No shared audit trail. No proof of who approved what.
           </p>
         </motion.div>
       </div>
