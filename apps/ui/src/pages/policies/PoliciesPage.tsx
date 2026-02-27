@@ -122,6 +122,7 @@ export function PoliciesPage() {
   const [manualDecision, setManualDecision] = useState('APPROVE');
   const [manualArgs, setManualArgs] = useState('');
   const [manualDesc, setManualDesc] = useState('');
+  const [manualApproverRole, setManualApproverRole] = useState('');
 
   const manualCreateMut = useMutation({
     mutationFn: () => {
@@ -138,6 +139,7 @@ export function PoliciesPage() {
         matchArgs: parsedArgs,
         source: 'manual',
         description: manualDesc || undefined,
+        requiredApproverRole: manualApproverRole || undefined,
       });
     },
     onSuccess: () => {
@@ -146,6 +148,7 @@ export function PoliciesPage() {
       setManualOpen(false);
       setManualTool('*'); setManualCategory(''); setManualRisk('*');
       setManualDecision('APPROVE'); setManualArgs(''); setManualDesc('');
+      setManualApproverRole('');
     },
     onError: (err: Error) => toast(`Failed: ${err.message}`, 'error'),
   });
@@ -663,6 +666,19 @@ export function PoliciesPage() {
             <input value={manualDesc} onChange={e => setManualDesc(e.target.value)} placeholder="What this rule does"
               className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50" />
           </div>
+          {manualDecision === 'APPROVE' && (
+            <div>
+              <label className="text-[9px] text-text-tertiary font-mono block mb-1">
+                Required approver role <span className="text-text-muted">(optional — restrict who can approve)</span>
+              </label>
+              <select value={manualApproverRole} onChange={e => setManualApproverRole(e.target.value)}
+                className="w-full bg-surface-0 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary font-mono focus:outline-none focus:border-accent/50">
+                <option value="">Anyone</option>
+                <option value="admin">Admin</option>
+                <option value="owner">Owner</option>
+              </select>
+            </div>
+          )}
           <div className="flex justify-end">
             <Button size="xs" onClick={() => manualCreateMut.mutate()} disabled={manualCreateMut.isPending}>
               {manualCreateMut.isPending ? 'Creating...' : 'Create rule'}

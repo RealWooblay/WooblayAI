@@ -2232,7 +2232,7 @@ export function InstanceDetailPage() {
   const criticalFlags = flags.filter((f: any) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
   const trust = mission?.trustScore ?? 50;
   const totalCost = Number(cost?.costToday ?? mission?.estimatedCost ?? 0) || 0;
-  const summary = contributions?.summary;
+  const summary = contributions;
   const totalActions = summary?.totalActions ?? mission?.progress?.total ?? 0;
 
   // These useMemo hooks MUST be before any early return to avoid React error #310
@@ -2240,10 +2240,11 @@ export function InstanceDetailPage() {
 
   const contributionScore = useMemo(() => {
     if (!summary || summary.totalActions === 0) return 0;
-    const efficiency = parseFloat(summary.approvalEfficiency) || 0;
-    const denialRate = parseFloat(summary.denialRate) || 0;
-    const outputScore = Math.min(100, ((summary.filesCreated ?? 0) * 5 + (summary.filesEdited ?? 0) * 3 + (summary.commandsExecuted ?? 0) * 2 + (summary.linesWritten ?? 0) * 0.1));
-    return Math.round(Math.min(100, (efficiency * 0.3 + (100 - denialRate) * 0.2 + outputScore * 0.5)));
+    const autoRate = summary.autoAllowRate ?? 0;
+    const totalDenied = summary.topDenied?.reduce((s, d) => s + d.count, 0) ?? 0;
+    const denialRate = summary.totalActions > 0 ? (totalDenied / summary.totalActions) * 100 : 0;
+    const actionScore = Math.min(100, (summary.totalActions ?? 0) * 0.5);
+    return Math.round(Math.min(100, (autoRate * 0.3 + (100 - denialRate) * 0.2 + actionScore * 0.5)));
   }, [summary]);
 
   if (isLoading || !instance) {
@@ -2416,7 +2417,7 @@ export function InstanceDetailPage() {
                 <div className={`text-2xl font-bold font-mono tabular-nums ${contributionScore >= 70 ? 'text-emerald-400' : contributionScore >= 40 ? 'text-amber-400' : 'text-text-tertiary'
           }`}>{contributionScore}</div>
           <div className="text-[10px] text-text-tertiary font-mono mt-1">
-            {summary?.approvalEfficiency ? `${summary.approvalEfficiency} eff.` : 'no data'}
+            {summary?.autoAllowRate != null ? `${summary.autoAllowRate.toFixed(1)}% auto-allow` : 'no data'}
           </div>
         </div>
       </div>
@@ -2448,8 +2449,8 @@ export function InstanceDetailPage() {
                 <h2 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono">Audit · Last 7 Days</h2>
           {summary && (
             <div className="flex items-center gap-4 text-[11px] text-text-tertiary font-mono">
-              <span>denial rate: {summary.denialRate ?? '—'}</span>
-              <span>PRs: {summary.prsAndCommits ?? 0}</span>
+              <span>auto-allow: {summary.autoAllowRate?.toFixed(1) ?? '—'}%</span>
+              <span>actions: {summary.totalActions ?? 0}</span>
             </div>
           )}
         </div>
@@ -2466,10 +2467,10 @@ export function InstanceDetailPage() {
           <h3 className="text-[11px] text-text-tertiary uppercase tracking-wider font-mono mb-4">Output</h3>
           <div className="space-y-3">
             {[
-              { label: 'Files Created', value: summary?.filesCreated ?? 0, color: 'text-blue-400' },
-              { label: 'Files Edited', value: summary?.filesEdited ?? 0, color: 'text-cyan-400' },
-              { label: 'Lines Written', value: summary?.linesWritten ?? 0, color: 'text-emerald-400' },
-              { label: 'Commands Run', value: summary?.commandsExecuted ?? 0, color: 'text-amber-400' },
+              { label: 'Total Actions', value: summary?.totalActions ?? 0, color: 'text-blue-400' },
+              { label: 'Total Agents', value: summary?.totalAgents ?? 0, color: 'text-cyan-400' },
+              { label: 'Total Users', value: summary?.totalUsers ?? 0, color: 'text-emerald-400' },
+              { label: 'Auto-Allow Rate', value: `${(summary?.autoAllowRate ?? 0).toFixed(1)}%`, color: 'text-amber-400' },
             ].map(({ label, value, color }) => (
               <div key={label} className="flex items-center justify-between">
                 <span className="text-xs text-text-secondary font-mono">{label}</span>

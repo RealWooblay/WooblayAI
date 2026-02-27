@@ -41,8 +41,11 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
       select: {
         id: true,
         name: true,
+        label: true,
+        userId: true,
         prefix: true,
         scopes: true,
+        active: true,
         lastUsedAt: true,
         expiresAt: true,
         createdAt: true,
@@ -65,6 +68,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
 
     const body = request.body as {
       name: string;
+      label?: string;
       expiresInDays?: number;
     };
 
@@ -80,9 +84,13 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
       ? new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000)
       : null;
 
+    const userId = request.user?.clerkId ?? null;
+
     const apiKey = await prisma.apiKey.create({
       data: {
         orgId,
+        userId: userId?.startsWith('apikey:') ? null : userId,
+        label: body.label?.trim() || null,
         name: body.name.trim(),
         keyHash,
         prefix,
@@ -91,13 +99,14 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
     });
 
     await persistEvent(prisma, {
-      type: 'api_key.created',
-      data: { apiKeyId: apiKey.id, orgId, name: body.name.trim() },
+      type: 'api_key.created' as any,
+      data: { apiKeyId: apiKey.id, orgId, name: body.name.trim(), label: apiKey.label } as any,
     });
 
     return reply.code(201).send({
       id: apiKey.id,
       name: apiKey.name,
+      label: apiKey.label,
       prefix,
       key: rawKey, // Only time the plaintext is returned
       expiresAt: apiKey.expiresAt,
@@ -167,6 +176,10 @@ export async function validateApiKey(rawKey: string): Promise<ApiKeyValidation> 
 
   if (apiKey.revokedAt) {
     return { valid: false, reason: 'Key has been revoked' };
+  }
+
+  if (!apiKey.active) {
+    return { valid: false, reason: 'API key paused (kill switch active)' };
   }
 
   if (apiKey.expiresAt && new Date() > apiKey.expiresAt) {

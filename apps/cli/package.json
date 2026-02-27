@@ -1,22 +1,33 @@
 {
   "name": "@wooblay/cli",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "wooblay": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && node --input-type=commonjs -e \"const f=require('fs');const p='dist/index.js';const c=f.readFileSync(p,'utf8');if(!c.startsWith('#!')){f.writeFileSync(p,'#!/usr/bin/env node\\n'+c)}\"",
     "dev": "tsx src/index.ts",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@wooblay/crypto": "workspace:*",
-    "@wooblay/gate-client": "workspace:*",
-    "@wooblay/types": "workspace:*",
     "chalk": "^5.4.0",
     "commander": "^13.1.0"
+  },
+  "optionalDependencies": {
+    "@wooblay/crypto": "workspace:*",
+    "@wooblay/gate-client": "workspace:*",
+    "@wooblay/types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

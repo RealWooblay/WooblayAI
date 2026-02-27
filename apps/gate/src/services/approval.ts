@@ -8,6 +8,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ApprovalStatus, RiskTier } from '@wooblay/types';
 import { persistEvent } from '../events/bus.js';
+import { sendApprovalNotification } from './notifications.js';
 
 /** Default approval window: 24 hours (enterprise SLA). */
 const DEFAULT_APPROVAL_TTL_SECONDS = 86_400; // 24 hours
@@ -19,6 +20,7 @@ export async function createApproval(
   prisma: PrismaClient,
   toolCallId: string,
   ttlSeconds: number = DEFAULT_APPROVAL_TTL_SECONDS,
+  requiredApproverRole?: string | null,
 ): Promise<{ id: string }> {
   // Fetch the tool call to include metadata in the event
   const toolCall = await prisma.toolCall.findUniqueOrThrow({
@@ -30,6 +32,7 @@ export async function createApproval(
       toolCallId,
       status: 'PENDING',
       ttlSeconds,
+      requiredApproverRole: requiredApproverRole ?? null,
     },
   });
 
@@ -42,6 +45,31 @@ export async function createApproval(
       riskTier: toolCall.riskTier as RiskTier,
     },
   });
+
+  // Send notification to eligible approvers (best-effort, don't block)
+  // Resolve orgId through the API key (agentPubkey = "apikey:<id>") or fall back to any org
+  let notifyOrgId: string | null = null;
+  if (toolCall.agentPubkey.startsWith('apikey:')) {
+    const keyId = toolCall.agentPubkey.replace('apikey:', '');
+    const key = await prisma.apiKey.findUnique({ where: { id: keyId }, select: { orgId: true } }).catch(() => null);
+    notifyOrgId = key?.orgId ?? null;
+  }
+  if (!notifyOrgId) {
+    const org = await prisma.organization.findFirst({ select: { id: true } }).catch(() => null);
+    notifyOrgId = org?.id ?? null;
+  }
+
+  if (notifyOrgId) {
+    sendApprovalNotification(
+      prisma,
+      notifyOrgId,
+      approval.id,
+      toolCall.toolName,
+      toolCall.riskTier,
+      toolCall.args,
+      requiredApproverRole,
+    ).catch((err) => console.error('[notifications] Failed to send approval notification:', err));
+  }
 
   return { id: approval.id };
 }
@@ -74,4 +102,40 @@ export async function resolveApproval(
       approver,
     },
   });
+}
+
+/**
+ * Atomically resolve an approval only if it is still PENDING.
+ * Returns true if the update succeeded, false if already resolved.
+ * Prevents race conditions when multiple channels try to resolve simultaneously.
+ */
+export async function resolveApprovalAtomic(
+  prisma: PrismaClient,
+  id: string,
+  status: ApprovalStatus,
+  approver: string,
+  reason?: string,
+): Promise<boolean> {
+  const result = await prisma.approval.updateMany({
+    where: { id, status: 'PENDING' },
+    data: {
+      status,
+      approver,
+      reason: reason ?? null,
+      decidedAt: new Date(),
+    },
+  });
+
+  if (result.count === 0) return false;
+
+  await persistEvent(prisma, {
+    type: 'approval.resolved',
+    data: {
+      approvalId: id,
+      status,
+      approver,
+    },
+  });
+
+  return true;
 }

@@ -77,6 +77,22 @@ export async function activityRoutes(app: FastifyInstance): Promise<void> {
         prisma.toolCall.count({ where }),
       ]);
 
+      // Batch-resolve API key metadata for tool calls from external keys
+      const apiKeyPubkeys = toolCalls
+        .map((tc) => tc.agentPubkey)
+        .filter((pk) => pk.startsWith('apikey:'));
+      const apiKeyIds = [...new Set(apiKeyPubkeys.map((pk) => pk.slice('apikey:'.length)))];
+      const apiKeyMap = new Map<string, { label: string | null; userId: string | null }>();
+      if (apiKeyIds.length > 0) {
+        const keys = await prisma.apiKey.findMany({
+          where: { id: { in: apiKeyIds } },
+          select: { id: true, label: true, userId: true },
+        });
+        for (const k of keys) {
+          apiKeyMap.set(k.id, { label: k.label, userId: k.userId });
+        }
+      }
+
       const data = toolCalls.map((tc) => {
         let parsedArgs: Record<string, unknown> = {};
         try {
@@ -103,6 +119,13 @@ export async function activityRoutes(app: FastifyInstance): Promise<void> {
           status = 'auto-allowed';
         }
 
+        // Enrich with API key metadata when the caller is an external key
+        let apiKeyMeta: { label: string | null; userId: string | null } | undefined;
+        if (tc.agentPubkey.startsWith('apikey:')) {
+          const akId = tc.agentPubkey.slice('apikey:'.length);
+          apiKeyMeta = apiKeyMap.get(akId);
+        }
+
         return {
           id: tc.id,
           toolName: tc.toolName,
@@ -114,10 +137,11 @@ export async function activityRoutes(app: FastifyInstance): Promise<void> {
           status,
           createdAt: tc.createdAt.toISOString(),
           agent: {
-            name: tc.agent.name,
+            name: apiKeyMeta?.label ?? tc.agent.name,
             pubkey: tc.agent.pubkey,
             trustLevel: tc.agent.trustLevel,
           },
+          apiKey: apiKeyMeta ? { label: apiKeyMeta.label, userId: apiKeyMeta.userId } : undefined,
           approval: tc.approval
             ? {
                 id: tc.approval.id,

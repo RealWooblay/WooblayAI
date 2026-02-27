@@ -29,9 +29,10 @@ RUN npm i -g clawhub
 RUN mkdir -p /opt/wooblay \
     /home/agent/.openclaw/extensions/wooblay
 
-# ── Wooblay Plugin — overrides built-in tools to route through Gate ──────
-COPY packages/adapters/openclaw/plugin/openclaw.plugin.json /opt/wooblay/plugin/openclaw.plugin.json
-COPY packages/adapters/openclaw/plugin/index.ts /opt/wooblay/plugin/index.ts
+# ── Wooblay Plugin — install from npm, then copy into place ──────────────
+RUN npm i -g @wooblay/openclaw-adapter && \
+    cp $(npm root -g)/@wooblay/openclaw-adapter/dist/plugin/openclaw.plugin.json /opt/wooblay/plugin/openclaw.plugin.json && \
+    cp $(npm root -g)/@wooblay/openclaw-adapter/dist/plugin/index.js /opt/wooblay/plugin/index.js
 
 # ── Permissive exec-approvals — OpenClaw doesn't block anything itself ───
 # Gate handles all policy decisions, not OpenClaw's approval system.

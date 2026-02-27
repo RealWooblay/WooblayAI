@@ -281,8 +281,7 @@ export async function toolRoutes(app: FastifyInstance): Promise<void> {
           }
 
           case Decision.APPROVE: {
-            // APPROVE → human review required
-            const approval = await createApproval(prisma, toolCall.id);
+            const approval = await createApproval(prisma, toolCall.id, undefined, policyDecision.requiredApproverRole);
 
             return reply.code(200).send({
               decision: 'PENDING_APPROVAL',

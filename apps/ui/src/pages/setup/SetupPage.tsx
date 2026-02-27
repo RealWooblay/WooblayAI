@@ -117,13 +117,14 @@ function ApiKeysSection() {
   const { toast } = useToast();
   const { data: apiKeys = [] } = useQuery({ queryKey: ['api-keys'], queryFn: getApiKeys });
   const [name, setName] = useState('');
+  const [label, setLabel] = useState('');
   const [expiry, setExpiry] = useState('');
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
 
   const createMut = useMutation({
-    mutationFn: () => createApiKey({ name, expiresInDays: expiry ? parseInt(expiry) : undefined }),
-    onSuccess: (data) => { setCreated(data); setName(''); setExpiry(''); qc.invalidateQueries({ queryKey: ['api-keys'] }); toast('API key created — copy it now', 'success'); },
+    mutationFn: () => createApiKey({ name, label: label || undefined, expiresInDays: expiry ? parseInt(expiry) : undefined }),
+    onSuccess: (data) => { setCreated(data); setName(''); setLabel(''); setExpiry(''); qc.invalidateQueries({ queryKey: ['api-keys'] }); toast('API key created — copy it now', 'success'); },
     onError: () => toast('Failed to create API key', 'error'),
   });
 
@@ -156,19 +157,27 @@ function ApiKeysSection() {
         <div className="space-y-1.5 mb-3">
           {apiKeys.map((k: ApiKeyInfo) => (
             <div key={k.id} className="flex items-center justify-between bg-surface-2 rounded-lg px-3 py-2">
-              <span className="text-[11px] text-text-primary font-medium">{k.name}</span>
-              <code className="text-[10px] text-text-muted font-mono">{k.prefix}...</code>
-              <button onClick={() => revokeMut.mutate(k.id)} className="text-[10px] text-red-400/60 hover:text-red-400">Revoke</button>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[11px] text-text-primary font-medium">{k.name}</span>
+                {k.label && <span className="text-[10px] text-text-muted truncate">({k.label})</span>}
+              </div>
+              <code className="text-[10px] text-text-muted font-mono shrink-0">{k.prefix}...</code>
+              <button onClick={() => revokeMut.mutate(k.id)} className="text-[10px] text-red-400/60 hover:text-red-400 shrink-0">Revoke</button>
             </div>
           ))}
         </div>
       )}
 
-      <div className="flex gap-2 items-end">
+      <div className="flex gap-2 items-end flex-wrap">
         <div className="flex-1 min-w-[120px]">
           <label className="block text-[10px] text-text-muted mb-0.5">Name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. claude, cursor"
             onKeyDown={(e) => e.key === 'Enter' && name && createMut.mutate()}
+            className="w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent" />
+        </div>
+        <div className="flex-1 min-w-[120px]">
+          <label className="block text-[10px] text-text-muted mb-0.5">Label</label>
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Jack's Cursor"
             className="w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent" />
         </div>
         <div className="w-20">
@@ -220,7 +229,7 @@ function FirewallSection() {
   const cursorSnippet = JSON.stringify({
     mcpServers: {
       wooblay: {
-        url: sseEndpoint || 'https://wooblay.com/mcp/YOUR_INSTANCE_ID/sse',
+        url: sseEndpoint || `${API_BASE}/mcp/YOUR_INSTANCE_ID/sse`,
         transport: 'sse',
         headers: { Authorization: 'Bearer YOUR_API_KEY' },
       },
@@ -230,12 +239,9 @@ function FirewallSection() {
   const claudeSnippet = JSON.stringify({
     mcpServers: {
       wooblay: {
-        command: 'node',
-        args: [
-          '/path/to/wooblay-mcp-plugin/scripts/claude-desktop-bridge.mjs',
-          sseEndpoint || 'https://wooblay.com/mcp/YOUR_INSTANCE_ID/sse',
-          'YOUR_API_KEY',
-        ],
+        url: sseEndpoint || `${API_BASE}/mcp/YOUR_INSTANCE_ID/sse`,
+        transport: 'sse',
+        headers: { Authorization: 'Bearer YOUR_API_KEY' },
       },
     },
   }, null, 2);
@@ -305,6 +311,16 @@ function FirewallSection() {
             <p className="text-[9px] text-text-muted mt-1.5">Use your API key as the Bearer token. Replace YOUR_API_KEY with your key in the snippets below.</p>
           </div>
 
+          {/* CLI quickstart */}
+          <div className="bg-accent/5 border border-accent/20 rounded-xl p-4">
+            <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-2">Quickstart — one command, all agents</p>
+            <p className="text-[10px] text-text-tertiary mb-3">Automatically configures Cursor, Claude Desktop, and VS Code in one shot.</p>
+            <div className="flex gap-2">
+              <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblay/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`}</pre>
+              <CopyButton text={`npx @wooblay/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`} />
+            </div>
+          </div>
+
           <div className="bg-surface-0 border border-border rounded-xl overflow-hidden">
             <div className="flex border-b border-border">
               {([['sse', 'SSE (Cursor & Claude)'], ['http', 'HTTP / cURL']] as const).map(([key, label]) => (
@@ -329,7 +345,7 @@ function FirewallSection() {
                 </div>
                 <div className="p-4">
                   <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2">Claude Desktop — claude_desktop_config.json</p>
-                  <p className="text-[10px] text-text-tertiary mb-2">Claude only supports stdio. Use the bridge script (replace the path with your clone of wooblay-mcp-plugin).</p>
+                  <p className="text-[10px] text-text-tertiary mb-2">Add this to your Claude Desktop config. Claude supports SSE transports natively.</p>
                   <div className="flex gap-2">
                     <pre className="flex-1 p-3 text-[11px] font-mono text-text-secondary overflow-x-auto whitespace-pre leading-relaxed rounded-lg bg-surface-1 border border-border">{claudeSnippet}</pre>
                     <CopyButton text={claudeSnippet} />

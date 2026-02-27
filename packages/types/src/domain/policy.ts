@@ -22,4 +22,5 @@ export interface PolicyDecision {
   ruleId?: string;
   reason?: string;
   constraints?: Record<string, unknown>;
+  requiredApproverRole?: string;
 }

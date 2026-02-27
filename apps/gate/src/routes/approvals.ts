@@ -27,7 +27,7 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
     try {
       const approvals = await prisma.approval.findMany({
         where: { status: 'PENDING' },
-        include: { toolCall: true },
+        include: { toolCall: { include: { receipt: true } } },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -67,11 +67,23 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
         const fallbackRisk = describeRisk(approval.toolCall.riskTier, approval.toolCall.toolName, parsedArgs);
         const fallbackWhy = explainWhyFlagged(approval.toolCall.riskTier, approval.toolCall.toolName, 'APPROVE', parsedArgs);
 
+        // Look up requiredApproverRole from the matched policy
+        let requiredApproverRole: string | null = null;
+        const ruleId = approval.toolCall.receipt?.policyRuleId;
+        if (ruleId) {
+          const rule = await prisma.policyRule.findUnique({
+            where: { id: ruleId },
+            select: { requiredApproverRole: true },
+          });
+          requiredApproverRole = rule?.requiredApproverRole ?? null;
+        }
+
         return {
           ...approval,
           humanDescription: aiDesc?.description || fallbackDescription,
           riskExplanation: aiDesc?.whyReview || fallbackRisk,
           whyFlagged: aiDesc?.whyReview || fallbackWhy,
+          requiredApproverRole,
         };
       }));
 
@@ -158,6 +170,32 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
         }
         if (approval.status !== 'PENDING') {
           return reply.code(409).send({ error: `Approval already ${approval.status}` });
+        }
+
+        // Role-based approval enforcement
+        if (approval.requiredApproverRole) {
+          const requiredRole = approval.requiredApproverRole;
+          let approverRole: string | null = null;
+
+          const reqUser = request.user;
+          if (reqUser) {
+            if (reqUser.clerkId.startsWith('apikey:')) {
+              approverRole = reqUser.role;
+            } else {
+              const dbUser = await prisma.user.findUnique({
+                where: { clerkId: reqUser.clerkId },
+                select: { role: true },
+              });
+              approverRole = dbUser?.role ?? reqUser.role;
+            }
+          }
+
+          const normalizedRole = approverRole?.replace(/^org:/, '') ?? '';
+          if (normalizedRole !== requiredRole && normalizedRole !== 'admin' && normalizedRole !== 'owner') {
+            return reply.code(403).send({
+              error: `This action requires approval from a user with role: ${requiredRole}`,
+            });
+          }
         }
 
         // Resolve the approval

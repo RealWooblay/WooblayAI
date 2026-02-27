@@ -44,6 +44,8 @@ const PUBLIC_PATHS = [
 /** Route prefixes that never require user auth (e.g. external webhooks). */
 const PUBLIC_PREFIXES = [
   '/api/webhooks/github/',
+  '/view/',
+  '/api/notifications/action/',
 ];
 
 function isPublic(url: string): boolean {
@@ -79,6 +81,10 @@ export const clerkAuthPlugin = fp(async function clerkAuthPluginInner(app: Fasti
       const host = request.headers.host ?? '';
       if (host.startsWith('172.') || host.startsWith('10.') || host === 'localhost:4800') return;
 
+      // Skip Wooblay API key tokens — handled by apiKeyAuthPlugin.
+      // Without this, Clerk would try to verify wbl_ak_ as a JWT and reject it.
+      if (request.headers.authorization?.startsWith('Bearer wbl_ak_')) return;
+
       // Try Bearer token first (API clients), then __session cookie (browser)
       let token: string | undefined;
 
@@ -95,20 +101,6 @@ export const clerkAuthPlugin = fp(async function clerkAuthPluginInner(app: Fasti
         } else if (cookies?.['__clerk_db_jwt']) {
           token = cookies['__clerk_db_jwt'];
         }
-      }
-
-      // Debug: log what we received (remove after fixing)
-      if (!token) {
-        const cookieHeader = request.headers.cookie ?? '(none)';
-        const cookieNames = cookieHeader !== '(none)'
-          ? cookieHeader.split(';').map((c: string) => c.trim().split('=')[0]).join(', ')
-          : '(none)';
-        request.log.info({
-          url: request.url,
-          hasAuth: !!request.headers.authorization,
-          cookieNames,
-          parsedCookies: Object.keys(request.cookies ?? {}),
-        }, 'Auth debug: no token found');
       }
 
       if (!token) {

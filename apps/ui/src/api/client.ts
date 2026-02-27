@@ -199,6 +199,7 @@ export interface ActivityItem {
   status: string;
   createdAt: string;
   agent: { name: string; pubkey: string; trustLevel: string };
+  apiKey?: { label: string | null; userId: string | null };
   approval: {
     id: string;
     status: string;
@@ -463,6 +464,7 @@ export interface PolicyRule {
   description: string | null;
   enabled: boolean;
   instanceId: string | null;
+  requiredApproverRole: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -478,7 +480,7 @@ export const getPolicies = (instanceId?: string) =>
   fetchApi<PolicyRule[]>(`/api/policies${toQueryString({ instanceId })}`);
 export const getPresets = () => fetchApi<PolicyPresetInfo[]>('/api/policies/presets');
 
-export const createPolicy = (body: { matchTool: string; riskTier: string; decision: string; matchArgs?: string; matchCategory?: string; source?: string; description?: string; instanceId?: string }) =>
+export const createPolicy = (body: { matchTool: string; riskTier: string; decision: string; matchArgs?: string; matchCategory?: string; source?: string; description?: string; instanceId?: string; requiredApproverRole?: string }) =>
   fetchApi<PolicyRule>('/api/policies', { method: 'POST', body: JSON.stringify(body) });
 
 export interface AIPolicySuggestion {
@@ -728,27 +730,40 @@ export interface TrustResult {
   trend: 'up' | 'down' | 'stable';
 }
 
-export interface ContributionResult {
-  summary: {
-    filesCreated: number;
-    filesEdited: number;
-    commandsExecuted: number;
-    linesWritten: number;
-    prsAndCommits: number;
-    researchActions: number;
-    approvalEfficiency: string;
-    denialRate: string;
-    totalActions: number;
-  };
-  byCategory: { planning: number; executing: number; blocked: number };
-  byDay: Array<{ date: string; count: number }>;
+export interface AgentContribution {
+  agentId: string;
+  agentLabel: string | null;
+  userId: string | null;
+  totalActions: number;
+  allowed: number;
+  denied: number;
+  approved: number;
+  byTool: Record<string, number>;
+  estimatedCost: number;
+}
+
+export interface OrgContributions {
+  period: string;
+  periodStart: string;
+  periodEnd: string;
+  totalActions: number;
+  totalAgents: number;
+  totalUsers: number;
+  autoAllowRate: number;
+  byAgent: AgentContribution[];
+  byTool: Record<string, number>;
+  topDenied: { tool: string; count: number }[];
+  byDay: { date: string; count: number }[];
 }
 
 export const getAgentTrust = (pubkey: string) =>
   fetchApi<TrustResult>(`/api/agents/${pubkey}/trust`);
 
+export const getOrgContributions = (period = 'week', groupBy = 'agent') =>
+  fetchApi<OrgContributions>(`/api/org/contributions?period=${period}&groupBy=${groupBy}`);
+
 export const getInstanceContributions = (instanceId: string) =>
-  fetchApi<ContributionResult>(`/api/instances/${instanceId}/contributions`);
+  fetchApi<OrgContributions>(`/api/instances/${instanceId}/contributions`);
 
 export const getInstanceCost = (instanceId: string) =>
   fetchApi<{ totalCost: number; costToday: number; costThisWeek: number; burnRatePerHour: number; actionCount: number }>(`/api/instances/${instanceId}/cost`);
@@ -1010,8 +1025,11 @@ export const rerunEvidence = (bundleId: string) =>
 export interface ApiKeyInfo {
   id: string;
   name: string;
+  label: string | null;
+  userId: string | null;
   prefix: string;
   scopes: string;
+  active: boolean;
   lastUsedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
@@ -1024,11 +1042,33 @@ export interface ApiKeyCreated extends ApiKeyInfo {
 export const getApiKeys = () =>
   fetchApi<ApiKeyInfo[]>('/api/api-keys');
 
-export const createApiKey = (data: { name: string; expiresInDays?: number }) =>
+export const createApiKey = (data: { name: string; label?: string; expiresInDays?: number }) =>
   fetchApi<ApiKeyCreated>('/api/api-keys', { method: 'POST', body: JSON.stringify(data) });
 
 export const revokeApiKey = (id: string) =>
   fetchApi<{ revoked: boolean }>(`/api/api-keys/${id}`, { method: 'DELETE' });
+
+// ── Kill Switch ─────────────────────────────────────────────────────────
+
+export interface KillSwitchStatus {
+  paused: boolean;
+  activeKeys: number;
+  totalKeys: number;
+}
+
+export interface KillSwitchResult {
+  paused: boolean;
+  keysAffected: number;
+}
+
+export const getKillSwitchStatus = () =>
+  fetchApi<KillSwitchStatus>('/api/kill-switch');
+
+export const toggleKillSwitch = (active: boolean) =>
+  fetchApi<KillSwitchResult>('/api/kill-switch', {
+    method: 'POST',
+    body: JSON.stringify({ active }),
+  });
 
 // ── Admin Dashboard ─────────────────────────────────────────────────────
 
@@ -1087,3 +1127,36 @@ export const getAdminFlags = (password: string) =>
       createdAt: string;
     }>;
   }>('/api/admin/flags', { headers: adminHeaders(password) });
+
+// ── Notification Settings ──────────────────────────────────────────────────
+
+export interface NotificationSettings {
+  email: string;
+  phone: string | null;
+  telegramChatId: string | null;
+  slackWebhookUrl: string | null;
+  channels: string[];
+  availableChannels: {
+    telegram: boolean;
+    slack: boolean;
+    whatsapp: boolean;
+    email: boolean;
+  };
+}
+
+export const getNotificationSettings = () =>
+  fetchApi<NotificationSettings>('/api/notification-settings');
+
+export const updateNotificationSettings = (data: {
+  phone?: string | null;
+  telegramChatId?: string | null;
+  slackWebhookUrl?: string | null;
+  channels?: string[];
+}) =>
+  fetchApi<{ phone: string | null; telegramChatId: string | null; slackWebhookUrl: string | null; channels: string[] }>(
+    '/api/notification-settings',
+    { method: 'PATCH', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } },
+  );
+
+export const testNotifications = () =>
+  fetchApi<{ sent: boolean }>('/api/notification-settings/test', { method: 'POST' });

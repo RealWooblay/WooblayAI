@@ -23,6 +23,8 @@ import {
   getInstanceLogs,
   getOrgPolicySettings,
   getApiKeys,
+  getKillSwitchStatus,
+  toggleKillSwitch,
   getAgentContainerState,
   isContainerReady,
   type Instance,
@@ -604,7 +606,7 @@ function InlineProxyDeployForm({ onClose }: { onClose: () => void }) {
         <button onClick={onClose} className="text-text-tertiary hover:text-text-secondary text-xs font-mono">cancel</button>
       </div>
       <p className="text-[10px] text-text-muted">
-        Secure MCP firewall for external agents (Claude Desktop, Cursor, etc). No hosted agent — just the security membrane.
+        Secure MCP firewall for any external agent. No hosted agent — just the security membrane.
       </p>
       <div className="flex gap-2 items-end">
         <div className="flex-1">
@@ -622,6 +624,73 @@ function InlineProxyDeployForm({ onClose }: { onClose: () => void }) {
 }
 
 // ── Firewall Dashboard (firewall mode) ───────────────────────────────────────
+
+function KillSwitchButton() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data: status } = useQuery({
+    queryKey: ['kill-switch'],
+    queryFn: getKillSwitchStatus,
+    refetchInterval: 5_000,
+  });
+
+  const mutation = useMutation({
+    mutationFn: (active: boolean) => toggleKillSwitch(active),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ['kill-switch'] });
+      void qc.invalidateQueries({ queryKey: ['api-keys'] });
+      toast(
+        data.paused
+          ? `All agents paused — ${data.keysAffected} API key${data.keysAffected !== 1 ? 's' : ''} deactivated`
+          : `All agents resumed — ${data.keysAffected} API key${data.keysAffected !== 1 ? 's' : ''} reactivated`,
+        data.paused ? 'error' : 'success',
+      );
+    },
+    onError: (err) => toast(`Kill switch failed: ${err.message}`, 'error'),
+  });
+
+  const paused = status?.paused ?? false;
+  const totalKeys = status?.totalKeys ?? 0;
+
+  if (totalKeys === 0) return null;
+
+  return (
+    <div className={`rounded-xl border p-4 flex items-center justify-between transition-all ${
+      paused
+        ? 'border-red-500/30 bg-red-500/5'
+        : 'border-border bg-surface-1'
+    }`}>
+      <div className="flex items-center gap-3">
+        <span className={`text-lg ${paused ? 'text-red-400' : 'text-text-tertiary'}`}>⏻</span>
+        <div>
+          <p className={`text-xs font-medium font-mono ${paused ? 'text-red-400' : 'text-text-primary'}`}>
+            {paused ? 'All agents paused' : 'Kill Switch'}
+          </p>
+          <p className="text-[10px] text-text-muted">
+            {paused
+              ? `${totalKeys} API key${totalKeys !== 1 ? 's' : ''} deactivated — no agent can execute`
+              : `${status?.activeKeys ?? 0} of ${totalKeys} key${totalKeys !== 1 ? 's' : ''} active`}
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={() => mutation.mutate(paused)}
+        disabled={mutation.isPending}
+        className={`text-xs font-mono font-medium px-4 py-2 rounded-lg transition-all ${
+          paused
+            ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30'
+            : 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30'
+        } disabled:opacity-50`}
+      >
+        {mutation.isPending
+          ? '...'
+          : paused
+            ? 'Resume All Agents'
+            : 'Pause All Agents'}
+      </button>
+    </div>
+  );
+}
 
 function FirewallDashboard() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats, refetchInterval: 5_000 });
@@ -645,10 +714,13 @@ function FirewallDashboard() {
           <div>
             <h1 className="text-lg font-bold text-text-primary">Wooblay Gate</h1>
             <p className="text-xs text-text-muted mt-1">
-              Connect your tools once. Use them from Cursor, Claude, ChatGPT — same credentials, same policy, full audit.
+              Connect your tools once. Use them from any agent — same credentials, same policy, full audit.
             </p>
           </div>
         </div>
+
+        {/* Kill Switch */}
+        <KillSwitchButton />
 
         {/* Inline proxy deploy */}
         {proxyDeployOpen && <InlineProxyDeployForm onClose={() => setProxyDeployOpen(false)} />}
@@ -720,7 +792,7 @@ function FirewallDashboard() {
           <Link to="/setup" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
             <IconZap size={18} className="text-accent mb-2" />
             <p className="text-[11px] font-medium text-text-primary mb-1 group-hover:text-accent-bright">Gateway &rarr;</p>
-            <p className="text-[10px] text-text-muted">Connect Cursor, Claude, or HTTP</p>
+            <p className="text-[10px] text-text-muted">Connect any agent or HTTP</p>
           </Link>
           <Link to="/credentials" className="bg-surface-1 border border-border rounded-xl p-4 hover:bg-surface-2 transition-colors group">
             <IconLock size={18} className="text-accent mb-2" />

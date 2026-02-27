@@ -17,27 +17,28 @@ export interface TrustResult {
   trend: 'up' | 'down' | 'stable';
 }
 
-export interface ContributionSummary {
-  filesCreated: number;
-  filesEdited: number;
-  commandsExecuted: number;
-  linesWritten: number;
-  prsAndCommits: number;
-  researchActions: number;
-  approvalEfficiency: string;
-  denialRate: string;
+export interface AgentContribution {
+  agentId: string;
+  agentLabel: string | null;
+  userId: string | null;
   totalActions: number;
+  allowed: number;
+  denied: number;
+  approved: number;
+  byTool: Record<string, number>;
+  estimatedCost: number;
 }
 
-export interface ContributionsByCategory {
-  planning: number;
-  executing: number;
-  blocked: number;
-}
-
-export interface ContributionResult {
-  summary: ContributionSummary;
-  byCategory: ContributionsByCategory;
-  byDay: Array<{ date: string; count: number }>;
-  aiAssessment?: import('./supervisor.js').ContributionAssessment | null;
+export interface OrgContributions {
+  period: string;
+  periodStart: string;
+  periodEnd: string;
+  totalActions: number;
+  totalAgents: number;
+  totalUsers: number;
+  autoAllowRate: number;
+  byAgent: AgentContribution[];
+  byTool: Record<string, number>;
+  topDenied: { tool: string; count: number }[];
+  byDay: { date: string; count: number }[];
 }

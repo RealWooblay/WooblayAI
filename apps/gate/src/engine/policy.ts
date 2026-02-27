@@ -84,13 +84,13 @@ export async function evaluatePolicy(
       }
     }
 
-    // First match wins
     const ruleLabel = rule.description ?? rule.matchTool;
     return {
       decision: rule.decision as Decision,
       ruleId: rule.id,
       reason: `Matched rule #${rule.priority}: ${ruleLabel}`,
       constraints: rule.constraints ? JSON.parse(rule.constraints) : undefined,
+      requiredApproverRole: rule.requiredApproverRole ?? undefined,
     };
   }
 

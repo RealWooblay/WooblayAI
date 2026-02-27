@@ -22,17 +22,21 @@ model Organization {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  email     String   @unique
-  name      String?
-  avatarUrl String?
-  activated Boolean  @default(false)  // true once a valid coupon is redeemed
-  role      String   @default("member") // org:admin | org:member (Clerk org roles)
-  orgId     String?  // Clerk organization ID this user belongs to
-  org       Organization? @relation(fields: [orgId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  clerkId         String   @unique
+  email           String   @unique
+  name            String?
+  avatarUrl       String?
+  activated       Boolean  @default(false)
+  role            String   @default("member")
+  orgId           String?
+  org             Organization? @relation(fields: [orgId], references: [id])
+  phone           String?  // E.164 format for WhatsApp
+  telegramChatId  String?  // Telegram chat ID for bot DMs
+  slackWebhookUrl String?  // Slack incoming webhook URL for DM notifications
+  notifyChannels  String   @default("email") // comma-separated: email,telegram,whatsapp,slack
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   instances  Instance[]
   coupons    UserCoupon[]
@@ -156,6 +160,7 @@ model PolicyRule {
   enabled           Boolean   @default(true)
   requiredApprovals Int       @default(1) // Number of approvals required for this rule
   ownerOverride     Boolean   @default(false) // Owner can bypass multi-approval
+  requiredApproverRole String? // Role required to approve: "admin", "cto", etc. null = anyone
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -165,15 +170,16 @@ model PolicyRule {
 }
 
 model Approval {
-  id         String    @id @default(cuid())
-  toolCallId String    @unique
-  toolCall   ToolCall  @relation(fields: [toolCallId], references: [id])
-  status     String    @default("PENDING")
-  approver   String?
-  reason     String?
-  createdAt  DateTime  @default(now())
-  decidedAt  DateTime?
-  ttlSeconds Int       @default(300)
+  id                   String    @id @default(cuid())
+  toolCallId           String    @unique
+  toolCall             ToolCall  @relation(fields: [toolCallId], references: [id])
+  status               String    @default("PENDING")
+  approver             String?
+  reason               String?
+  requiredApproverRole String?   // Copied from the matching PolicyRule at creation time
+  createdAt            DateTime  @default(now())
+  decidedAt            DateTime?
+  ttlSeconds           Int       @default(300)
 
   @@index([status])
 }
@@ -935,16 +941,20 @@ model GitHubTaskLink {
 model ApiKey {
   id          String    @id @default(cuid())
   orgId       String    // Org this key belongs to
+  userId      String?   // Clerk user ID of the creator — for audit attribution
+  label       String?   // Human-friendly: "Jack's Cursor", "CI Bot"
   name        String    // Human-readable label: "GPT Action Key", "Claude MCP"
   keyHash     String    @unique // SHA-256 of the raw key (never store plaintext)
   prefix      String    // First 8 chars of key for identification: "wbl_ak_xxxxxxxx"
   scopes      String    @default("[\"gateway:execute\"]") // JSON — allowed scopes
+  active      Boolean   @default(true) // Kill switch: false = all connections using this key are blocked
   lastUsedAt  DateTime?
   revokedAt   DateTime?
   expiresAt   DateTime? // Optional expiry
   createdAt   DateTime  @default(now())
 
   @@index([orgId])
+  @@index([userId])
   @@index([keyHash])
   @@index([revokedAt])
 }
@@ -976,5 +986,40 @@ model IdempotencyKey {
   expiresAt     DateTime            // TTL for cleanup (24h default)
 
   @@index([capabilityId])
+  @@index([expiresAt])
+}
+
+// ── Temporary Signed Links ──────────────────────────────────────────────────
+// Short-lived signed URLs for rich read-only views (audit tables, policy overviews).
+// The token IS the auth — no login required.
+
+model TempLink {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  orgId     String
+  type      String   // audit | policies | errors | contributions
+  filters   String?  // JSON
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ── Notification Action Tokens ──────────────────────────────────────────────
+// One-click approve/deny links sent via email or Telegram.
+// Token IS the auth — no login required.
+
+model NotificationAction {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  approvalId String
+  decision   String   // "approve" or "deny"
+  approver   String   // userId or identifier of the intended approver
+  used       Boolean  @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([token])
   @@index([expiresAt])
 }

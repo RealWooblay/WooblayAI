@@ -20,7 +20,7 @@ export async function resolveOrgIdForRequest(
   const org = getOrgScope(request);
   if (org.orgId) return org.orgId;
 
-  const clerkUserId = (request as any).clerkUserId as string | undefined;
+  const clerkUserId = request.clerkUserId;
   if (clerkUserId) {
     const user = await prisma.user.findUnique({
       where: { clerkId: clerkUserId },

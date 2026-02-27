@@ -49,6 +49,7 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
       description?: string;
       enabled?: boolean;
       instanceId?: string;
+      requiredApproverRole?: string;
     };
 
     if (!body.matchTool || !body.riskTier || !body.decision) {
@@ -102,6 +103,7 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
           description: body.description ?? null,
           enabled: body.enabled ?? true,
           instanceId: targetInstanceId,
+          requiredApproverRole: body.requiredApproverRole ?? null,
         },
       });
 

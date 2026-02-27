@@ -15,7 +15,7 @@ import { prisma } from '../db/client.js';
 import { describeToolCall } from '../engine/analysis.js';
 import { computeTrustScore } from '../engine/trust.js';
 import { computeCostSummary } from '../engine/cost.js';
-import { computeContributions } from '../engine/contributions.js';
+import { computeOrgContributions } from '../engine/contributions.js';
 import { summarizeSession, isAIEnabled } from '../services/ai-supervisor.js';
 
 export async function missionRoutes(app: FastifyInstance): Promise<void> {
@@ -356,9 +356,10 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
    * GET /api/agents/:pubkey/contributions — Agent contribution analytics.
    */
   app.get('/api/agents/:pubkey/contributions', async (request: FastifyRequest, reply: FastifyReply) => {
-    const { pubkey } = request.params as { pubkey: string };
     try {
-      const result = await computeContributions(prisma, { agentPubkey: pubkey });
+      const org = await prisma.organization.findFirst({ select: { id: true } });
+      const orgId = org?.id ?? '';
+      const result = await computeOrgContributions(prisma, orgId, { period: 'week', groupBy: 'agent' });
       return reply.send(result);
     } catch (err) {
       request.log.error(err, 'Failed to compute contributions');
@@ -372,9 +373,9 @@ export async function missionRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/instances/:id/contributions', async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
     try {
-      const agents = await prisma.agent.findMany({ orderBy: { createdAt: 'desc' }, take: 1 });
-      const agentPubkey = agents[0]?.pubkey;
-      const result = await computeContributions(prisma, { agentPubkey });
+      const instance = await prisma.instance.findUnique({ where: { id }, select: { userId: true, user: { select: { orgId: true } } } });
+      const orgId = instance?.user?.orgId ?? '';
+      const result = await computeOrgContributions(prisma, orgId, { period: 'week', groupBy: 'agent' });
       return reply.send(result);
     } catch (err) {
       request.log.error(err, 'Failed to compute contributions');

@@ -69,7 +69,6 @@ jobs:
         run: |
           CHANGED=$(git diff --name-only HEAD~1 HEAD -- \
             docker/runtimes/openclaw/ \
-            packages/adapters/openclaw/ \
             2>/dev/null || echo "first-run")
           if [ -n "$CHANGED" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"

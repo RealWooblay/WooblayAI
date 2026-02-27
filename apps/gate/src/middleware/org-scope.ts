@@ -32,7 +32,7 @@ export interface OrgScope {
  * The orgId is set on the request by the Clerk auth middleware.
  */
 export function getOrgScope(request: FastifyRequest): OrgScope {
-  const user = (request as any).user as { orgId?: string; role?: string } | undefined;
+  const user = request.user;
 
   // Superadmin / system calls — no org filter
   if (!user || user.role === 'superadmin') {

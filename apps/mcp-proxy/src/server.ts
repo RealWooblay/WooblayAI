@@ -43,6 +43,15 @@ if (!PROXY_TOKEN) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
+const GATE_URL = () => process.env['GATE_URL'] ?? 'http://localhost:4800';
+
+function gateHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    ...(PROXY_TOKEN ? { Authorization: `Bearer ${PROXY_TOKEN}` } : {}),
+  };
+}
+
 /** Coerce string "true"/"false" to boolean so upstream APIs (e.g. GitHub) get real booleans. */
 function coerceBooleanArgs(args: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -432,6 +441,209 @@ function createMcpServerInstance(): McpServer {
       lines.push('', `Use wooblay__check_approval({ "approvalId": "..." }) to check status and retrieve results.`);
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── Wooblay Management Tools ─────────────────────────────────────────
+  // These call the Gate management API on behalf of the agent, using the
+  // same API key that authenticated the MCP proxy session.
+
+  server.tool(
+    'wooblay__get_policies',
+    'Get current policy rules configured in the Gate. Returns all policy rules as JSON.',
+    { _empty: z.any().optional() },
+    async () => {
+      try {
+        const res = await fetch(`${GATE_URL()}/api/policies`, {
+          headers: gateHeaders(),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          return { content: [{ type: 'text', text: `Failed to fetch policies: ${res.status}` }], isError: true };
+        }
+        const data = await res.json();
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Error fetching policies: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'wooblay__set_policy',
+    'Create a new policy rule in the Gate. Defines how a specific tool should be handled (ALLOW, DENY, or require APPROVE).',
+    {
+      toolName: z.string().describe('Tool name pattern to match (e.g. "mcp:github:create_issue")'),
+      riskTier: z.enum(['READ', 'WRITE', 'DESTRUCTIVE']).describe('Risk classification'),
+      category: z.string().describe('Category for grouping (e.g. "code", "infra")'),
+      decision: z.enum(['ALLOW', 'DENY', 'APPROVE']).describe('Policy decision'),
+      matchArgs: z.string().optional().describe('Optional JSON string of argument matchers'),
+      description: z.string().optional().describe('Human-readable description of this rule'),
+    },
+    async ({ toolName, riskTier, category, decision, matchArgs, description }) => {
+      try {
+        const body: Record<string, unknown> = { toolName, riskTier, category, decision };
+        if (matchArgs) body.matchArgs = JSON.parse(matchArgs as string);
+        if (description) body.description = description;
+
+        const res = await fetch(`${GATE_URL()}/api/policies`, {
+          method: 'POST',
+          headers: gateHeaders(),
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return { content: [{ type: 'text', text: `Failed to create policy (${res.status}): ${text.slice(0, 300)}` }], isError: true };
+        }
+        const data = await res.json();
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Error creating policy: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'wooblay__get_audit',
+    'Get recent tool call audit entries from the Gate. Returns the last 20 audit log entries.',
+    { _empty: z.any().optional() },
+    async () => {
+      try {
+        const res = await fetch(`${GATE_URL()}/api/audit?limit=20`, {
+          headers: gateHeaders(),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          return { content: [{ type: 'text', text: `Failed to fetch audit log: ${res.status}` }], isError: true };
+        }
+        const data = await res.json();
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Error fetching audit log: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'wooblay__get_errors',
+    'Get recent failed tool calls from the audit log. Returns errors and denied calls from the last 20 entries.',
+    { _empty: z.any().optional() },
+    async () => {
+      try {
+        const res = await fetch(`${GATE_URL()}/api/audit?errorsOnly=true&limit=20`, {
+          headers: gateHeaders(),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          return { content: [{ type: 'text', text: `Failed to fetch error log: ${res.status}` }], isError: true };
+        }
+        let data = await res.json();
+        if (Array.isArray(data)) {
+          const filtered = (data as any[]).filter(
+            (e) => e.status === 'ERROR' || e.status === 'DENIED' || e.decision === 'DENY' || e.error,
+          );
+          if (filtered.length < (data as any[]).length) data = filtered;
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Error fetching error log: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'wooblay__get_connections',
+    'List connected tool servers registered with the Gate.',
+    { _empty: z.any().optional() },
+    async () => {
+      try {
+        const res = await fetch(`${GATE_URL()}/api/connections`, {
+          headers: gateHeaders(),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          return { content: [{ type: 'text', text: `Failed to fetch connections: ${res.status}` }], isError: true };
+        }
+        const data = await res.json();
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Error fetching connections: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // NOTE: wooblay__approve and wooblay__deny were intentionally removed.
+  // Agents must NOT be able to approve/deny their own actions or collude
+  // with sub-agents to bypass human review. Approvals happen only through
+  // human-only channels: dashboard UI (Clerk auth), notification links
+  // (token-based with confirmation page), or temporary signed URLs.
+
+  server.tool(
+    'wooblay__get_contributions',
+    'Get org-wide contribution analytics — actions by agent, user, tool, outcome, and cost.',
+    {
+      period: z.enum(['day', 'week', 'month']).default('week').describe('Time period'),
+      groupBy: z.enum(['agent', 'user', 'tool']).default('agent').describe('Group results by'),
+    },
+    async ({ period, groupBy }) => {
+      try {
+        const res = await fetch(`${GATE_URL()}/api/org/contributions?period=${period}&groupBy=${groupBy}`, {
+          headers: gateHeaders(),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return { content: [{ type: 'text' as const, text: `Failed (${res.status}): ${text.slice(0, 300)}` }], isError: true };
+        }
+        const data = await res.json();
+        return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'wooblay__get_anomalies',
+    'Check for anomalous agent activity — rate spikes, consecutive denials, unusual tool access, cost spikes.',
+    { _empty: z.any().optional() },
+    async () => {
+      try {
+        const res = await fetch(`${GATE_URL()}/api/anomalies`, {
+          headers: gateHeaders(),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return { content: [{ type: 'text' as const, text: `Failed (${res.status}): ${text.slice(0, 300)}` }], isError: true };
+        }
+        const data = await res.json();
+        return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
     },
   );
 

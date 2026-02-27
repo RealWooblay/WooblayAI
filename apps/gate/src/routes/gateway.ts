@@ -467,8 +467,8 @@ export async function gatewayRoutes(app: FastifyInstance): Promise<void> {
     if (authHeader?.startsWith('Bearer wbl_ak_')) {
       const keyValidation = await validateApiKey(authHeader.slice('Bearer '.length));
       if (keyValidation.valid) orgId = keyValidation.orgId ?? null;
-    } else if ((request as any).user?.orgId) {
-      orgId = (request as any).user.orgId;
+    } else if (request.user?.orgId) {
+      orgId = request.user.orgId;
     }
 
     // Get connected providers for this org

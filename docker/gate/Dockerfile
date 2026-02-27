@@ -14,7 +14,6 @@ COPY packages/types/package.json ./packages/types/
 COPY packages/crypto/package.json ./packages/crypto/
 COPY packages/schemas/package.json ./packages/schemas/
 COPY packages/gate-client/package.json ./packages/gate-client/
-COPY packages/adapters/openclaw/package.json ./packages/adapters/openclaw/
 
 # Install with cache mount (reuses across builds — huge speedup)
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \

@@ -1,49 +1,31 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { provision } from './commands/provision.js';
-import { deprovision } from './commands/deprovision.js';
-import { instances } from './commands/instances.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { setup } from './commands/setup.js';
 import { status } from './commands/status.js';
-import { init } from './commands/init.js';
-import { dev } from './commands/dev.js';
-import { enable } from './commands/enable.js';
-import { disable } from './commands/disable.js';
-import { deploy } from './commands/deploy.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
 
 const program = new Command();
 
 program
   .name('wooblay')
-  .description('Wooblay CLI – provision, manage, and monitor agent runtimes')
-  .version('0.1.0');
+  .description('Wooblay CLI – configure agents, check status, manage integrations')
+  .version(pkg.version);
 
-// ── Provision a new tenant ──────────────────────────────────────────
+// ── Setup (default command) ─────────────────────────────────────────
 program
-  .command('provision')
-  .description('Provision a new tenant environment')
-  .requiredOption('--tenant <name>', 'Tenant name')
-  .option('--agent <runtime>', 'Agent runtime to use', 'openclaw')
-  .option('--region <region>', 'AWS region', 'us-east-1')
+  .command('setup', { isDefault: true })
+  .description('Configure all detected AI agents to use Wooblay (one command, all agents)')
+  .option('--api-key <key>', 'Wooblay API key (wbl_ak_...)')
+  .option('--endpoint <url>', 'Wooblay Gate URL', 'https://gate.wooblay.com')
+  .option('--instance-id <id>', 'Proxy instance ID')
   .action(async (opts) => {
-    await provision(opts);
-  });
-
-// ── Deprovision a tenant ────────────────────────────────────────────
-program
-  .command('deprovision')
-  .description('Tear down a tenant environment')
-  .requiredOption('--tenant <name>', 'Tenant name')
-  .action(async (opts) => {
-    await deprovision(opts);
-  });
-
-// ── List instances ──────────────────────────────────────────────────
-program
-  .command('instances')
-  .description('List all provisioned tenants')
-  .action(async () => {
-    await instances();
+    await setup({ apiKey: opts.apiKey, endpoint: opts.endpoint, instanceId: opts.instanceId });
   });
 
 // ── Status ──────────────────────────────────────────────────────────
@@ -60,6 +42,7 @@ program
   .command('init')
   .description('Initialize local development environment')
   .action(async () => {
+    const { init } = await import('./commands/init.js');
     await init();
   });
 
@@ -69,6 +52,7 @@ program
   .description('Start local development environment')
   .option('--sqlite', 'Use SQLite instead of Postgres')
   .action(async (opts) => {
+    const { dev } = await import('./commands/dev.js');
     await dev(opts);
   });
 
@@ -78,6 +62,7 @@ program
   .description('Enable Wooblay supervision for an agent framework (openclaw, mcp, generic)')
   .option('--gate-url <url>', 'Wooblay Gate URL', 'http://localhost:4800')
   .action(async (framework, opts) => {
+    const { enable } = await import('./commands/enable.js');
     await enable(framework, { gateUrl: opts.gateUrl });
   });
 
@@ -86,6 +71,7 @@ program
   .command('disable <framework>')
   .description('Disable Wooblay supervision for an agent framework')
   .action(async (framework) => {
+    const { disable } = await import('./commands/disable.js');
     await disable(framework);
   });
 
@@ -101,6 +87,7 @@ program
   .option('--skip-push', 'Skip pushing images to ECR', false)
   .option('--dry-run', 'Plan only, do not create resources', false)
   .action(async (opts) => {
+    const { deploy } = await import('./commands/deploy.js');
     await deploy({
       runtime: opts.runtime,
       tenant: opts.tenant,

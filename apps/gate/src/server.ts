@@ -16,6 +16,7 @@ import cors from '@fastify/cors';
 
 import { config } from './config.js';
 import { authPlugin } from './middleware/auth.js';
+import { apiKeyAuthPlugin } from './middleware/api-key-auth.js';
 import { clerkAuthPlugin } from './middleware/clerk-auth.js';
 import { rateLimitPlugin } from './middleware/rate-limit.js';
 import { registerStatic } from './static.js';
@@ -51,6 +52,13 @@ import { verificationRoutes } from './routes/verifications.js';
 import { workspaceRunnerRoutes } from './routes/workspace-runner.js';
 import { apiKeyRoutes } from './routes/api-keys.js';
 import { mcpProxyRoutes } from './routes/mcp-proxy.js';
+import { tempLinkRoutes } from './routes/temp-links.js';
+import { killSwitchRoutes } from './routes/kill-switch.js';
+import { notificationRoutes } from './routes/notifications.js';
+import { anomalyRoutes } from './routes/anomalies.js';
+import { contributionRoutes } from './routes/contributions.js';
+import { notificationSettingsRoutes } from './routes/notification-settings.js';
+import { startAnomalyWatcher } from './engine/anomaly-detection.js';
 
 // Route modules — platform mode only
 import { userRoutes } from './routes/users.js';
@@ -69,6 +77,18 @@ export async function buildApp() {
     },
   });
 
+  // ── Global error handler ────────────────────────────────────────────
+  app.setErrorHandler((error, request, reply) => {
+    const status = error.statusCode ?? 500;
+    if (status >= 500) {
+      request.log.error(error, 'Unhandled server error');
+    }
+    reply.code(status).send({
+      error: status >= 500 ? 'Internal server error' : error.message,
+      ...(config.NODE_ENV !== 'production' && { detail: error.message }),
+    });
+  });
+
   // ── Global plugins ──────────────────────────────────────────────────
   await app.register(cors, {
     origin: true,
@@ -82,6 +102,8 @@ export async function buildApp() {
   await app.register(rateLimitPlugin);
   // Agent signature auth (instance mode — agent-to-gate requests)
   await app.register(authPlugin);
+  // API key auth (external agents / MCP proxy — wbl_ak_ Bearer tokens)
+  await app.register(apiKeyAuthPlugin);
   // Clerk JWT auth (platform mode — browser-to-API requests)
   await app.register(clerkAuthPlugin);
 
@@ -117,6 +139,12 @@ export async function buildApp() {
   await app.register(workspaceRunnerRoutes);
   await app.register(apiKeyRoutes);
   await app.register(mcpProxyRoutes);
+  await app.register(tempLinkRoutes);
+  await app.register(killSwitchRoutes);
+  await app.register(notificationRoutes);
+  await app.register(anomalyRoutes);
+  await app.register(contributionRoutes);
+  await app.register(notificationSettingsRoutes);
 
   // ── Routes (platform mode only) ─────────────────────────────────────
   await app.register(userRoutes);
@@ -181,6 +209,8 @@ async function start() {
   try {
     await app.listen({ port: config.PORT, host: '0.0.0.0' });
     app.log.info(`Wooblay Gate listening on port ${config.PORT}`);
+
+    startAnomalyWatcher(prisma);
   } catch (err) {
     app.log.fatal(err, 'Failed to start Wooblay Gate');
     process.exit(1);

@@ -143,37 +143,9 @@ function DeployWizard({ open, onClose }: { open: boolean; onClose: () => void })
 
   const handleClose = () => { onClose(); reset(); };
 
-  // Type selector
+  // Skip type selector — go straight to proxy flow
   if (!instanceType) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div className="absolute inset-0 bg-void/70 backdrop-blur-sm" onClick={handleClose} />
-        <div className="relative bg-surface-1 border border-border rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl animate-float-up">
-          <h2 className="text-base font-semibold text-text-primary mb-1">New Instance</h2>
-          <p className="text-xs text-text-muted mb-5">Choose what you want to deploy.</p>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setInstanceType('agent')}
-              className="text-left rounded-xl border border-border hover:border-accent/50 bg-surface-0 p-4 transition-colors group"
-            >
-              <div className="text-sm font-semibold text-text-primary mb-1 group-hover:text-accent">Hosted Agent</div>
-              <p className="text-[11px] text-text-muted leading-relaxed">
-                Full agent runtime with MCP proxy sidecar. Model, Telegram, workspace, and tools.
-              </p>
-            </button>
-            <button
-              onClick={() => setInstanceType('proxy')}
-              className="text-left rounded-xl border border-border hover:border-accent/50 bg-surface-0 p-4 transition-colors group"
-            >
-              <div className="text-sm font-semibold text-text-primary mb-1 group-hover:text-accent">MCP Proxy Only</div>
-              <p className="text-[11px] text-text-muted leading-relaxed">
-                Secure MCP firewall for external agents like Claude Desktop or Cursor. No hosted agent.
-              </p>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    setInstanceType('proxy');
   }
 
   // Proxy flow — just name

@@ -14,6 +14,77 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/client.js';
 import { validateApiKey } from './api-keys.js';
 
+// ── Structured Error Handling ───────────────────────────────────────────
+
+type ErrorCategory = 'auth_failed' | 'timeout' | 'crash' | 'rate_limited' | 'unknown';
+
+function classifyError(text: string, exitCode: number): ErrorCategory {
+  if (/\b(401|403)\b/.test(text) || /unauthorized|forbidden|auth.*fail|invalid.*token/i.test(text)) {
+    return 'auth_failed';
+  }
+  if (/\b429\b/.test(text) || /rate.?limit|too many requests|throttl/i.test(text)) {
+    return 'rate_limited';
+  }
+  if (/timeout|etimedout|timed?\s*out|deadline.?exceeded/i.test(text)) {
+    return 'timeout';
+  }
+  if (exitCode > 1) {
+    return 'crash';
+  }
+  return 'unknown';
+}
+
+function formatStructuredError(
+  originalMessage: string,
+  category: ErrorCategory,
+  exitCode?: number,
+  retried?: boolean,
+): string {
+  const lines: string[] = [`ERROR [${category}]: ${originalMessage.slice(0, 200)}`];
+  if (exitCode !== undefined) lines.push(`Exit code: ${exitCode}`);
+  if (originalMessage) lines.push(`stderr: ${originalMessage.slice(0, 500)}`);
+  if (retried) lines.push('Auto-retried once, still failing.');
+  return lines.join('\n');
+}
+
+function enhanceMcpErrorResponse(
+  responseBody: string,
+  log: FastifyRequest['log'],
+  instanceId: string,
+  retried = false,
+): { body: string; category: ErrorCategory } | null {
+  try {
+    const parsed = JSON.parse(responseBody);
+    if (!parsed?.result?.isError) return null;
+
+    const content = parsed.result.content;
+    if (!Array.isArray(content)) return null;
+
+    const textItem = content.find((c: any) => c.type === 'text');
+    const originalMessage = textItem?.text ?? 'Unknown error';
+
+    const exitCodeMatch = originalMessage.match(/exit\s*(?:code|status)\s*[:=]?\s*(\d+)/i);
+    const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1], 10) : undefined;
+    const effectiveExitCode = exitCode ?? 1;
+
+    const category = classifyError(originalMessage, effectiveExitCode);
+    const structured = formatStructuredError(originalMessage, category, effectiveExitCode, retried);
+
+    const enhanced = {
+      ...parsed,
+      result: {
+        ...parsed.result,
+        content: [{ type: 'text', text: structured }],
+      },
+    };
+
+    log.warn({ instanceId, category, exitCode: effectiveExitCode, retried }, 'MCP tool error classified');
+    return { body: JSON.stringify(enhanced), category };
+  } catch {
+    return null;
+  }
+}
+
 async function resolveProxyTarget(
   instanceId: string,
   request: FastifyRequest,
@@ -182,20 +253,48 @@ export async function mcpProxyRoutes(app: FastifyInstance): Promise<void> {
     if (!target) return;
 
     const upstreamUrl = `${target.internalUrl}/messages${sessionId ? `?sessionId=${sessionId}` : ''}`;
+    const requestBody = JSON.stringify(request.body);
 
-    try {
+    const forwardMessage = async (): Promise<{ status: number; contentType: string; body: string }> => {
       const upstream = await fetch(upstreamUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${target.gatewayToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(request.body),
+        body: requestBody,
         signal: AbortSignal.timeout(30_000),
       });
+      return {
+        status: upstream.status,
+        contentType: upstream.headers.get('content-type') ?? 'application/json',
+        body: await upstream.text(),
+      };
+    };
 
-      const responseBody = await upstream.text();
-      return reply.code(upstream.status).type(upstream.headers.get('content-type') ?? 'application/json').send(responseBody);
+    try {
+      const response = await forwardMessage();
+
+      const enhanced = enhanceMcpErrorResponse(response.body, request.log, instanceId);
+      if (enhanced) {
+        if (enhanced.category === 'timeout' || enhanced.category === 'rate_limited') {
+          request.log.info({ instanceId, category: enhanced.category }, 'Transient MCP error, retrying after 2s');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          try {
+            const retryResponse = await forwardMessage();
+            const retryEnhanced = enhanceMcpErrorResponse(retryResponse.body, request.log, instanceId, true);
+            if (!retryEnhanced) {
+              return reply.code(retryResponse.status).type(retryResponse.contentType).send(retryResponse.body);
+            }
+            return reply.code(retryResponse.status).type(retryResponse.contentType).send(retryEnhanced.body);
+          } catch {
+            // Retry network failure — return original enhanced error
+          }
+        }
+        return reply.code(response.status).type(response.contentType).send(enhanced.body);
+      }
+
+      return reply.code(response.status).type(response.contentType).send(response.body);
     } catch (err: any) {
       request.log.error({ instanceId, err: err.message }, 'Failed to forward message to MCP proxy');
       return reply.code(502).send({ error: 'Cannot reach MCP proxy container' });

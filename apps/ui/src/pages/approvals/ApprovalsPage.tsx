@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
+import { useUser, useOrganization } from '@clerk/clerk-react';
 import {
   useApprovals,
   useApproveApproval,
@@ -30,6 +31,11 @@ function timeRemaining(createdAt: string, ttlSeconds: number): string {
 }
 
 export function ApprovalsPage() {
+  const { user } = useUser();
+  const { membership } = useOrganization();
+  const approverIdentity = user?.id ?? 'dashboard';
+  const userOrgRole = (membership?.role ?? 'member').replace(/^org:/, '');
+
   const { data: approvals, isLoading } = useApprovals();
   const approveMut = useApproveApproval();
   const denyMut = useDenyApproval();
@@ -68,17 +74,27 @@ export function ApprovalsPage() {
   });
 
   const items = approvals ?? [];
-  const filteredItems = items.filter((item: any) => {
-    const tc = item.toolCall;
-    if (riskFilter && tc?.riskTier !== riskFilter) return false;
-    if (searchFilter) {
-      const q = searchFilter.toLowerCase();
-      const matchesName = tc?.toolName?.toLowerCase().includes(q);
-      const matchesDesc = item.humanDescription?.toLowerCase().includes(q);
-      if (!matchesName && !matchesDesc) return false;
-    }
-    return true;
-  });
+  const filteredItems = items
+    .filter((item: any) => {
+      const tc = item.toolCall;
+      if (riskFilter && tc?.riskTier !== riskFilter) return false;
+      if (searchFilter) {
+        const q = searchFilter.toLowerCase();
+        const matchesName = tc?.toolName?.toLowerCase().includes(q);
+        const matchesDesc = item.humanDescription?.toLowerCase().includes(q);
+        if (!matchesName && !matchesDesc) return false;
+      }
+      return true;
+    })
+    .sort((a: any, b: any) => {
+      const aRole = (a as any).requiredApproverRole as string | null;
+      const bRole = (b as any).requiredApproverRole as string | null;
+      const aCanApprove = !aRole || userOrgRole === aRole || userOrgRole === 'admin' || userOrgRole === 'owner';
+      const bCanApprove = !bRole || userOrgRole === bRole || userOrgRole === 'admin' || userOrgRole === 'owner';
+      if (aCanApprove && !bCanApprove) return -1;
+      if (!aCanApprove && bCanApprove) return 1;
+      return 0;
+    });
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
@@ -99,7 +115,7 @@ export function ApprovalsPage() {
         const item = filteredItems[selectedIdx];
         if (item) {
           approveMut.mutate(
-            { id: item.id, body: { approver: 'dashboard' } },
+            { id: item.id, body: { approver: approverIdentity } },
             { onSuccess: () => toast('Approved — running in secure container. See Activity for result.', 'success') },
           );
         }
@@ -108,7 +124,7 @@ export function ApprovalsPage() {
         const item = filteredItems[selectedIdx];
         if (item) {
           denyMut.mutate(
-            { id: item.id, body: { approver: 'dashboard', reason: 'Denied from dashboard' } },
+            { id: item.id, body: { approver: approverIdentity, reason: 'Denied from dashboard' } },
             { onSuccess: () => toast('Denied', 'info') },
           );
         }
@@ -145,7 +161,7 @@ export function ApprovalsPage() {
               size="sm"
               onClick={() => {
                 filteredItems.forEach((item) =>
-                  approveMut.mutate({ id: item.id, body: { approver: 'dashboard' } }),
+                  approveMut.mutate({ id: item.id, body: { approver: approverIdentity } }),
                 );
                 toast(`Approved ${filteredItems.length} actions`, 'success');
               }}
@@ -196,6 +212,31 @@ export function ApprovalsPage() {
         </div>
       )}
 
+      {/* Eligible-approver filtering: split into actionable vs waiting */}
+      {(() => {
+        const eligible = filteredItems.filter((item: any) => {
+          const role = (item as any).requiredApproverRole as string | null;
+          return !role || userOrgRole === role || userOrgRole === 'admin' || userOrgRole === 'owner';
+        });
+        const waiting = filteredItems.filter((item: any) => {
+          const role = (item as any).requiredApproverRole as string | null;
+          return role && userOrgRole !== role && userOrgRole !== 'admin' && userOrgRole !== 'owner';
+        });
+
+        if (eligible.length === 0 && waiting.length > 0) {
+          return (
+            <div className="flex flex-col items-center justify-center py-12 text-center mb-6">
+              <p className="text-sm font-medium text-text-secondary">No actions require your approval right now</p>
+              <p className="text-xs text-text-muted mt-1">
+                {waiting.length} action{waiting.length > 1 ? 's are' : ' is'} waiting for{' '}
+                {[...new Set(waiting.map((w: any) => (w as any).requiredApproverRole))].join(', ')} approval
+              </p>
+            </div>
+          );
+        }
+        return null;
+      })()}
+
       {/* Cards */}
       <div className="space-y-3" data-tour="tour-approval-cards">
         {filteredItems.map((item, idx) => {
@@ -203,6 +244,8 @@ export function ApprovalsPage() {
           const isSelected = idx === selectedIdx;
           const isExpanded = expandedId === item.id;
           const action = humanReadableAction(tc?.toolName ?? '', tc?.args);
+          const requiredRole = (item as any).requiredApproverRole as string | null;
+          const canApprove = !requiredRole || userOrgRole === requiredRole;
 
           return (
             <div
@@ -258,6 +301,15 @@ export function ApprovalsPage() {
                 </p>
               )}
 
+              {/* Role requirement notice */}
+              {requiredRole && !canApprove && (
+                <div className="bg-purple-500/5 border border-purple-500/15 rounded-lg px-3 py-2 mb-3">
+                  <p className="text-xs text-purple-300">
+                    Waiting for <span className="font-medium">{requiredRole}</span> approval
+                  </p>
+                </div>
+              )}
+
               {/* Agent name */}
               <p className="text-xs text-text-muted mb-4">
                 Agent: {tc?.agentPubkey ? tc.agentPubkey.slice(0, 12) + '...' : 'Unknown'}
@@ -265,40 +317,44 @@ export function ApprovalsPage() {
               </p>
 
               {/* Action buttons */}
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    approveMut.mutate(
-                      { id: item.id, body: { approver: 'dashboard' } },
-                      { onSuccess: () => toast('Approved', 'success') },
-                    );
-                  }}
-                  disabled={approveMut.isPending}
-                >
-                  Approve
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    denyMut.mutate(
-                      { id: item.id, body: { approver: 'dashboard', reason: 'Denied' } },
-                      { onSuccess: () => toast('Denied', 'info') },
-                    );
-                  }}
-                  disabled={denyMut.isPending}
-                >
-                  Deny
-                </Button>
+              <div className={clsx('flex items-center gap-2', !canApprove && 'opacity-50')}>
+                <Tooltip content={!canApprove ? `Waiting for ${requiredRole ?? 'role'} approval` : ''}>
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      approveMut.mutate(
+                        { id: item.id, body: { approver: approverIdentity } },
+                        { onSuccess: () => toast('Approved', 'success') },
+                      );
+                    }}
+                    disabled={approveMut.isPending || !canApprove}
+                  >
+                    Approve
+                  </Button>
+                </Tooltip>
+                <Tooltip content={!canApprove ? `Waiting for ${requiredRole ?? 'role'} approval` : ''}>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      denyMut.mutate(
+                        { id: item.id, body: { approver: approverIdentity, reason: 'Denied' } },
+                        { onSuccess: () => toast('Denied', 'info') },
+                      );
+                    }}
+                    disabled={denyMut.isPending || !canApprove}
+                  >
+                    Deny
+                  </Button>
+                </Tooltip>
                 <Tooltip content="Approve this and automatically allow all future similar actions">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       approveMut.mutate(
-                        { id: item.id, body: { approver: 'dashboard' } },
+                        { id: item.id, body: { approver: approverIdentity } },
                         {
                           onSuccess: () => {
                             toast('Approved + policy created — running in secure container. See Activity for result.', 'success');
@@ -372,7 +428,7 @@ export function ApprovalsPage() {
                           const pattern: Record<string, unknown> = {};
                           for (const k of argRuleKeys) pattern[k] = (parsedArgs as any)[k];
                           approveMut.mutate(
-                            { id: item.id, body: { approver: 'dashboard' } },
+                            { id: item.id, body: { approver: approverIdentity } },
                             {
                               onSuccess: () => {
                                 toast('Approved + per-action rule created', 'success');

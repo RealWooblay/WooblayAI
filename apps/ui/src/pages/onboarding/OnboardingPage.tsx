@@ -78,7 +78,7 @@ export function OnboardingPage({ onActivated }: { onActivated: () => void }) {
 
         <p className="text-[11px] text-text-muted text-center mt-4">
           Don't have an access code?{' '}
-          <a href="mailto:jack@wooblay.com" className="text-accent-bright hover:underline">
+          <a href="mailto:support@wooblay.com" className="text-accent-bright hover:underline">
             Request access
           </a>
         </p>

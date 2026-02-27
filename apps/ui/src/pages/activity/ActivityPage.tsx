@@ -8,7 +8,7 @@
  * Bottom: Pagination
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -54,6 +54,16 @@ const severityColor: Record<string, string> = {
   INFO: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
 };
 
+function useDebounce(value: string, delay: number): string {
+  const [debounced, setDebounced] = useState(value);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    timer.current = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer.current);
+  }, [value, delay]);
+  return debounced;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export function ActivityPage() {
@@ -74,11 +84,31 @@ export function ActivityPage() {
 
   // ── Queries ──────────────────────────────────────────────────────────────
 
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
   const { data: activity, isLoading } = useQuery({
-    queryKey: ['activity', page, riskFilter, statusFilter],
-    queryFn: () => getActivity({ page, pageSize: 30, riskTier: riskFilter, status: statusFilter }),
+    queryKey: ['activity', page, riskFilter, statusFilter, debouncedSearch],
+    queryFn: () => getActivity({ page, pageSize: 30, riskTier: riskFilter, status: statusFilter, search: debouncedSearch || undefined }),
     refetchInterval: 10_000,
   });
+
+  const RISK_ORDER: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, INFO: 0, READ: 0 };
+  const sortedItems = useMemo(() => {
+    if (!activity?.data) return [];
+    const items = [...activity.data];
+    if (sortBy === 'risk') {
+      items.sort((a, b) => {
+        const diff = (RISK_ORDER[b.riskTier] ?? 0) - (RISK_ORDER[a.riskTier] ?? 0);
+        return sortDir === 'asc' ? -diff : diff;
+      });
+    } else {
+      items.sort((a, b) => {
+        const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        return sortDir === 'asc' ? -diff : diff;
+      });
+    }
+    return items;
+  }, [activity?.data, sortBy, sortDir]);
 
   const { data: flagsData } = useQuery({
     queryKey: ['flags'],
@@ -272,11 +302,10 @@ export function ActivityPage() {
 
         {contributions && (
           <div className="mt-3 pt-3 border-t border-border flex gap-6 text-[10px] text-text-muted">
-            <span>{contributions.summary.filesCreated} files created</span>
-            <span>{contributions.summary.filesEdited} files edited</span>
-            <span>{contributions.summary.commandsExecuted} commands</span>
-            <span>{contributions.summary.linesWritten} lines written</span>
-            <span className="ml-auto text-text-secondary">Efficiency: {contributions.summary.approvalEfficiency}</span>
+            <span>{contributions.totalActions} actions</span>
+            <span>{contributions.totalAgents} agents</span>
+            <span>{contributions.totalUsers} users</span>
+            <span className="ml-auto text-text-secondary">Auto-allow: {contributions.autoAllowRate?.toFixed(1)}%</span>
           </div>
         )}
       </div>
@@ -288,7 +317,7 @@ export function ActivityPage() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             placeholder="Search tool name, description..."
             className="w-full bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
           />
@@ -361,7 +390,7 @@ export function ActivityPage() {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {activity.data.map((item: ActivityItem) => (
+            {sortedItems.map((item: ActivityItem) => (
               <div key={item.id}>
                 <button
                   onClick={() => setExpanded(expanded === item.id ? null : item.id)}

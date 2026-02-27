@@ -169,7 +169,7 @@ export function Sidebar() {
 
                 const badgeCount = item.badge === 'approvals' ? pendingCount
                   : item.badge === 'operations' ? activeOperations
-                  : 0;
+                    : 0;
 
                 return (
                   <NavLink

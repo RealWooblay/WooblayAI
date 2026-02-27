@@ -12,7 +12,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
    * GET /api/webhooks — List user's webhooks.
    */
   app.get('/api/webhooks', async (request: FastifyRequest, reply: FastifyReply) => {
-    const userId = (request as any).clerkUserId ?? 'anonymous';
+    const userId = request.clerkUserId ?? 'anonymous';
     try {
       const webhooks = await prisma.webhook.findMany({
         where: { userId },
@@ -29,7 +29,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
    * POST /api/webhooks — Create a webhook.
    */
   app.post('/api/webhooks', async (request: FastifyRequest, reply: FastifyReply) => {
-    const userId = (request as any).clerkUserId ?? 'anonymous';
+    const userId = request.clerkUserId ?? 'anonymous';
     const body = request.body as {
       url: string;
       events: string[];

@@ -6,8 +6,8 @@
  * 3. Activated → Main app with sidebar navigation
  */
 
-import { useState, Component, type ErrorInfo, type ReactNode } from 'react';
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { useState, useEffect, useCallback, Component, type ErrorInfo, type ReactNode } from 'react';
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { SignIn, SignUp, useUser, useAuth } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -122,44 +122,91 @@ function ActivationGate() {
 
 /** Main authenticated application shell. */
 function AuthenticatedApp() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  // Close sidebar on navigation (mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Close sidebar on Escape
+  const handleKey = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') setSidebarOpen(false);
+  }, []);
+  useEffect(() => {
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [handleKey]);
+
   return (
     <TourProvider>
       <div className="h-screen flex bg-void overflow-hidden">
-        <Sidebar />
+        {/* Mobile top bar */}
+        <div className="fixed top-0 left-0 right-0 h-12 bg-surface-0 border-b border-border flex items-center px-4 z-40 md:hidden">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="text-text-secondary hover:text-text-primary p-1 -ml-1"
+            aria-label="Open menu"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+          </button>
+          <span className="ml-3 text-sm font-bold tracking-tight text-text-primary">wooblay</span>
+        </div>
 
-        <main className="flex-1 overflow-hidden relative">
+        {/* Mobile backdrop */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* Sidebar — always visible on md+, slide-over drawer on mobile */}
+        <div className={`
+          fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-out
+          md:static md:translate-x-0
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}>
+          <Sidebar />
+        </div>
+
+        <main className="flex-1 overflow-hidden relative pt-12 md:pt-0">
           <Routes>
-          {/* Primary routes — sensor-first */}
-          <Route path="/operations" element={<PageShell><OperationsPage /></PageShell>} />
-          <Route path="/operations/:id" element={<PageShell><OperationPage /></PageShell>} />
-          <Route path="/credentials" element={<PageShell><CredentialsPage /></PageShell>} />
-          <Route path="/sensors" element={<PageShell><SensorsPage /></PageShell>} />
-          <Route path="/connections" element={<Navigate to="/credentials" replace />} />
-          <Route path="/runs/:id" element={<PageShell><RunPage /></PageShell>} />
-          <Route path="/insights" element={<PageShell><InsightsPage /></PageShell>} />
+            {/* Primary routes — sensor-first */}
+            <Route path="/operations" element={<PageShell><OperationsPage /></PageShell>} />
+            <Route path="/operations/:id" element={<PageShell><OperationPage /></PageShell>} />
+            <Route path="/credentials" element={<PageShell><CredentialsPage /></PageShell>} />
+            <Route path="/sensors" element={<PageShell><SensorsPage /></PageShell>} />
+            <Route path="/connections" element={<Navigate to="/credentials" replace />} />
+            <Route path="/runs/:id" element={<PageShell><RunPage /></PageShell>} />
+            <Route path="/insights" element={<PageShell><InsightsPage /></PageShell>} />
 
-          {/* Legacy redirects */}
-          <Route path="/inbox" element={<Navigate to="/operations" replace />} />
-          <Route path="/incidents/:id" element={<RedirectIncidentToOperation />} />
+            {/* Legacy redirects */}
+            <Route path="/inbox" element={<Navigate to="/operations" replace />} />
+            <Route path="/incidents/:id" element={<RedirectIncidentToOperation />} />
 
-          {/* Core pages */}
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/setup" element={<PageShell><SetupPage /></PageShell>} />
-          <Route path="/notifications" element={<PageShell><NotificationsPage /></PageShell>} />
-          <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
-          <Route path="/instances" element={<Navigate to="/" replace />} />
-          <Route path="/instances/:id" element={<PageShell><InstanceDetailPage /></PageShell>} />
-          <Route path="/settings" element={<PageShell><SettingsPage /></PageShell>} />
-          <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
-          <Route path="/audit" element={<PageShell><ActivityPage /></PageShell>} />
-          <Route path="/activity" element={<Navigate to="/audit" replace />} />
-          <Route path="/usage" element={<PageShell><UsagePage /></PageShell>} />
-          <Route path="/admin" element={<PageShell><AdminPage /></PageShell>} />
+            {/* Core pages */}
+            <Route path="/" element={<PageShell><DashboardPage /></PageShell>} />
+            <Route path="/setup" element={<PageShell><SetupPage /></PageShell>} />
+            <Route path="/notifications" element={<PageShell><NotificationsPage /></PageShell>} />
+            <Route path="/approvals" element={<PageShell><ApprovalsPage /></PageShell>} />
+            <Route path="/instances" element={<Navigate to="/" replace />} />
+            <Route path="/instances/:id" element={<PageShell><InstanceDetailPage /></PageShell>} />
+            <Route path="/settings" element={<PageShell><SettingsPage /></PageShell>} />
+            <Route path="/policies" element={<PageShell><PoliciesPage /></PageShell>} />
+            <Route path="/audit" element={<PageShell><ActivityPage /></PageShell>} />
+            <Route path="/activity" element={<Navigate to="/audit" replace />} />
+            <Route path="/usage" element={<PageShell><UsagePage /></PageShell>} />
+            <Route path="/admin" element={<PageShell><AdminPage /></PageShell>} />
 
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/operations" replace />} />
-        </Routes>
-      </main>
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/operations" replace />} />
+          </Routes>
+        </main>
       </div>
       <TourOverlay />
     </TourProvider>
