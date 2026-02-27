@@ -6,24 +6,24 @@ import { motion, useInView } from 'framer-motion'
 const steps = [
   {
     number: '01',
-    title: 'Set the boundaries',
-    description: 'Connect the systems your agent uses and define exactly what it’s allowed to touch.',
+    title: 'One command. All agents configured.',
+    description: 'Run npx @wooblaymcp/cli setup. Wooblay detects every agent on the machine — Cursor, Claude Desktop, VS Code — and routes them through your governance proxy. No manual config files. No per-agent setup.',
     color: 'text-white/60',
     borderColor: 'border-white/[0.08]',
     bgColor: 'bg-white/[0.02]',
   },
   {
     number: '02',
-    title: 'Nothing runs unchecked',
-    description: 'Every action is reviewed against your rules before anything changes.',
+    title: 'Define policy. Enforce across all agents.',
+    description: 'Set rules once: what\'s auto-allowed, what needs human approval, what\'s blocked. Policies apply to every agent in your org — Cursor, Claude, ChatGPT, custom agents. One policy set, one approval queue, one audit trail.',
     color: 'text-amber-400/80',
     borderColor: 'border-amber-400/[0.15]',
     bgColor: 'bg-amber-400/[0.03]',
   },
   {
     number: '03',
-    title: 'Execute with confidence',
-    description: 'Approved actions run in isolation. No exposed keys. Every change is recorded.',
+    title: 'Credentials never reach the agent.',
+    description: 'When an agent needs to call Stripe or push to GitHub, the credential is injected into an ephemeral container that executes the action and is destroyed. The agent gets the result. It never sees the key.',
     color: 'text-accent',
     borderColor: 'border-accent/[0.15]',
     bgColor: 'bg-accent/[0.03]',
@@ -44,10 +44,10 @@ export function HowItWorks() {
           className="text-center mb-16"
         >
           <p className="text-accent/60 text-[12px] font-mono tracking-widest uppercase mb-4">
-            Your autonomous agent
+            How it works
           </p>
           <h2 className="font-display text-[clamp(1.8rem,4vw,2.8rem)] font-bold tracking-tight text-white">
-            Controlled by you.
+            Deploy governance in minutes, not months.
           </h2>
         </motion.div>
 
@@ -77,7 +77,6 @@ export function HowItWorks() {
           ))}
         </div>
 
-        {/* Connecting flow arrow */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={inView ? { opacity: 1 } : {}}
@@ -85,7 +84,7 @@ export function HowItWorks() {
           className="text-center mt-10"
         >
           <p className="text-white/25 text-[13px] font-mono">
-            Credential isolation · scope boundaries · simulation · ephemeral execution · signed receipts
+            Credential isolation &middot; Policy enforcement &middot; Simulation &middot; Ephemeral execution &middot; Signed receipts
           </p>
         </motion.div>
       </div>

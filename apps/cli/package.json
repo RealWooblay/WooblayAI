@@ -1,12 +1,12 @@
 {
-  "name": "@wooblay/cli",
+  "name": "@wooblaymcp/cli",
   "version": "0.1.0",
   "type": "module",
   "publishConfig": {
     "access": "public"
   },
   "bin": {
-    "wooblay": "./dist/index.js"
+    "wooblay": "dist/index.js"
   },
   "files": [
     "dist"

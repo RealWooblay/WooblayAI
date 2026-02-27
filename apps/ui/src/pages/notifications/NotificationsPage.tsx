@@ -210,7 +210,11 @@ export function NotificationsPage() {
                   <p className="text-[10px] text-text-muted">{ch.desc}</p>
                 </div>
                 {!available && (
-                  <span className="text-[9px] text-text-muted bg-surface-1 px-2 py-0.5 rounded">Not configured</span>
+                  <span className="text-[9px] text-text-muted bg-surface-1 px-2 py-0.5 rounded">
+                    {ch.id === 'telegram' ? 'Telegram bot not configured by admin' :
+                     ch.id === 'whatsapp' ? 'WhatsApp not configured by admin' :
+                     ch.id === 'email' ? 'Email not configured by admin' : 'Not configured'}
+                  </span>
                 )}
               </div>
             );

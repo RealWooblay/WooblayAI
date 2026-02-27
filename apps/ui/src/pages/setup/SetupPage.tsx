@@ -316,8 +316,8 @@ function FirewallSection() {
             <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-2">Quickstart — one command, all agents</p>
             <p className="text-[10px] text-text-tertiary mb-3">Automatically configures Cursor, Claude Desktop, and VS Code in one shot.</p>
             <div className="flex gap-2">
-              <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblay/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`}</pre>
-              <CopyButton text={`npx @wooblay/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`} />
+              <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`}</pre>
+              <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`} />
             </div>
           </div>
 

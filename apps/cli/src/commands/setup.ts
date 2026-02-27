@@ -32,7 +32,7 @@ export async function setup(opts: SetupOptions): Promise<void> {
     console.log(chalk.cyan(`    ${WOOBLAY_DASHBOARD}\n`));
     openBrowser(WOOBLAY_DASHBOARD);
     console.log(chalk.gray('  Then run again with:'));
-    console.log(chalk.white(`    npx @wooblay/cli setup --api-key wbl_ak_YOUR_KEY --endpoint ${endpoint}\n`));
+    console.log(chalk.white(`    npx @wooblaymcp/cli setup --api-key wbl_ak_YOUR_KEY --endpoint ${endpoint}\n`));
     return;
   }
 
@@ -46,7 +46,7 @@ export async function setup(opts: SetupOptions): Promise<void> {
     console.log(chalk.yellow('  No instance ID found.\n'));
     console.log(chalk.white('  You need a proxy instance ID from the Wooblay dashboard.'));
     console.log(chalk.gray('  Create one at Setup → Deploy Firewall, then run:'));
-    console.log(chalk.white(`    npx @wooblay/cli setup --api-key ${apiKey.slice(0, 12)}... --instance-id YOUR_INSTANCE_ID --endpoint ${endpoint}\n`));
+    console.log(chalk.white(`    npx @wooblaymcp/cli setup --api-key ${apiKey.slice(0, 12)}... --instance-id YOUR_INSTANCE_ID --endpoint ${endpoint}\n`));
     return;
   }
 

@@ -227,7 +227,7 @@ function AuthPage({ children }: { children: React.ReactNode }) {
     <div className={`min-h-screen flex flex-col items-center justify-center p-4 ${isLight ? 'bg-zinc-50' : 'bg-[#09090b]'}`}>
       <div className="text-center mb-8">
         <h1 className={`text-3xl font-bold tracking-tight ${isLight ? 'text-zinc-900' : 'text-white'}`}>wooblay</h1>
-        <p className={`text-sm mt-2 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>Supervised autonomy for AI agents</p>
+        <p className={`text-sm mt-2 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>Enterprise AI agent governance</p>
       </div>
       <div className="w-full max-w-md flex justify-center">
         {children}

@@ -30,38 +30,45 @@ export function Hero() {
       <div className="relative text-center px-6 max-w-4xl mx-auto">
         <FadeIn>
           <p className="text-accent/80 text-[13px] font-mono tracking-widest uppercase mb-6">
-            Secure your agent actions.
+            Enterprise AI agent governance
           </p>
         </FadeIn>
 
         <FadeIn delay={0.04}>
           <h1 className="font-display text-[clamp(2.8rem,7vw,5.5rem)] font-bold tracking-[-0.04em] leading-[0.92]">
-            <span className="text-gradient">Agents decide</span>
+            <span className="text-gradient">Your agents act.</span>
             <br />
-            <span className="text-white/20">Wooblay executes.</span>
+            <span className="text-white/20">You stay in control.</span>
           </h1>
         </FadeIn>
 
         <FadeIn delay={0.05}>
-          <p className="mt-6 text-white/50 text-[16px] sm:text-[18px] max-w-lg mx-auto">
-            Every action is policy-checked, simulated, executed in an ephemeral container, and cryptographically receipted.
+          <p className="mt-6 text-white/50 text-[16px] sm:text-[18px] max-w-xl mx-auto">
+            One governance layer for every AI agent in your organization. Policy enforcement, credential isolation, human approvals, and a cryptographic audit trail — across Cursor, Claude, ChatGPT, and every MCP-connected tool.
           </p>
         </FadeIn>
 
         <FadeIn delay={0.1}>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
-              href="https://x.com/RealWooblay"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-6 py-3 rounded-md bg-accent text-surface-0 font-semibold text-[14px] hover:bg-accent/90 transition-colors flex items-center gap-2"
+              href="mailto:enterprise@wooblay.com?subject=Wooblay%20Demo%20Request"
+              className="px-7 py-3.5 rounded-md bg-accent text-surface-0 font-semibold text-[14px] hover:bg-accent/90 transition-colors"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-              </svg>
-              Follow @RealWooblay
+              Book a Demo
+            </a>
+            <a
+              href="https://app.wooblay.com"
+              className="px-7 py-3.5 rounded-md bg-white/[0.06] text-white/70 font-semibold text-[14px] hover:bg-white/[0.10] border border-white/[0.08] transition-colors"
+            >
+              Get Started Free
             </a>
           </div>
+        </FadeIn>
+
+        <FadeIn delay={0.14}>
+          <p className="mt-4 text-white/25 text-[12px] font-mono">
+            One command setup &middot; No agent code changes &middot; SOC 2 ready
+          </p>
         </FadeIn>
       </div>
 

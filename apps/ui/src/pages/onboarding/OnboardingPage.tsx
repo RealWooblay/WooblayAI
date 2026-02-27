@@ -45,8 +45,8 @@ export function OnboardingPage({ onActivated }: { onActivated: () => void }) {
             Welcome to Wooblay
           </h1>
           <p className="text-sm text-text-secondary leading-relaxed">
-            Enter your access code to activate your account and start
-            supervising AI agent actions.
+            Enter your access code to activate your organization's
+            agent governance platform.
           </p>
         </div>
 

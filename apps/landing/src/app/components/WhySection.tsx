@@ -4,9 +4,9 @@ import { motion, useInView } from 'framer-motion'
 import { useRef } from 'react'
 
 const alerts = [
-  { time: '3:14 AM', text: 'Agent made a change. No review.' },
-  { time: '3:17 AM', text: 'Agent updated production. No rollback plan.' },
-  { time: '3:19 AM', text: 'Agent accessed sensitive data.' },
+  { time: 'Monday', text: 'An engineer\'s Claude agent pushed directly to main using their personal GitHub token.' },
+  { time: 'Tuesday', text: 'Your SOC 2 auditor asks: "What did your AI agents access last quarter?" You have no answer.' },
+  { time: 'Wednesday', text: '15 agents across 3 teams. 15 separate credential sets. Zero unified policy. Zero shared audit trail.' },
 ]
 
 export function WhySection() {
@@ -43,7 +43,7 @@ export function WhySection() {
             >
               <div className="flex items-start gap-3">
                 <span className="text-red-400/70 text-[13px] shrink-0 select-none">
-                  ⚠
+                  &#x26A0;
                 </span>
                 <div className="flex-1 min-w-0">
                   <span className="text-red-400/50 font-mono text-[11px]">
@@ -66,10 +66,10 @@ export function WhySection() {
           className="mt-16 text-center"
         >
           <p className="font-display text-[clamp(1.8rem,4vw,2.6rem)] font-bold tracking-tight leading-[1.1]">
-            <span className="text-white">This already happens.</span>
+            <span className="text-white">This is happening at every company deploying AI agents.</span>
           </p>
           <p className="mt-4 text-white/40 text-[15px] leading-relaxed max-w-md mx-auto">
-            AI agents are taking real-world actions. Often without review, evidence, or a clear record of who approved what.
+            Every team has agents connecting to Stripe, GitHub, Salesforce, databases, and cloud infrastructure. No central policy. No credential isolation. No audit trail that satisfies compliance.
           </p>
         </motion.div>
       </div>
