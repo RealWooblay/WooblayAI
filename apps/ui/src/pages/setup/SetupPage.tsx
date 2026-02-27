@@ -17,6 +17,8 @@ import {
 import { useToast } from '../../components/common/Toast.tsx';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? window.location.origin : '');
+/** Gate URL shown in CLI command — always a full URL so users see --endpoint <url> */
+const GATE_URL = API_BASE && API_BASE.startsWith('http') ? API_BASE.replace(/\/$/, '') : 'https://gate.wooblay.com';
 
 // ── MCP Server Catalog ──────────────────────────────────────────────────────
 
@@ -31,26 +33,46 @@ interface McpCatalogEntry {
 }
 
 const MCP_CATALOG: McpCatalogEntry[] = [
-  { name: 'github', label: 'GitHub', desc: 'Repos, PRs, issues, files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-github',
-    requiredEnvVars: [{ key: 'GITHUB_PERSONAL_ACCESS_TOKEN', placeholder: 'ghp_...', hint: 'Fine-grained PAT with repo access' }] },
-  { name: 'filesystem', label: 'Filesystem', desc: 'Read, write, search files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-filesystem /',
-    requiredEnvVars: [] },
-  { name: 'brave-search', label: 'Brave Search', desc: 'Web search', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-brave-search',
-    requiredEnvVars: [{ key: 'BRAVE_API_KEY', placeholder: 'BSA...', hint: 'Brave Search API key from brave.com/search/api' }] },
-  { name: 'slack', label: 'Slack', desc: 'Messages, channels, users', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-slack',
-    requiredEnvVars: [{ key: 'SLACK_BOT_TOKEN', placeholder: 'xoxb-...', hint: 'Bot User OAuth Token from Slack app settings' }, { key: 'SLACK_TEAM_ID', placeholder: 'T0...', hint: 'Workspace ID from Slack admin' }] },
-  { name: 'postgres', label: 'PostgreSQL', desc: 'Query databases', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-postgres',
-    requiredEnvVars: [{ key: 'POSTGRES_CONNECTION_STRING', placeholder: 'postgresql://user:pass@host:5432/db', hint: 'Full connection string' }] },
-  { name: 'gdrive', label: 'Google Drive', desc: 'Files, search, share', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-gdrive',
-    requiredEnvVars: [{ key: 'GOOGLE_APPLICATION_CREDENTIALS', placeholder: '{"type":"service_account",...}', hint: 'Service account JSON key' }] },
-  { name: 'puppeteer', label: 'Puppeteer', desc: 'Browser automation', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-puppeteer',
-    requiredEnvVars: [] },
-  { name: 'memory', label: 'Memory', desc: 'Persistent knowledge graph', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-memory',
-    requiredEnvVars: [] },
-  { name: 'fetch', label: 'Fetch', desc: 'HTTP requests', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-fetch',
-    requiredEnvVars: [] },
-  { name: 'sequential-thinking', label: 'Thinking', desc: 'Step-by-step reasoning', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-sequential-thinking',
-    requiredEnvVars: [] },
+  {
+    name: 'github', label: 'GitHub', desc: 'Repos, PRs, issues, files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-github',
+    requiredEnvVars: [{ key: 'GITHUB_PERSONAL_ACCESS_TOKEN', placeholder: 'ghp_...', hint: 'Fine-grained PAT with repo access' }]
+  },
+  {
+    name: 'filesystem', label: 'Filesystem', desc: 'Read, write, search files', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-filesystem /',
+    requiredEnvVars: []
+  },
+  {
+    name: 'brave-search', label: 'Brave Search', desc: 'Web search', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-brave-search',
+    requiredEnvVars: [{ key: 'BRAVE_API_KEY', placeholder: 'BSA...', hint: 'Brave Search API key from brave.com/search/api' }]
+  },
+  {
+    name: 'slack', label: 'Slack', desc: 'Messages, channels, users', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-slack',
+    requiredEnvVars: [{ key: 'SLACK_BOT_TOKEN', placeholder: 'xoxb-...', hint: 'Bot User OAuth Token from Slack app settings' }, { key: 'SLACK_TEAM_ID', placeholder: 'T0...', hint: 'Workspace ID from Slack admin' }]
+  },
+  {
+    name: 'postgres', label: 'PostgreSQL', desc: 'Query databases', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-postgres',
+    requiredEnvVars: [{ key: 'POSTGRES_CONNECTION_STRING', placeholder: 'postgresql://user:pass@host:5432/db', hint: 'Full connection string' }]
+  },
+  {
+    name: 'gdrive', label: 'Google Drive', desc: 'Files, search, share', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-gdrive',
+    requiredEnvVars: [{ key: 'GOOGLE_APPLICATION_CREDENTIALS', placeholder: '{"type":"service_account",...}', hint: 'Service account JSON key' }]
+  },
+  {
+    name: 'puppeteer', label: 'Puppeteer', desc: 'Browser automation', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-puppeteer',
+    requiredEnvVars: []
+  },
+  {
+    name: 'memory', label: 'Memory', desc: 'Persistent knowledge graph', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-memory',
+    requiredEnvVars: []
+  },
+  {
+    name: 'fetch', label: 'Fetch', desc: 'HTTP requests', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-fetch',
+    requiredEnvVars: []
+  },
+  {
+    name: 'sequential-thinking', label: 'Thinking', desc: 'Step-by-step reasoning', transport: 'stdio', source: 'npx -y @modelcontextprotocol/server-sequential-thinking',
+    requiredEnvVars: []
+  },
 ];
 
 /** Real brand icon URLs (Simple Icons CDN). Fallback for unknown: generic gear. */
@@ -329,15 +351,16 @@ function FirewallSection() {
             <div>
               <p className="text-[9px] text-text-muted font-mono mb-1.5">All agents:</p>
               <div className="flex gap-2">
-                <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup \\\n  --api-key YOUR_API_KEY \\\n  --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} \\\n  --endpoint ${API_BASE}`}</pre>
-                <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE}`} />
+                <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup \\\n  --api-key YOUR_API_KEY \\\n  --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} \\\n  --endpoint ${GATE_URL}`}</pre>
+                <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${GATE_URL}`} />
               </div>
+              <p className="text-[9px] text-text-muted mt-1.5"><code className="text-accent/80">--endpoint</code> is your Wooblay Gate URL (default: <code className="text-text-secondary">https://gate.wooblay.com</code>)</p>
             </div>
             <div>
               <p className="text-[9px] text-text-muted font-mono mb-1.5">Specific agent only:</p>
               <div className="flex gap-2">
-                <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup \\\n  --api-key YOUR_API_KEY \\\n  --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} \\\n  --endpoint ${API_BASE} \\\n  --agents cursor`}</pre>
-                <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${API_BASE} --agents cursor`} />
+                <pre className="flex-1 p-3 text-[11px] font-mono text-text-primary overflow-x-auto whitespace-pre rounded-lg bg-surface-1 border border-border">{`npx @wooblaymcp/cli setup \\\n  --api-key YOUR_API_KEY \\\n  --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} \\\n  --endpoint ${GATE_URL} \\\n  --agents cursor`}</pre>
+                <CopyButton text={`npx @wooblaymcp/cli setup --api-key YOUR_API_KEY --instance-id ${proxy?.id ?? 'YOUR_INSTANCE_ID'} --endpoint ${GATE_URL} --agents cursor`} />
               </div>
               <p className="text-[9px] text-text-muted mt-1.5">Options: <code className="text-accent/80">cursor</code>, <code className="text-accent/80">claude</code>, <code className="text-accent/80">vscode</code> — comma-separated for multiple (e.g. <code className="text-accent/80">--agents cursor,claude</code>)</p>
             </div>
@@ -369,7 +392,7 @@ function FirewallSection() {
               <div className="p-4">
                 <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">File: <code className="text-text-secondary">claude_desktop_config.json</code></p>
                 <p className="text-[10px] text-text-tertiary mb-2">
-                  macOS: <code className="text-text-secondary text-[9px]">~/Library/Application Support/Claude/claude_desktop_config.json</code><br/>
+                  macOS: <code className="text-text-secondary text-[9px]">~/Library/Application Support/Claude/claude_desktop_config.json</code><br />
                   Windows: <code className="text-text-secondary text-[9px]">%APPDATA%\Claude\claude_desktop_config.json</code>
                 </p>
                 <div className="flex gap-2">
