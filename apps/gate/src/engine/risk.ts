@@ -71,8 +71,8 @@ export async function classifyWithAI(
     const aiCategory = result.category as BusinessCategory || structuralCategory;
 
     // AI can only ESCALATE risk, never downgrade (safety principle)
-    const tierOrder = { READ: 0, WRITE: 1, DESTRUCTIVE: 2 };
-    const finalTier = tierOrder[aiTier] >= tierOrder[structuralRisk] ? aiTier : structuralRisk;
+    const tierOrder: Record<string, number> = { READ: 0, WRITE: 1, DESTRUCTIVE: 2 };
+    const finalTier = (tierOrder[aiTier] ?? 0) >= (tierOrder[structuralRisk] ?? 0) ? aiTier : structuralRisk;
 
     return {
       riskTier: finalTier,

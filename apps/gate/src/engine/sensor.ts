@@ -164,7 +164,7 @@ function resolveEventRule(
   }
 
   // User has rules — only create operations for events they explicitly enabled
-  const rule = rules.find((r) => r.event === eventType && r.enabled);
+  const rule = rules.find((r: { event: string; enabled: boolean; intent?: string; priority?: string }) => r.event === eventType && r.enabled);
   if (!rule) return null; // User didn't include this event — suppress
 
   return { intent: rule.intent, priority: rule.priority };

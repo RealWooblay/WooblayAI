@@ -56,7 +56,7 @@ const severityColor: Record<string, string> = {
 
 function useDebounce(value: string, delay: number): string {
   const [debounced, setDebounced] = useState(value);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     timer.current = setTimeout(() => setDebounced(value), delay);
     return () => clearTimeout(timer.current);
