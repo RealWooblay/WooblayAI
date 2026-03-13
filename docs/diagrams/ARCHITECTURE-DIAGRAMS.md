@@ -121,7 +121,7 @@ flowchart TB
     %% AGENT CONTAINER
     %% ────────────────────────────────────────────────────────────────────
     subgraph Agent["Agent Container · Credential-Free (agent secrets as env vars)"]
-        OPENCLAW["OpenClaw Runtime<br/>packages/adapters/openclaw/"]
+        OPENCLAW["OpenClaw Runtime<br/>@wooblay/openclaw-adapter (separate repo)"]
         PLUGIN["openclaw-plugin/index.ts<br/>Tools: gated_exec, gated_write,<br/>gated_edit, gated_web_fetch (+ headers),<br/>structured_action (+ exec:run),<br/>list_secrets"]
         SOUL["SOUL.md / IDENTITY.md"]
         WS["Agent Workspace (filesystem)"]

@@ -1,8 +1,9 @@
 import chalk from 'chalk';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const WOOBLAY_DASHBOARD = process.env.WOOBLAY_URL ?? 'https://app.wooblay.com';
 
@@ -169,6 +170,59 @@ function detectAgents(): AgentConfig[] {
   return agents;
 }
 
+function getBridgeScriptPath(): string {
+  try {
+    const cliDir = dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      resolve(cliDir, '..', '..', '..', 'wooblay-mcp-plugin', 'scripts', 'claude-desktop-bridge.mjs'),
+      resolve(cliDir, '..', 'scripts', 'claude-desktop-bridge.mjs'),
+    ];
+    for (const p of candidates) {
+      if (existsSync(p)) return p;
+    }
+  } catch {
+    // fileURLToPath may fail when run via npx; fall back to require.resolve or cwd
+  }
+  const cwdCandidate = resolve(process.cwd(), 'wooblay-mcp-plugin', 'scripts', 'claude-desktop-bridge.mjs');
+  if (existsSync(cwdCandidate)) return cwdCandidate;
+  return '';
+}
+
+function buildWooblayEntry(agent: AgentConfig, sseUrl: string, apiKey: string): Record<string, any> | null {
+  if (agent.name === 'Claude Desktop') {
+    const bridgePath = getBridgeScriptPath();
+    if (!bridgePath) {
+      console.log(chalk.yellow(`    ${agent.name}: cannot find claude-desktop-bridge.mjs`));
+      console.log(chalk.gray('      Claude Desktop requires a stdio bridge. See CLAUDE-DESKTOP.md for manual setup.'));
+      return null;
+    }
+    return {
+      command: 'node',
+      args: [bridgePath, sseUrl, apiKey],
+    };
+  }
+  return {
+    url: sseUrl,
+    headers: { Authorization: `Bearer ${apiKey}` },
+  };
+}
+
+function isAlreadyConfigured(existing: any, entry: Record<string, any>): boolean {
+  if (!existing) return false;
+  if (entry.url) {
+    return existing.url === entry.url && existing.headers?.Authorization === entry.headers?.Authorization;
+  }
+  if (entry.command) {
+    return (
+      existing.command === entry.command &&
+      Array.isArray(existing.args) &&
+      existing.args[0] === entry.args[0] &&
+      existing.args[1] === entry.args[1]
+    );
+  }
+  return false;
+}
+
 function configureAgent(agent: AgentConfig, sseUrl: string, apiKey: string): boolean {
   try {
     const dir = join(agent.configPath, '..');
@@ -190,18 +244,16 @@ function configureAgent(agent: AgentConfig, sseUrl: string, apiKey: string): boo
 
     if (!config.mcpServers) config.mcpServers = {};
 
+    const entry = buildWooblayEntry(agent, sseUrl, apiKey);
+    if (!entry) return false;
+
     const existing = config.mcpServers.wooblay;
-    if (existing?.url === sseUrl && existing?.headers?.Authorization === `Bearer ${apiKey}`) {
+    if (isAlreadyConfigured(existing, entry)) {
       console.log(chalk.gray(`    ${agent.name}: already configured (skipped)`));
       return true;
     }
 
-    config.mcpServers.wooblay = {
-      url: sseUrl,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-    };
+    config.mcpServers.wooblay = entry;
 
     writeFileSync(agent.configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
     const verb = existing ? 'updated' : 'configured';
@@ -214,7 +266,7 @@ function configureAgent(agent: AgentConfig, sseUrl: string, apiKey: string): boo
 }
 
 function printManualConfig(sseUrl: string, apiKey: string): void {
-  console.log(chalk.gray('\n  Add to your MCP config (mcp.json or equivalent):'));
+  console.log(chalk.gray('\n  For Cursor / VS Code (url transport):'));
   console.log(chalk.white(`    {`));
   console.log(chalk.white(`      "mcpServers": {`));
   console.log(chalk.white(`        "wooblay": {`));
@@ -222,6 +274,15 @@ function printManualConfig(sseUrl: string, apiKey: string): void {
   console.log(chalk.white(`          "headers": {`));
   console.log(chalk.white(`            "Authorization": "Bearer ${apiKey.slice(0, 12)}..."`));
   console.log(chalk.white(`          }`));
+  console.log(chalk.white(`        }`));
+  console.log(chalk.white(`      }`));
+  console.log(chalk.white(`    }\n`));
+  console.log(chalk.gray('  For Claude Desktop (stdio — see CLAUDE-DESKTOP.md):'));
+  console.log(chalk.white(`    {`));
+  console.log(chalk.white(`      "mcpServers": {`));
+  console.log(chalk.white(`        "wooblay": {`));
+  console.log(chalk.white(`          "command": "node",`));
+  console.log(chalk.white(`          "args": ["<path-to>/claude-desktop-bridge.mjs", "${sseUrl}", "${apiKey.slice(0, 12)}..."]`));
   console.log(chalk.white(`        }`));
   console.log(chalk.white(`      }`));
   console.log(chalk.white(`    }\n`));

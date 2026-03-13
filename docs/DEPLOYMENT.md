@@ -197,7 +197,70 @@ Beta coupon code: `WOOBLAY-BETA-2026` (auto-seeded on first boot)
 
 Current: Single EC2 handles ~5-10 concurrent agent instances on a t4g.medium (2 vCPU, 4GB RAM, ARM64).
 
-Future scaling path:
+Scaling paths:
 - **Vertical**: Upgrade to t4g.xlarge/2xlarge for more agents per host
 - **Horizontal**: Multiple EC2s with shared RDS, agent placement via the platform API
 - **Kubernetes**: EKS with per-agent pods
+
+## Troubleshooting
+
+### Gate won't start
+
+```bash
+# Check container logs
+docker logs wooblay-gate --tail 100
+
+# Common causes:
+# - DATABASE_URL not set or Postgres not running
+# - Missing CLERK_SECRET_KEY (required in platform mode)
+# - Port 4800 already in use
+```
+
+### Database migration fails
+
+```bash
+# Check Postgres is reachable
+docker exec wooblay-postgres pg_isready
+
+# Run migrations manually
+docker exec wooblay-gate sh -c "cd apps/gate && npx prisma db push --skip-generate"
+
+# Reset database (destructive — dev only)
+docker exec wooblay-gate sh -c "cd apps/gate && npx prisma migrate reset --force"
+```
+
+### Agent containers can't reach Gate
+
+```bash
+# Verify network connectivity
+docker exec <agent-container> wget -qO- http://172.21.0.20:4800/health
+
+# Check the agent_net network exists
+docker network ls | grep agent_net
+
+# Verify Gate is on the agent network
+docker network inspect agent_net
+```
+
+### MCP proxy returns 401
+
+- Verify the API key starts with `wbl_ak_` and hasn't been revoked
+- Check the instance ID in the SSE URL matches an existing instance
+- Ensure the API key belongs to the same org as the instance
+
+### Approval notifications not arriving
+
+- Check notification channel settings in the dashboard (Settings → Notifications)
+- Verify Telegram bot token / Slack webhook URL / SMTP settings in `.env`
+- Check Gate logs for notification delivery errors: `docker logs wooblay-gate 2>&1 | grep -i notif`
+
+### High memory usage
+
+```bash
+# Check container resource usage
+docker stats --no-stream
+
+# Orphaned ephemeral containers (should auto-destroy)
+docker ps -a --filter "name=wooblay-exec" --filter "status=exited"
+docker container prune -f --filter "label=wooblay-exec"
+```

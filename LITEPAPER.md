@@ -2,13 +2,13 @@
 
 **The Execution Firewall for AI Agents**
 
-Version 1.0 — February 2026
+Version 1.1 — February 2026
 
 ---
 
 ## 1. The Problem
 
-AI agents ship code, deploy infrastructure, manage cloud resources, open pull requests, and operate production systems — autonomously, around the clock.
+AI agents query your CRM, process payments, send messages, manage data, provision cloud resources — across Salesforce, Stripe, Slack, databases, and dozens of MCP tool servers.
 
 Every one of those actions requires credentials: a GitHub PAT, AWS IAM keys, a GCP service account. Today, you hand those credentials directly to the agent. The agent holds your secrets. You have no say in what it does with them until after it acts.
 
@@ -32,7 +32,9 @@ It is not an agent framework, an orchestration platform, or a monitoring tool. I
 
 **Core guarantee:** The agent process has zero credentials. It requests an action ("push this branch to GitHub"). Wooblay checks policy, optionally holds for human approval, then executes the action in an isolated container where the credential exists for the duration of that single operation. The container is destroyed. The agent receives the result.
 
-Wooblay works with any agent framework. We ship an adapter for OpenClaw and a native MCP proxy that any MCP-speaking agent can connect to. The architecture supports LangChain, CrewAI, AutoGen, Claude, Cursor, or any custom agent — the proxy or adapter intercepts tool calls and routes them through the Wooblay Gate. No agent code changes required.
+Wooblay works with any agent framework. We ship a native MCP proxy that any MCP-speaking agent connects to, plus an open-source adapter for OpenClaw ([`@wooblay/openclaw-adapter`](https://github.com/Wooblay/openclaw-adapter)). The architecture supports LangChain, CrewAI, AutoGen, Claude, Cursor, or any custom agent — the proxy intercepts tool calls and routes them through the Wooblay Gate. No agent code changes required.
+
+Connect once, use from every agent — Cursor, Claude, ChatGPT, or any MCP-speaking client. One policy, one audit trail, all agents. Run `npx @wooblaymcp/cli setup` and every detected agent on your machine is configured in one command.
 
 ---
 
@@ -268,6 +270,8 @@ Operations are routed to the best-fit agent:
 4. Confidence thresholds: ≥0.7 auto-routes, ≥0.3 suggests (user confirms), <0.3 requires manual assignment
 5. Fallback: keyword/intent matching with history-based boost if AI is unavailable
 
+*Note: Sensors and Operations are available in Full Platform mode for teams hosting agents through Wooblay. The core MCP governance proxy works independently.*
+
 ---
 
 ## 9. Gateway API
@@ -335,7 +339,7 @@ Each agent has a 0–100 trust score computed from its action history:
 - -10 per CRITICAL flag, -5 per HIGH flag
 - Trend: compared against prior 24h
 
-### Flag Detection
+### Anomaly Detection
 
 Automated anomaly detection runs on every action:
 
@@ -353,7 +357,44 @@ Per-action cost attribution across categories: LLM tokens, compute minutes, API 
 
 ---
 
-## 11. Deployment Modes
+## 11. Approval Security
+
+Approvals are human-only. Agents cannot approve or deny their own actions — self-approval and agent-to-agent collusion are architecturally prevented by removing approval capabilities from the agent-facing API entirely.
+
+### Multi-Channel Notifications
+
+When a risky action requires approval, Wooblay delivers notifications to eligible approvers across multiple channels:
+
+| Channel | Delivery | Interactive |
+|---------|----------|-------------|
+| **Telegram** | DM via bot | One-tap approve/deny buttons |
+| **Slack** | Incoming webhook | Block Kit approve/deny buttons |
+| **WhatsApp** | WhatsApp Business API | Action link |
+| **Email** | SMTP | Action link |
+
+Each notification contains a unique, cryptographically signed action token scoped to the specific approver and approval request. Tokens are single-use and time-limited.
+
+### Safeguards
+
+- **Atomic resolution** — approval state transitions use `UPDATE WHERE status = PENDING`, preventing race conditions when multiple approvers act simultaneously
+- **Role enforcement** — policies can require a specific role (e.g., `cto`, `admin`) for sensitive actions. The approver's org role is verified before the decision is accepted
+- **Bot protection** — notification links render a confirmation page (GET), and the actual decision requires a POST. Link preview bots and crawlers cannot trigger approvals
+- **Cryptographic receipts** — every approval decision generates a signed receipt in the hash chain, creating an immutable audit trail of who approved what and when
+
+---
+
+## 12. Phone-First Controls
+
+Executive-grade controls delivered to your phone:
+
+- **Push notification approvals** routed by role — CTOs get payment approvals, not junior developers
+- **Kill switch:** one tap from the dashboard or notification to pause all agent activity org-wide
+- **Anomaly alerts:** action rate spikes, unusual tool access, consecutive denials
+- **Contribution tracking:** org-wide metrics by agent, user, tool, outcome, and cost
+
+---
+
+## 13. Deployment Modes
 
 ### Firewall Mode (default)
 
@@ -367,11 +408,45 @@ Multi-tenant SaaS. Clerk-based auth with org isolation. Hosted agent instances (
 
 Best for: teams that want managed agent infrastructure with built-in security.
 
-Full Platform is gated — unlocked per-org with a platform password.
+Full Platform is gated per-org with a platform password.
 
 ---
 
-## 12. Tech Stack
+## 14. Onboarding
+
+### For External Agents (Cursor, Claude, ChatGPT)
+
+```bash
+npx @wooblaymcp/cli setup --api-key wbl_ak_... --instance-id <id>
+```
+
+One command. Wooblay detects all installed agents (Cursor, Claude Desktop, VS Code), writes MCP configuration to each, and verifies connectivity. No manual JSON editing. No per-agent config files. Every detected agent is routed through Wooblay automatically.
+
+### For Hosted Agents
+
+Deploy from the dashboard. Select a runtime, configure environment variables, click Deploy. The agent container starts with the Wooblay plugin pre-installed. All risky tool calls route through the Gate automatically.
+
+### For Custom Integrations
+
+Point any MCP-speaking client at Wooblay's SSE endpoint:
+
+```
+https://gate.wooblay.com/mcp/<instance-id>/sse
+Authorization: Bearer wbl_ak_...
+```
+
+Or use the HTTP Gateway API for programmatic access:
+
+```bash
+curl -X POST https://gate.wooblay.com/api/gateway/execute \
+  -H "Authorization: Bearer wbl_ak_..." \
+  -H "Content-Type: application/json" \
+  -d '{"action": "git:push", "params": {"branch": "main"}}'
+```
+
+---
+
+## 15. Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
@@ -384,46 +459,12 @@ Full Platform is gated — unlocked per-org with a platform password.
 | Containers | Docker (agent runtime + MCP proxy sidecar + ephemeral execution) |
 | Infrastructure | AWS EC2, ECR, ALB, Terraform |
 | AI | OpenAI GPT-4o-mini (risk classification, intent verification, routing, policy optimization, threat assessment) |
-| Agent Runtime | OpenClaw adapter shipped; any MCP-speaking or custom agent supported via proxy or adapter |
+| CLI | Commander.js, npx-ready, auto-detects Cursor / Claude Desktop / VS Code |
+| Adapters | OpenClaw adapter ([`@wooblay/openclaw-adapter`](https://github.com/Wooblay/openclaw-adapter)); any MCP-speaking agent via proxy |
 
 ---
 
-## 13. What Exists Today
-
-**Shipped and operational:**
-
-- Three-layer security moat (policy → simulation → secure execution)
-- Envelope-encrypted credential vault (AES-256-GCM, KMS-ready)
-- Ephemeral execution containers with credential injection
-- Ed25519-signed, hash-chained receipt chain with integrity verification
-- Policy engine with glob matching, category filters, risk tiers, presets, AI optimization
-- Human-in-the-loop approval queue with human-readable descriptions and TTL
-- GitHub sensor with webhook processing, event rules, smart escalation, deduplication
-- AI-powered operation routing to agent instances
-- Multi-instance agent deployment and management from dashboard
-- Trust scoring, flag detection, cost tracking
-- Gateway API with OpenAPI spec for external agents (GPT, Claude, MCP)
-- MCP Proxy with Layer 3 credential isolation for any MCP tool server (stdio + SSE)
-- External agent support via SSE endpoint (Claude Desktop, Cursor, custom agents)
-- Dynamic provider support — any credential type, not limited to a fixed list
-- Per-instance MCP server configuration from the dashboard
-- Full activity audit trail with export (JSON, CSV)
-- Webhook notifications for approval events, critical flags, trust alerts
-
-**In progress:**
-
-- Receipt verification UI
-- Session playback timeline
-- Contribution analytics page
-- Slack/Teams integration
-- Custom adapter SDK
-- Agent orchestration graphs
-- Rollback and checkpoints
-- Compliance reporting (SOC 2, GDPR, HIPAA)
-
----
-
-## 14. Why This Matters
+## 16. Why This Matters
 
 The AI agent market is moving from demos to production deployment. Production means credentials, external systems, and real consequences.
 

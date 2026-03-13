@@ -150,7 +150,7 @@ Wooblay integrates with OpenClaw at **two levels**:
 
 ### 1. Wooblay Plugin (gated tools)
 
-**File:** `packages/adapters/openclaw/plugin/index.ts`
+**Package:** `@wooblay/openclaw-adapter` (separate repo)
 
 When OpenClaw starts, it loads the Wooblay plugin from `~/.openclaw/extensions/wooblay/`. The plugin uses `api.registerTool()` to add four gated tools:
 
@@ -172,7 +172,7 @@ Each gated tool:
 
 ### 2. Hook handler (policy enforcement + audit)
 
-**File:** `packages/adapters/openclaw/src/hooks/handler.ts`
+**Package:** `@wooblay/openclaw-adapter` (hooks/handler)
 
 OpenClaw fires events for every tool call (`tool:start`, `tool:result`). The Wooblay hook listens to these and **enforces policy**:
 - On `tool:start`: POSTs to Gate for policy evaluation. If Gate returns DENY, the hook **throws to abort execution**. If Gate is unreachable, the hook blocks the action (fail-safe). If PENDING_APPROVAL, the hook blocks and directs the agent to use gated tools.
@@ -355,7 +355,7 @@ All actions are executed in ephemeral Docker containers via `engine/secure-exec.
 
 | File | Role |
 |------|------|
-| `packages/adapters/openclaw/plugin/index.ts` | Plugin: gated_exec, gated_write, gated_edit, gated_web_fetch (+ headers), structured_action (+ exec:run), list_secrets |
+| `@wooblay/openclaw-adapter` (plugin) | Plugin: gated_exec, gated_write, gated_edit, gated_web_fetch (+ headers), structured_action (+ exec:run), list_secrets |
 | `apps/gate/src/routes/tool.ts` | `POST /api/tool/execute` — policy evaluation; `POST /api/tool/structured-execute` — three-layer moat endpoint |
 | `apps/gate/src/routes/gateway.ts` | `POST /api/gateway/execute` — Tool Gateway with capability tokens |
 | `apps/gate/src/engine/action-registry.ts` | Structured action definitions + generic exec:run |

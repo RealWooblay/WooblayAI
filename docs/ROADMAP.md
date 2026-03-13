@@ -1,108 +1,52 @@
-# Wooblay — Feature Roadmap
+# Wooblay Roadmap
 
-## Shipped (MVP)
+## Shipped
 
-### Sensor-first operations & agent routing
-Connect sensors (e.g. GitHub via per-connection webhooks); they create Operations. Global AI router evaluates each Operation against all active agent instances and routes to the best fit (auto-route, or pending approval, or manual). Operations and Sensors pages; routing status and approval UI. No “incidents” — Operations only.
+Everything below is live in production.
 
-### Execution-Layer Gating
-Tool calls from agents are intercepted, risk-classified, and routed through policy evaluation. Actions are auto-allowed, auto-denied, or held for human approval with a 24-hour window. Every decision produces a cryptographically signed receipt.
+- **Three-layer security moat** — policy gate → simulation → secure execution in ephemeral containers
+- **MCP proxy** — any agent (Cursor, Claude, ChatGPT, custom) connects via SSE; all tools proxied through L1/L2/L3
+- **Credential vault** — AES-256-GCM envelope encryption, KMS-backed; credentials never reach agent process
+- **Policy engine** — priority-ordered rules, glob matching, matchArgs for per-action argument patterns, AI risk classification, AI policy optimization
+- **Human-in-the-loop approvals** — approval queue with TTL, human-readable descriptions, "always allow similar" creates policy
+- **Multi-channel approval notifications** — Telegram, Slack, WhatsApp, Email with one-tap approve/deny; role-based routing
+- **Role-based approval enforcement** — requiredApproverRole on policies, atomic resolution, admin/owner override
+- **Kill switch** — one-tap pause all agent activity from dashboard or notification
+- **Anomaly detection** — velocity spikes, evasion patterns, sensitive access, privilege escalation, unusual behavior
+- **Cryptographic audit trail** — ed25519-signed, SHA-256 hash-chained receipts, tamper-evident, chain integrity verification
+- **Custom MCP hosting** — npm packages hosted in L3 + remote SSE URLs proxied; configure once, all agents get access
+- **CLI setup** — `npx @wooblaymcp/cli setup` auto-detects Cursor, Claude Desktop, VS Code; writes configs; one command, all agents
+- **Gateway API** — HTTP REST endpoint with OpenAPI spec for GPT Actions, Claude tools, programmatic access
+- **Agent trust scoring** — 0-100 composite score from action history, anomaly flags, trend indicators
+- **Cost tracking** — per-action attribution across LLM tokens, compute, API calls; daily aggregation, burn rate
+- **Contribution tracking** — org-wide metrics by agent, user, tool, outcome, cost, time period
+- **Dashboard** — command center, approvals, policies, activity/audit, connections/credentials, sensors, operations, insights, notifications, usage
+- **Sensor engine** — GitHub webhooks with signature verification, replay protection, smart escalation, deduplication
+- **AI operation routing** — GPT-4o-mini scores agent fit; auto-routes high-confidence, suggests low-confidence
+- **Multi-instance agent deployment** — deploy, start, stop, restart, delete from dashboard
+- **Audit export** — JSON and CSV with date range filtering
 
-### Policy Engine with Presets
-CRUD policy rules with priority ordering, tool/risk matching, and argument patterns. Three one-click presets (Balanced, Strict, Permissive). Policy suggestions based on historical data.
+## Next
 
-### Human-Readable Descriptions
-Every tool call is translated into plain English. Approvals show what the agent is trying to do and why it was flagged — accessible to non-technical reviewers.
+Priority items under active development.
 
-### Activity Feed with Flag Detection
-Filterable activity table showing all agent actions. Rule-based flag detection (velocity anomalies, retry loops, privilege escalation, sensitive access). Expandable rows with full details.
+- **Scoped credentials** — just-in-time token minting (AWS STS, GitHub App installations, GCP short-lived tokens) to replace long-lived keys
+- **Cross-agent awareness** — action ordering and conflict prevention when multiple agents operate on the same resources
+- **Generic webhook sensing** — accept events from any source (Slack, Jira, PagerDuty, custom HTTP), not just GitHub
+- **Stripe billing integration** — usage-based metering through the proxy, automated invoicing
+- **Additional runtime adapters** — LangChain, CrewAI, AutoGen via adapter interface
 
-### AI Supervisor (Optional)
-OpenAI-powered threat assessment, behavioral pattern analysis, contribution evaluation, and session summaries. Non-blocking and non-critical — gracefully degrades without API key.
+## Future
 
-### Agent Trust Scoring
-0-100 trust score per agent computed from approval/denial history and detected flags. Trend indicators (improving/stable/declining). Displayed on Mission Cards and approval cards.
+Strategic direction for the product.
 
-### Cost Tracking
-Per-tool-call cost estimation with daily/weekly aggregation and burn rate calculation. Displayed on instance cards and mission views.
-
-### Audit Trail Export
-JSON and CSV export with date range filtering and summary statistics. Cryptographic hash chain integrity verification.
-
-### Mission Cards & Pipeline View
-Dashboard shows each instance as a Mission Card with current pipeline stage (Planning → Executing → Approval → Done), trust badge, cost estimate, and recent action summary.
-
-### Webhook Notifications
-Configurable outbound webhooks for approval events, critical flags, and trust alerts. CRUD management with test endpoint.
-
-### Multi-Instance Deployment
-Deploy, configure, start, stop, restart, and delete agent instances from the dashboard. Each instance gets isolated Docker container with own API keys and config.
-
-### Cryptographic Receipt Chain
-Every action produces an immutable receipt with ed25519 signature, SHA-256 hash chain, and RFC 8785 canonical JSON serialization.
-
----
-
-## Partially Built (Code Exists, Not Fully Integrated)
-
-### Receipt Vault & Verification UI
-**Status:** Backend complete, frontend scaffolded
-Browse and verify receipts from the dashboard. Independent tamper-proof verification.
-**What's left:** Polish search/filter UI, integrate verification into approval flow.
-
-### Session Playback
-**Status:** Backend API complete (`/api/sessions/:id/playback`)
-Ordered timeline of all events in a session with optional AI summary.
-**What's left:** Dedicated frontend page with visual timeline.
-
-### Contribution Analytics
-**Status:** Backend complete, feeds into Mission Cards
-Per-agent metrics: files created/edited, commands run, PRs detected, approval efficiency.
-**What's left:** Dedicated analytics page with charts and trends.
-
-### Task Timeline
-**Status:** Backend complete, frontend scaffolded
-Step-by-step visual timeline of every tool call within a task.
-**What's left:** Real-time updates via SSE, timeline diff view.
-
-### Task Scoring
-**Status:** Backend complete, frontend scaffolded
-Label task outcomes (SUCCESS/FAIL/NEEDS_HUMAN). Feeds into policy suggestions.
-**What's left:** Scoring input forms, reliability dashboards.
-
----
-
-## Planned (Not Yet Built)
-
-### Slack / Teams Integration
-Approval notifications and actions directly from Slack or Microsoft Teams. Approve/deny agent actions without opening the dashboard.
-
-### MCP (Model Context Protocol) Proxy
-Universal adapter for any MCP-compatible agent (Claude Desktop, Cursor, Windsurf). Wooblay sits as a transparent MCP proxy — zero agent modification required.
-
-### Custom Adapter SDK
-TypeScript SDK for building Wooblay adapters for any agent framework. Currently supports OpenClaw natively; SDK will enable LangChain, CrewAI, AutoGPT integration.
-
-### Context Engine
-Shared memory layer across agents — agents read/write structured context that persists across sessions and is visible in the dashboard.
-
-### Agent Orchestration Graphs
-Visual DAG editor for multi-agent workflows. Chain agents with conditional routing, parallel execution, and rollback triggers.
-
-### Rollback & Checkpoints
-Filesystem snapshots before destructive actions. One-click rollback to any checkpoint in the receipt chain.
-
-### Cost Budgets & Alerts
-Per-agent and per-task budget limits. Auto-deny actions when budget exceeded. Alert thresholds.
-
-### Compliance Reporting
-Auto-generated SOC 2, GDPR, HIPAA reports from the receipt chain. PDF export with cryptographic attestation.
-
-### Multi-Tenant SaaS Mode
-Full multi-tenant with per-tenant isolation, usage-based billing, and admin portal.
-
-### Cross-Customer Threat Intelligence
-Anonymized pattern sharing across deployments. "Agents across our platform are increasingly attempting X."
-
-### Agent Performance Benchmarking
-Compare agent effectiveness across tasks, models, and configurations.
+- **ML-driven risk classification** — trained on the global receipt corpus for improved accuracy over static regex
+- **Cross-org threat intelligence** — anonymized pattern sharing across customers
+- **Automated compliance reports** — SOC 2, HIPAA, GDPR-ready exports with receipt chain evidence
+- **Agent marketplace** — publish and discover pre-configured agent roles with policy templates
+- **Open-source receipt specification** — push for industry standard for agent auditability
+- **SSO/SAML** — enterprise SSO via SAML 2.0 / OIDC in addition to Clerk
+- **Multi-region deployment** — deploy Gate + agent workspaces across regions for latency and data residency
+- **Custom simulation strategies** — user-defined simulation scripts (test suites, migration safety checks)
+- **Federated agent networks** — cross-org agent collaboration with trust boundaries
+- **Desktop app** — native application for non-developer onboarding

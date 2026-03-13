@@ -67,9 +67,9 @@ Wooblay doesn't just monitor — it deploys and manages agent runtimes. This cre
 
 Once an enterprise runs their agents through Wooblay, migration cost is high.
 
-### 4. Policy Engine with Learning (Future Moat)
+### 4. Policy Engine with Learning
 
-The policy engine starts with static rules but evolves:
+The policy engine starts with static rules and evolves:
 - Auto-suggest policy changes based on approval patterns
 - ML-driven risk classification trained on the receipt corpus
 - Cross-customer threat intelligence (anonymized) — "agents across our platform are increasingly attempting X"
@@ -86,7 +86,7 @@ The policy engine starts with static rules but evolves:
 
 **Wooblay's unique position**: The only product that combines execution-layer gating + human approval workflows + cryptographic audit trail + managed agent deployment.
 
-## Product Tiers (Planned)
+## Product Tiers
 
 ### Free Tier
 - 1 agent instance
@@ -97,9 +97,10 @@ The policy engine starts with static rules but evolves:
 ### Pro ($99/month per instance)
 - Unlimited actions
 - Custom policy rules
-- Telegram + Slack integrations
+- Telegram + Slack + WhatsApp notifications with one-tap approval
 - 90-day receipt retention
 - Priority approval routing
+- Role-based enforcement
 
 ### Enterprise (Custom pricing)
 - Dedicated infrastructure (per-customer EC2/VPC)
@@ -110,44 +111,43 @@ The policy engine starts with static rules but evolves:
 - SLA guarantees
 - On-premise deployment option
 
-## Long-Term Vision
+## Vision
 
 ### Phase 1: Agent Governance (Shipped)
-- **Sensor-first operations** — Connect sensors (e.g. GitHub); they produce Operations. AI router assigns to the right agent; approve or assign manually. Operations and Sensors pages.
-- Deploy and supervise OpenClaw agents from the dashboard
-- Approve/deny actions with human-readable descriptions
-- Cryptographic receipt trail with hash chain integrity verification
-- Policy engine with presets (Balanced/Strict/Permissive) and risk classification
-- AI supervisor: threat detection, behavioral analysis, contribution assessment (OpenAI)
+- Three-layer security moat: policy gate → simulation → secure execution in ephemeral containers
+- MCP proxy: any agent (Cursor, Claude, ChatGPT, custom) connects via SSE
+- Envelope-encrypted credential vault (AES-256-GCM, KMS-backed)
+- Ed25519-signed, hash-chained receipt chain with integrity verification
+- Policy engine with presets, glob matching, category filters, AI risk classification, AI optimization
+- Human-in-the-loop approvals with multi-channel notifications (Telegram, Slack, WhatsApp, Email)
+- Role-based approval enforcement with atomic resolution
+- Kill switch for org-wide agent pause
+- Anomaly detection: velocity spikes, evasion patterns, privilege escalation
 - Agent trust scoring (0-100) with trend indicators
 - Cost tracking per agent with daily/weekly summaries
-- Activity feed with rule-based and AI-powered flag detection
 - Audit trail export (JSON/CSV) with chain integrity verification
-- Mission Cards with pipeline view for agent observability
-- Webhook notifications for approvals, flags, and trust alerts
+- CLI setup: `npx @wooblaymcp/cli setup` auto-configures all detected agents
+- Gateway API with OpenAPI spec for GPT Actions, Claude tools, programmatic access
+- Sensor-driven operations: GitHub webhooks → AI routing → agent assignment
 - Multi-instance deployment with per-agent configuration
+- Contribution tracking: org-wide metrics by agent, user, tool, outcome, cost
 
-### Phase 2: Universal Agent Gateway (6 months)
-- Adapters for every major agent framework (LangChain, CrewAI, AutoGen, custom)
-- MCP (Model Context Protocol) server for Claude Desktop / Cursor / Windsurf
-- SDK for building custom agent integrations
-- Webhook-based approval routing (Slack, Teams, PagerDuty)
+### Phase 2: Universal Agent Gateway (Next)
+- Additional runtime adapters (LangChain, CrewAI, AutoGen)
+- Scoped credentials: just-in-time token minting (AWS STS, GitHub App, GCP short-lived tokens)
+- Cross-agent awareness: action ordering, conflict prevention
+- Generic webhook sensing (Slack, Jira, PagerDuty, custom HTTP)
+- Stripe billing integration with usage-based metering
 
-### Phase 3: Intelligence Layer (12 months)
-- AI-powered audit analysis — automatically flag anomalous patterns
+### Phase 3: Intelligence Layer (Future)
+- ML-driven risk classification trained on the global receipt corpus
 - Cross-agent orchestration governance — when Agent A tells Agent B to act
-- Predictive risk scoring trained on the global receipt corpus
-- Automated compliance report generation
+- Automated compliance report generation (SOC 2, HIPAA, GDPR)
 - Agent performance benchmarking across customers (anonymized)
-
-### Phase 4: Industry Standard (18+ months)
-- Open-source the receipt format specification
-- Push for adoption as an industry standard for agent auditability
-- Certification program — "Wooblay Certified" for agent frameworks
 - Marketplace for policy templates and adapters
-- Government and defense contracts (FedRAMP)
+- Open-source receipt format specification
 
-## Key Metrics to Track
+## Key Metrics
 
 | Metric | Why It Matters |
 |--------|---------------|
@@ -161,7 +161,7 @@ The policy engine starts with static rules but evolves:
 ## Why This Wins
 
 1. **Regulatory tailwind** — Compliance requirements for AI are only increasing. Wooblay becomes mandatory infrastructure.
-2. **Developer-friendly** — One plugin, one command, agents are supervised. No architectural changes needed.
+2. **Developer-friendly** — One command, agents are supervised. No architectural changes needed.
 3. **Sticky by design** — Once the receipt chain is your audit trail, you can't remove it without losing compliance.
 4. **Network effects** — More customers = better threat intelligence, better policy templates, better risk models.
 5. **Expansion revenue** — Each customer deploys more agents over time. Usage grows with AI adoption.

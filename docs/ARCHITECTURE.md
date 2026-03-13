@@ -108,7 +108,7 @@ The core innovation. Every credentialed agent action passes through three sequen
 
 - **Action registry** (`engine/action-registry.ts`) — Maps structured action IDs to deterministic `ExecutionSpec` objects. Includes validated shortcuts (e.g. `git:push`, `github:pr:create`, `aws:s3:cp`) AND a generic `exec:run` passthrough for any command.
 - **`exec:run`** — The agent runs ANY command in a secure ephemeral container with provider credentials + exec_only secrets. Supports custom Docker image, timeout, and provider selection. Example: `{ action: "exec:run", params: { command: "gcloud logging read ...", provider: "gcp", image: "google/cloud-sdk:slim" } }`. Still goes through the full three-layer moat.
-- **`structured_action` tool** (`packages/adapters/openclaw/plugin/index.ts`) — Agents declare what they want; Wooblay decides how to do it safely. The tool calls `POST /api/tool/structured-execute` which routes through scope check, simulation, and ephemeral execution.
+- **`structured_action` tool** (`@wooblay/openclaw-adapter` — separate repo) — Agents declare what they want; Wooblay decides how to do it safely. The tool calls `POST /api/tool/structured-execute` which routes through scope check, simulation, and ephemeral execution.
 - **`list_secrets` tool** — Agent discovers available secrets (names + modes). Agent-accessible secrets are in env; exec_only secrets require `structured_action`/`exec:run`.
 - **`gated_web_fetch` with headers** — Agents can pass custom HTTP headers (e.g. Authorization) for API testing. Supports `$ENV_VAR` resolution in header values.
 
@@ -296,32 +296,7 @@ apps/gate/src/
 
 ## Roadmap
 
-### Near-Term (Next 3 Months)
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Generic webhook sensing** | Accept events from any source (Slack, Jira, PagerDuty, custom HTTP) — not just GitHub. Connection-level webhook URL + configurable event parser. | Planned |
-| **Redis-backed rate limiting** | Replace in-memory rate limiter with Redis for horizontal scaling across multiple Gate instances. | Planned |
-| **Slack/Teams approval channel** | Route approval requests to Slack or Teams channels; approve/deny via reactions or buttons. | Planned |
-| **Terraform/IaC provider support** | Structured actions for `terraform plan/apply`, Pulumi, CloudFormation. Provider credentials via Connections. | Planned |
-
-### Mid-Term (3–6 Months)
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Additional runtime adapters** | Support for agent runtimes beyond OpenClaw (e.g. CrewAI, AutoGen, LangGraph) via adapter interface. | Planned |
-| **Pricing & billing UI** | Usage-based billing dashboard: compute minutes, API calls, storage. Stripe integration. | Planned |
-| **SSO/SAML for enterprise** | Enterprise SSO via SAML 2.0 / OIDC in addition to Clerk social/email auth. | Planned |
-| **Multi-region deployment** | Deploy Gate + agent workspaces across regions for latency and data residency. | Planned |
-
-### Long-Term (6–12 Months)
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Agent marketplace** | Publish and discover pre-configured agent roles with policy templates and connection presets. | Planned |
-| **Custom simulation strategies** | User-defined simulation scripts (e.g. run test suite, check migration safety) as a moat layer. | Planned |
-| **Compliance packages** | SOC2/HIPAA-ready policy templates, audit export formats, retention policies. | Planned |
-| **Federated agent networks** | Cross-org agent collaboration with trust boundaries and credential federation. | Planned |
+See [ROADMAP.md](./ROADMAP.md) for the full shipped/next/future breakdown.
 
 ---
 

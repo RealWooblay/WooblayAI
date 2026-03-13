@@ -1,73 +1,54 @@
-# React + TypeScript + Vite
+# Wooblay Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React-based dashboard for managing AI agent governance — approvals, policies, audit, connections, and real-time monitoring.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- React 19 with TypeScript
+- Vite 6 (dev server and build)
+- Tailwind CSS v4
+- TanStack Query v5 (data fetching and caching)
+- Clerk (authentication and org management)
+- React Router (client-side routing)
 
-## React Compiler
+## Pages
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/` | Command Center | Live overview: pending actions, cost tracking, agent activity, setup checklist |
+| `/approvals` | Approvals | Pending approval queue with keyboard shortcuts (j/k/a/d), role enforcement |
+| `/policies` | Policies | Priority-ordered rules, presets, category filters, AI optimization |
+| `/audit` | Audit | Full activity log with search, risk/status filters, receipt verification, export |
+| `/setup` | Gateway | Agent configuration, MCP server management, CLI quickstart |
+| `/credentials` | Credentials | Connection management, scope boundaries, secret storage |
+| `/sensors` | Sensors | Webhook sensor configuration and status |
+| `/operations` | Operations | Event-driven operation queue with AI routing |
+| `/insights` | Insights | Cost breakdowns, action volume, policy hit rates |
+| `/notifications` | Notifications | Multi-channel notification settings (Telegram, Slack, WhatsApp, Email) |
+| `/usage` | Usage | Contribution tracking by agent, user, tool, outcome, cost |
 
-## Expanding the ESLint configuration
+## Development
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+```bash
+# From repo root
+pnpm --filter @wooblay/ui dev
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Runs on http://localhost:5173
+# Proxies API requests to Gate at http://localhost:4800
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Environment Variables
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_CLERK_PUBLISHABLE_KEY` | For auth | Clerk frontend publishable key |
+| `VITE_API_URL` | No | Gate API base URL (empty = same origin) |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Build
+
+```bash
+pnpm --filter @wooblay/ui build
+# Output: apps/ui/dist/
 ```
+
+The production build is embedded into the Gate Docker image and served as static files.
